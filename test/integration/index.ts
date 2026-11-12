@@ -57,7 +57,7 @@ export type Gesture =
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string }[];
-  overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number;
+  overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
 }
 
@@ -119,6 +119,9 @@ export async function run(): Promise<void> {
     assert.strictEqual(m.overflows, 0, `${file}: text overflows its box`);
     assert.strictEqual(m.outsideParent, 0, `${file}: no child is drawn outside its parent`);
     assert.strictEqual(m.labelsOnOwnEdge, 0, `${file}: no edge label sits on its own edge`);
+    assert.strictEqual(m.labelsOverNodes, 0, `${file}: no edge label touches a node`);
+    assert.strictEqual(m.labelsOverLabels, 0, `${file}: no edge labels overlap`);
+    assert.strictEqual(m.edgeOverlaps, 0, `${file}: no edge runs on top of another`);
     const png = Buffer.from(await api.diagram.png(uri), "base64");
     assert.deepStrictEqual([...png.subarray(0, 8)], PNG_SIGNATURE, `${file}: PNG signature`);
     assert.ok(png.length > 2048, `${file}: PNG is ${png.length} bytes`);

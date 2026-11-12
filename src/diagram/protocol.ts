@@ -96,6 +96,12 @@ export interface DiagramMetrics {
   labelsOnOwnEdge: number;
   /** Ports whose centre is more than 2 px from their owner's border. */
   portsOffBorder: number;
+  /** Edge labels intersecting any node box grown by 2 px (containers that hold the label excepted). */
+  labelsOverNodes: number;
+  /** Pairs of intersecting edge labels. */
+  labelsOverLabels: number;
+  /** Pairs of segments of different edges that are collinear and overlap by more than 4 px. */
+  edgeOverlaps: number;
   selected: string[];
   /** Labels of the open context menu's items (empty when none is open). */
   menu: string[];

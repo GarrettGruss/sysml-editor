@@ -41,6 +41,21 @@ Each write tool call is one edit, applied without an approval prompt:
 
 The result of each write says how it was applied (`applied`: `editor`, `file` or `none`) and includes the diagram as it is now.
 
+### Paths, symlinks and excluded files
+
+Tool inputs are treated as untrusted. Every diagram path is checked before any read or write:
+
+- It must lie inside a workspace folder by its **real path**: the real path of the target (or of its deepest existing parent
+  folder, for a new file) must be inside the real path of a workspace folder. A symbolic link that points outside the workspace
+  is refused, whether it is a folder on the way or the file itself. Links that stay inside the workspace work.
+- A **dangling symbolic link** is never written through: for `sysml_create_diagram` any existing entry at the target name,
+  a dangling link included, counts as taken.
+- Paths matched by `sysml.exclude` or `files.exclude` (the same rule the diagram file index uses) are refused with an error
+  for read, edit, create and layout, and do not appear in `sysml_list_diagrams`.
+- A closed diagram is re-checked just before it is written. If the file changed on disk since it was read, the call fails with
+  "the diagram changed on disk; read it again" and nothing is written. If an editor opened the diagram in the meantime,
+  the edit is applied to the open document instead.
+
 ### Untrusted workspaces
 
 In an untrusted workspace (`vscode.workspace.isTrusted` is false) the four write tools return an error and change nothing.
@@ -56,6 +71,10 @@ panel titled "SysML diagram (rendering)" beside the active editor **without taki
 panel. The active editor, its tab and the focus stay as they were, and no tab is left open, but the panel is briefly visible
 (and when there is no editor group beside the current one, a group appears and disappears again). If rendering fails or takes
 longer than 20 seconds, the call still succeeds: the JSON is returned with `image: { available: false, reason }`.
+
+Limits: temporary render panels are used one at a time, and at most 8 requests may wait; further requests get
+`image: { available: false, reason: "too many pending image requests" }`. An image larger than 1 MB is exported again at
+half the width (repeatedly, down to 400 px); if it still exceeds 1 MB the reason is `"image too large"`.
 
 ## Channels
 
