@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { antlrDocumentParser } from "./antlr-builder.js";
+import { antlrDocumentParser } from "./antlr-parser.js";
 import { processDocComment, quoteName, splitQualified, unquoteName } from "./names.js";
 import type { Element } from "./types.js";
 

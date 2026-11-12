@@ -98,10 +98,47 @@ export interface ModelSyntaxError {
 export interface ParsedDocument {
   model: DocumentModel;
   errors: ModelSyntaxError[];
+  /**
+   * Only with `fastOnly`: the fast path failed, `errors` holds one provisional error and `model`
+   * is meaningless; the precise result must come from a `DetailsProvider`.
+   */
+  detailsPending?: boolean;
+}
+
+export interface DocumentParserOptions {
+  /** Do only the cheap attempt; may answer `detailsPending` instead of a precise result. */
+  fastOnly?: boolean;
+  /** With `fastOnly`: also try full-LL prediction on the fast path regardless of text length. */
+  fullContextRetry?: boolean;
 }
 
 /** The seam that lets the parser be replaced. */
-export type DocumentParser = (uri: string, text: string) => ParsedDocument;
+export type DocumentParser = (uri: string, text: string, opts?: DocumentParserOptions) => ParsedDocument;
+
+export interface DetailsRequest {
+  uri: string;
+  /** Monotonically increasing per URI; replies for older versions are ignored. */
+  version: number;
+  text: string;
+}
+
+export interface DetailsReply {
+  uri: string;
+  version: number;
+  /** Precise syntax errors (0-based); empty when the text is valid. */
+  errors: ModelSyntaxError[];
+  /** The document model, present when the text turned out to be valid. */
+  model?: DocumentModel;
+}
+
+/**
+ * Produces precise parse results for texts that failed the fast path, typically off the main
+ * thread. `request` resolves with the reply, or `undefined` when the request was superseded by a
+ * newer version of the same URI or the provider is unavailable.
+ */
+export interface DetailsProvider {
+  request(req: DetailsRequest): Promise<DetailsReply | undefined>;
+}
 
 export interface DocumentState {
   readonly uri: string;
@@ -114,6 +151,8 @@ export interface DocumentState {
   readonly stale: boolean;
   /** False when `model` is the empty placeholder because no clean parse has happened. */
   readonly everParsedCleanly: boolean;
+  /** True while `errors` is a provisional fast-path error and precise details are being computed. */
+  readonly detailsPending: boolean;
 }
 
 export function emptyModel(uri: string): DocumentModel {

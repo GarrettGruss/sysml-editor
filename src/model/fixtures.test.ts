@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { antlrDocumentParser, buildDocumentModel } from "./antlr-builder.js";
+import { buildDocumentModel } from "./antlr-builder.js";
+import { antlrDocumentParser } from "./antlr-parser.js";
 import { unquoteName } from "./names.js";
 import { parse } from "../parser/parse.js";
 import type { Element } from "./types.js";

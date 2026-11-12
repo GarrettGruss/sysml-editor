@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import * as vscode from "vscode";
 import { ModelIndex, loadLibraryChunked } from "../model/index.js";
 import { inBatches, yieldToEventLoop } from "./chunked.js";
+import { ParseWorkerClient } from "./parse-worker-client.js";
 import { makeIndexFilter } from "./exclude.js";
 import { ScanTracker } from "./scan-tracker.js";
 import { uriKey } from "./uri-key.js";
@@ -22,8 +23,13 @@ export function isSysmlUri(uri: vscode.Uri): boolean {
   return uri.scheme === "file" && uri.path.toLowerCase().endsWith(".sysml");
 }
 
+/** Delay after activation before the parse worker starts (and warms itself). */
+const WORKER_START_MS = 2000;
+
 export class WorkspaceModel implements vscode.Disposable {
-  readonly index = new ModelIndex();
+  readonly index: ModelIndex;
+  /** Computes precise syntax errors off the main thread; undefined if the worker script is missing. */
+  private readonly worker: ParseWorkerClient | undefined;
   /** Resolves when the library and the initial workspace scan are loaded; rejects if loading fails. */
   readonly ready: Promise<void>;
   private readonly subs: vscode.Disposable[] = [];
@@ -34,6 +40,16 @@ export class WorkspaceModel implements vscode.Disposable {
   private disposed = false;
 
   constructor(extensionPath: string, private readonly log: (msg: string) => void = () => {}) {
+    // dist/parse-worker.js sits next to the bundled extension (dist/extension.js).
+    const workerPath = path.join(__dirname, "parse-worker.js");
+    if (existsSync(workerPath)) {
+      this.worker = new ParseWorkerClient({ workerPath, libraryDir: path.join(extensionPath, "dist", "sysml.library"), log });
+      const t = setTimeout(() => this.worker?.start(), WORKER_START_MS);
+      this.subs.push({ dispose: () => clearTimeout(t) }, { dispose: () => this.worker?.dispose() });
+    } else {
+      log(`parse worker not found at ${workerPath}; syntax errors are computed on the main thread`);
+    }
+    this.index = new ModelIndex(undefined, { details: this.worker });
     this.subs.push(
       vscode.workspace.onDidOpenTextDocument((d) => this.openDoc(d)),
       vscode.workspace.onDidChangeTextDocument((e) => this.schedule(e.document)),

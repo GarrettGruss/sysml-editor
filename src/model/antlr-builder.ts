@@ -8,14 +8,14 @@
  * table where the keyword is not a direct child or several spellings share one kind.
  */
 import { ErrorNode, ParserRuleContext, TerminalNode, Token } from "antlr4ng";
-import { parse } from "../parser/parse.js";
+import type { ParseResult, SyntaxErrorInfo } from "../parser/parse-core.js";
 import { SysMLv2Parser } from "../parser/generated/SysMLv2Parser.js";
 import { processDocComment, quoteName, unquoteName } from "./names.js";
 import type {
   DocumentModel,
-  DocumentParser,
   Element,
   ImportInfo,
+  ModelSyntaxError,
   ParsedDocument,
   SourcePosition,
   SourceRange,
@@ -606,10 +606,14 @@ export function buildDocumentModel(uri: string, text: string, tree: ParserRuleCo
   return { uri, roots: b.roots as unknown as Element[] };
 }
 
-/** The default DocumentParser, backed by the ANTLR parser. */
-export const antlrDocumentParser: DocumentParser = (uri, text): ParsedDocument => {
-  const r = parse(text);
+/** Map ANTLR error positions (1-based line, code point column) to model errors (0-based, UTF-16). */
+export function mapSyntaxErrors(text: string, errors: readonly SyntaxErrorInfo[]): ModelSyntaxError[] {
+  if (errors.length === 0) return [];
   const map = new SourceMap(text);
-  const errors = r.errors.map((e) => ({ ...map.errorPos(text, e.line, e.column), message: e.message }));
-  return { model: buildDocumentModel(uri, text, r.tree), errors };
-};
+  return errors.map((e) => ({ ...map.errorPos(text, e.line, e.column), message: e.message }));
+}
+
+/** The document (model and mapped errors) for a finished parse. */
+export function documentFromParse(uri: string, text: string, r: ParseResult): ParsedDocument {
+  return { model: buildDocumentModel(uri, text, r.tree), errors: mapSyntaxErrors(text, r.errors) };
+}

@@ -1,103 +1,45 @@
-import {
-  BailErrorStrategy,
-  BaseErrorListener,
-  DefaultErrorStrategy,
-  ParseCancellationException,
-  PredictionMode,
-  CharStream,
-  CommonTokenStream,
-  type ParserRuleContext,
-  type RecognitionException,
-  type Recognizer,
-  type Token,
-} from "antlr4ng";
-import { SysMLv2Lexer } from "./generated/SysMLv2Lexer.js";
-import { SysMLv2Parser } from "./generated/SysMLv2Parser.js";
-import { isSnapshotActive, loadSnapshot, purgeSnapshotDfas, type DfaSnapshot } from "./dfa-snapshot.js";
+import { loadSnapshot, type DfaSnapshot } from "./dfa-snapshot.js";
 import snapshotData from "./dfa-snapshot.json";
+import { fastParse, newSim, twoStage, type FastResult, type ParseResult, type Sim } from "./parse-core.js";
 
-// Pre-seed the shared prediction DFAs so the first parse is not a ~10 s cold start (see
-// dfa-snapshot.ts). Set SYSML_DFA_SNAPSHOT=off to measure or regenerate without it.
+// Pre-seed the shared (static) prediction DFAs so the first parse is not a ~10 s cold start (see
+// dfa-snapshot.ts). Set SYSML_DFA_SNAPSHOT=off to measure or regenerate without it. The parse
+// worker does not import this module, so its DFAs are built normally.
 if (process.env["SYSML_DFA_SNAPSHOT"] !== "off") loadSnapshot(snapshotData as DfaSnapshot);
 
-/**
- * A syntax error. `line` is 1-based and `column` is 0-based (antlr4ng convention), unlike VS Code
- * positions, which are 0-based for both.
- */
-export interface SyntaxErrorInfo {
-  line: number;
-  column: number;
-  message: string;
-}
+export type { SyntaxErrorInfo, ParseResult, FastResult, Token } from "./parse-core.js";
 
-export interface ParseResult {
-  tree: ParserRuleContext;
-  tokens: CommonTokenStream;
-  parser: SysMLv2Parser;
-  errors: SyntaxErrorInfo[];
-}
-
-class Collector extends BaseErrorListener {
-  constructor(private readonly out: SyntaxErrorInfo[]) {
-    super();
-  }
-  override syntaxError(
-    _r: Recognizer<any>,
-    _t: unknown,
-    line: number,
-    column: number,
-    message: string,
-    _e: RecognitionException | null,
-  ): void {
-    this.out.push({ line, column, message });
-  }
-}
-
-function run(text: string, fast: boolean): ParseResult {
-  const errors: SyntaxErrorInfo[] = [];
-  const listener = new Collector(errors);
-  const lexer = new SysMLv2Lexer(CharStream.fromString(text));
-  lexer.removeErrorListeners();
-  lexer.addErrorListener(listener);
-  const tokens = new CommonTokenStream(lexer);
-  const parser = new SysMLv2Parser(tokens);
-  parser.removeErrorListeners();
-  if (fast) {
-    parser.interpreter.predictionMode = PredictionMode.SLL;
-    parser.errorHandler = new BailErrorStrategy();
-  } else {
-    parser.addErrorListener(listener);
-    parser.errorHandler = new DefaultErrorStrategy();
-  }
-  const tree = parser.rootNamespace();
-  tokens.fill();
-  return { tree, tokens, parser, errors };
-}
-
-function twoStage(text: string): ParseResult {
-  try {
-    const r = run(text, true);
-    if (r.errors.length === 0) return r;
-  } catch (e) {
-    if (!(e instanceof ParseCancellationException)) throw e;
-  }
-  return run(text, false);
-}
+/** Counters for tests and the benchmark. */
+export const parseStats = { fastPath: 0, fallback: 0 };
 
 /**
- * Parse SysML v2 text. Tokens (including hidden channel) are all fetched.
- * Two-stage: fast SLL prediction that bails on the first error, then, only on failure,
- * a full-LL reparse with normal error reporting and recovery. If the DFA snapshot is active
- * and the result has errors, the snapshot may be the cause (it cannot extend itself), so the
- * DFAs are purged once and the text is parsed again from the ATN.
+ * The fast path: SLL with bail on the snapshot-backed static DFAs; then, if `ll` and the failure
+ * was not a lexer error, full LL with bail on the same DFAs (some valid files need full-context
+ * prediction, which SLL cannot do; the LL attempt costs about three times the SLL one). Restored snapshot states
+ * cannot grow, so a failure here is either a real syntax error or (rarely) a valid construct the
+ * snapshot never saw; the precise answer needs a parser with a normally built cache, which in
+ * the extension runs in the parse worker (see `src/parse-worker.ts`).
  */
-export function parse(text: string): ParseResult {
-  const r = twoStage(text);
-  if (r.errors.length > 0 && isSnapshotActive()) {
-    purgeSnapshotDfas();
-    return twoStage(text);
-  }
+export function tryFastParse(text: string, opts: { ll?: boolean } = {}): FastResult {
+  let r = fastParse(text);
+  if (!r.ok && !r.lexer && opts.ll) r = fastParse(text, undefined, true);
+  if (r.ok) parseStats.fastPath++;
   return r;
 }
 
-export type { Token };
+let sameThreadSim: Sim | undefined;
+
+/**
+ * Parse SysML v2 text synchronously with full error reporting. Tokens (including hidden channel)
+ * are all fetched. Tries the fast path first; if it fails, parses again on this thread with a
+ * separate, normally built prediction cache that grows with use, so results equal an unseeded
+ * parse. That second step can take seconds while the cache is cold, so the extension does not
+ * use it (the parse worker does this step instead); it serves tests and scripts.
+ */
+export function parse(text: string): ParseResult {
+  const r = tryFastParse(text, { ll: true });
+  if (r.ok) return r.result;
+  parseStats.fallback++;
+  sameThreadSim ??= newSim();
+  return twoStage(text, sameThreadSim);
+}

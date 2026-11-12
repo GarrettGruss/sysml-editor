@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "../parser/parse.js";
-import { antlrDocumentParser } from "./antlr-builder.js";
+import { antlrDocumentParser } from "./antlr-parser.js";
 import { ModelIndex } from "./index.js";
 import { SYSML_KEYWORDS } from "./keywords.js";
 import { loadLibrary } from "./library.js";

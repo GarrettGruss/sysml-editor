@@ -7,7 +7,7 @@ import * as vscode from "vscode";
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
 interface ModelNode { id: string; uri: string }
 interface TestApi {
-  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[] } | undefined } };
+  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined } };
   provider: {
     getChildren(n?: ModelNode): ModelNode[];
     getTreeItem(n: ModelNode): vscode.TreeItem;
@@ -37,6 +37,16 @@ async function waitFor(cond: () => boolean, ms: number, what: string): Promise<v
 export async function run(): Promise<void> {
   const ext = vscode.extensions.all.find((e) => e.packageJSON?.name === "sysml-editor");
   assert.ok(ext, "extension is installed in the development host");
+  const norm = (p: string) => path.resolve(p).toLowerCase();
+  const insideDir = process.env.SYSML_EXPECT_EXTENSIONS_DIR;
+  const repoRoot = process.env.SYSML_EXPECT_EXTENSION_PATH;
+  if (insideDir) {
+    // Run against the installed .vsix: must never silently test the working tree.
+    assert.ok((norm(ext.extensionPath) + path.sep).startsWith(norm(insideDir) + path.sep), `extension ${ext.extensionPath} is inside the installed-extensions dir ${insideDir}`);
+  } else {
+    assert.ok(repoRoot, "SYSML_EXPECT_EXTENSION_PATH is set by runTest");
+    assert.strictEqual(norm(ext.extensionPath), norm(repoRoot), "normal run loads the extension from the repository root");
+  }
   const api = (await ext.activate()) as TestApi;
   assert.strictEqual(ext.isActive, true, "extension activated");
   await api.model.ready;
@@ -116,8 +126,12 @@ export async function run(): Promise<void> {
       assert.deepStrictEqual(labels(api.provider.getChildren(root)), kidsBefore);
       const item = api.provider.getTreeItem(root);
       assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "error");
-      assert.match(String(item.tooltip), /line \d+, column \d+/);
       assert.match(String(item.description), /syntax error/);
+      // The first report may be the provisional fast-path error; wait for the parse worker's details.
+      await waitFor(() => ix.getDocument(vehicleUri.toString())?.detailsPending === false, 30000, "error details from the parse worker");
+      const precise = String(api.provider.getTreeItem(rootOf("Vehicle")).tooltip);
+      assert.match(precise, /line 3, column 3: mismatched input 'part'/);
+      assert.doesNotMatch(precise, /details pending/);
       // Undo the broken text so later tests see a clean model.
       const fix = new vscode.WorkspaceEdit();
       fix.delete(vehicleUri, new vscode.Range(1, 0, 2, 0));
@@ -188,6 +202,75 @@ export async function run(): Promise<void> {
       assert.ok(viaLm.includes("UnsavedClutch"), "LM tools see unsaved content");
       assert.ok(viaMcp.text.includes("UnsavedClutch"), "MCP sees unsaved content");
       assert.strictEqual(viaLm, viaMcp.text);
+    }],
+    ["end to end: tree, both tool channels and the document agree through edit, syntax error and fix", async () => {
+      await api.agent.apply();
+      assert.ok(api.agent.mcpEndpoint(), "MCP server is running");
+      const lm = async (name: string, input: object) => {
+        const r = await vscode.lm.invokeTool(name, { toolInvocationToken: undefined, input });
+        return r.content.map((p) => (p as vscode.LanguageModelTextPart).value).join("");
+      };
+      const mcp = async (name: string, input: object) => {
+        const r = await api.agent.testCallToolOverMcp(name, input);
+        assert.strictEqual(r.isError, false, `${name} over MCP: ${r.text}`);
+        return r.text;
+      };
+      const both = async (name: string, input: object) => {
+        const a = await lm(name, input);
+        const b = await mcp(name, input);
+        assert.strictEqual(a, b, `${name}: identical over both channels`);
+        return JSON.parse(a);
+      };
+      const doc = await vscode.workspace.openTextDocument(vehicleUri);
+
+      // (1) the tree as the provider presents it
+      assert.ok(labels(api.provider.getChildren()).includes("Vehicle"));
+      assert.ok(!labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"));
+
+      // (2) an unsaved edit adds a part def
+      const add = new vscode.WorkspaceEdit();
+      add.insert(vehicleUri, new vscode.Position(1, 0), "  part def Trailer;\n");
+      assert.ok(await vscode.workspace.applyEdit(add));
+      assert.ok(doc.isDirty, "edit is unsaved");
+      await waitFor(() => labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"), 2000, "Trailer in the tree");
+
+      // (3) tree, both channels and document text agree
+      const treeJson = await both("sysml_get_element_tree", { root: "Vehicle", depth: 2 });
+      const names = (treeJson.nodes[0].children as { name: string }[]).map((c) => c.name);
+      assert.ok(names.includes("Trailer"), `tool tree has Trailer: ${names}`);
+      assert.deepStrictEqual(
+        names.slice().sort(),
+        labels(api.provider.getChildren(rootOf("Vehicle"))).sort(),
+        "tool tree and view tree list the same children",
+      );
+      const el = (await both("sysml_get_element", { qualifiedName: "Vehicle::Trailer" })).elements[0];
+      assert.strictEqual(el.name, "Trailer");
+      assert.match(String(el.file), /vehicle\.sysml$/);
+      assert.ok(doc.lineAt(el.startLine - 1).text.includes("part def Trailer;"), "element line points at the declaration in the document");
+      assert.ok(doc.getText().includes("part def Trailer;"));
+
+      // (4) a syntax error: validate reports it on both channels, the tree keeps the previous contents
+      const brokenLine = 3; // 1-based line of the text inserted below
+      const bad = new vscode.WorkspaceEdit();
+      bad.insert(vehicleUri, new vscode.Position(brokenLine - 1, 0), "  part def 123;\n");
+      assert.ok(await vscode.workspace.applyEdit(bad));
+      await waitFor(() => (ix.getDocument(vehicleUri.toString())?.errors.length ?? 0) > 0, 2000, "error recorded");
+      const broken = await both("sysml_validate", { file: "vehicle.sysml" });
+      const syntax = (broken.problems as { file: string; line: number; severity: string }[]).filter((p) => p.severity === "error");
+      assert.ok(syntax.length > 0, "validate reports the syntax error");
+      assert.ok(syntax.some((p) => p.line === brokenLine && /vehicle\.sysml$/.test(p.file)), `error on line ${brokenLine}: ${JSON.stringify(syntax)}`);
+      assert.ok(doc.lineAt(brokenLine - 1).text.includes("123"), "the reported line holds the broken text");
+      assert.ok(labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"), "tree keeps the previous contents");
+      const keep = await both("sysml_get_element_tree", { root: "Vehicle", depth: 2 });
+      assert.ok((keep.nodes[0].children as { name: string }[]).some((c) => c.name === "Trailer"), "tool tree keeps the previous contents");
+
+      // (5) fix it: validate is clean for the file
+      const fix = new vscode.WorkspaceEdit();
+      fix.delete(vehicleUri, new vscode.Range(brokenLine - 1, 0, brokenLine, 0));
+      assert.ok(await vscode.workspace.applyEdit(fix));
+      await waitFor(() => (ix.getDocument(vehicleUri.toString())?.errors.length ?? 1) === 0, 2000, "error cleared");
+      const clean = await both("sysml_validate", { file: "vehicle.sysml" });
+      assert.deepStrictEqual(clean.problems, []);
     }],
     ["MCP rejects a wrong token; bridge reports no server for an unknown workspace", async () => {
       const ep = api.agent.mcpEndpoint()!;
