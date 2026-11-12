@@ -49,6 +49,8 @@ export interface RemainingReferences {
   count: number;
   /** A few of them. */
   locations: SourceLocation[];
+  /** Textual mentions of the names outside the element that could not be judged (they may or may not refer to it). */
+  unjudged?: number;
 }
 
 export interface PlanOk {

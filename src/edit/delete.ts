@@ -81,7 +81,7 @@ function namedWithin(el: Element): Element[] {
  */
 export function referencesAfterDelete(index: ModelIndex, el: Element): RemainingReferences {
   const targets = namedWithin(el);
-  if (!targets.length) return { count: 0, locations: [] };
+  if (!targets.length) return { count: 0, locations: [], unjudged: 0 };
   const scan = scanReferences(index, targets, { includeShortNames: true });
   // One reference per declaration part: `P::E::inner` mentions both E and inner but is one reference.
   const seen = new Set<number>();
@@ -91,7 +91,11 @@ export function referencesAfterDelete(index: ModelIndex, el: Element): Remaining
     return true;
   });
   const locations: SourceLocation[] = outside.slice(0, 5).map((r) => ({ uri: r.uri, ...positionOf(index.getDocument(r.uri)!.text, r.tok.start) }));
-  return { count: outside.length, locations };
+  // Mentions of the names that could not be judged (references inside expressions, ...), outside the deleted element.
+  const before = (a: { line: number; column: number }, b: { line: number; column: number }) => a.line < b.line || (a.line === b.line && a.column < b.column);
+  const inside = (l: SourceLocation) => l.uri === el.uri && !before(l, el.range.start) && before(l, el.range.end);
+  const unjudged = scan.unjudged.filter((l) => !inside(l)).length;
+  return { count: outside.length, locations, unjudged };
 }
 
 /**
@@ -106,6 +110,6 @@ export function planDeleteElement(index: ModelIndex, element: Element): PlanResu
   if (!element.owner && element.range.start.offset === element.range.end.offset) return fail("Nothing to delete.");
   const plan: PlanOk = { ok: true, edits: [r.edit], description: `Delete ${describeElement(element)}`, reads: index.uris().filter((u) => !index.isReadOnly(u)) };
   const remaining = referencesAfterDelete(index, element);
-  if (remaining.count > 0) plan.remainingReferences = remaining;
+  if (remaining.count > 0 || (remaining.unjudged ?? 0) > 0) plan.remainingReferences = remaining;
   return validatePlan(index, plan);
 }

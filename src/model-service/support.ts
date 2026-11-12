@@ -1,5 +1,6 @@
 /** Pure helpers for the interactive model edits (inputs, confirmation texts, completion). `vscode`-free. */
 import { referencesAfterDelete } from "../edit/delete.js";
+import { nameClash } from "../edit/insert.js";
 import type { SourceLocation } from "../edit/types.js";
 import { isLibraryUri, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, USAGE_KINDS } from "./kinds.js";
@@ -13,12 +14,13 @@ const LABELS: Record<string, string> = { package: "Package" };
 export const kindLabel = (kind: string): string => LABELS[kind] ?? kind.charAt(0).toUpperCase() + kind.slice(1);
 
 /** Why `name` cannot be used for a new or renamed member of `owner`, or undefined when it is fine. */
-export function nameProblem(name: string, owner: Element | undefined, renaming?: Element): string | undefined {
+export function nameProblem(name: string, owner: Element | undefined, renaming?: Element, index?: ModelIndex): string | undefined {
   if (name.trim() === "") return "Enter a name.";
   if (/[\r\n]/.test(name)) return "The name must be a single line.";
   const taken = owner?.members.find((m) => m !== renaming && m.kind !== "import" && (m.name === name || m.shortName === name));
   if (taken) return `${owner!.name ?? "The owner"} already has a member named '${name}'.`;
-  return undefined;
+  // With the index, a name the owner inherits clashes too (the planner refuses it; the user sees why while typing).
+  return index && owner ? nameClash(index, owner, [name], renaming) : undefined;
 }
 
 export interface DeleteImpact {
@@ -39,15 +41,17 @@ function count(e: Element): number {
 export function deleteImpact(index: ModelIndex, el: Element): DeleteImpact {
   const own = el.members.filter((m) => m.kind !== "import").length ? count(el) : 0;
   let references = 0;
+  let unjudged = 0;
   let locations: SourceLocation[] = [];
   try {
     const r = referencesAfterDelete(index, el);
     references = r.count;
     locations = r.locations;
+    unjudged = r.unjudged ?? 0;
   } catch {
     /* the scan is a hint for the confirmation text only */
   }
-  return { ownedMembers: own, references, unjudged: 0, locations };
+  return { ownedMembers: own, references, unjudged, locations };
 }
 
 /** `file.sysml:12` for a reference location. */
@@ -67,7 +71,7 @@ export function confirmationText(el: Element, impact: DeleteImpact): { message: 
   const bits: string[] = [];
   if (impact.ownedMembers) bits.push(`It owns ${impact.ownedMembers} element${impact.ownedMembers === 1 ? "" : "s"}, which are deleted with it.`);
   if (impact.references) bits.push(`It is referenced in ${impact.references} place${impact.references === 1 ? "" : "s"} elsewhere${impact.locations.length ? ` (${impact.locations.slice(0, 3).map(spot).join(", ")}${impact.references > 3 ? ", ..." : ""})` : ""}; those references are left as they are and will no longer resolve.`);
-  if (impact.unjudged) bits.push(`${impact.unjudged} more mention${impact.unjudged === 1 ? "" : "s"} of the name could not be checked.`);
+  if (impact.unjudged) bits.push(`${impact.unjudged} other mention${impact.unjudged === 1 ? "" : "s"} of ${impact.unjudged === 1 ? "its name or a name inside it" : "these names"} (for example inside expressions) could not be checked, so ${impact.unjudged === 1 ? "it" : "they"} may also stop resolving.`);
   if (!bits.length) bits.push("Nothing else owns or references it.");
   return { message: `Delete ${what} from the model?`, detail: `${bits.join(" ")} The declaration is removed from the .sysml file and saved. Undo restores it.` };
 }

@@ -138,6 +138,7 @@ const deleteElement: ToolDefinition = {
     const r = ok(await ed.service.deleteElement(t));
     return summary(ctx, r, {
       deleted: input.element,
+      ...(r.remainingReferences && (r.remainingReferences.unjudged ?? 0) > 0 ? { remainingMentionsNotChecked: r.remainingReferences.unjudged } : {}),
       ...(r.remainingReferences && r.remainingReferences.count > 0
         ? {
             remainingReferences: r.remainingReferences.count,

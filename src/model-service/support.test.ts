@@ -57,3 +57,42 @@ describe("tree and dialog helpers", () => {
     expect(typeCandidates(index, q("P"), "")).toEqual([]);
   });
 });
+
+describe("input validation with inherited names", () => {
+  const ix = new ModelIndex();
+  ix.setDocument("file:///w/i.sysml", `package I {
+  part def Base { part wheel; }
+  part def Car :> Base { part own; }
+  part c : Car;
+}`);
+  const k = (qn: string) => ix.findByQualifiedName(qn)[0]!;
+  it("reports a name the owner inherits while typing, with the declaring definition", () => {
+    expect(nameProblem("wheel", k("I::Car"), undefined, ix)).toMatch(/already inherited by .*Car.* from .*Base/);
+    expect(nameProblem("wheel", k("I::c"), undefined, ix)).toMatch(/inherited/);
+    expect(nameProblem("spare", k("I::Car"), undefined, ix)).toBeUndefined();
+    // without the index only own members are known (the old behaviour)
+    expect(nameProblem("wheel", k("I::Car"))).toBeUndefined();
+  });
+  it("renaming to an inherited name is reported too", () => {
+    expect(nameProblem("wheel", k("I::Car"), k("I::Car::own"), ix)).toMatch(/inherited/);
+  });
+});
+
+describe("delete confirmation", () => {
+  const dx = new ModelIndex();
+  dx.setDocument("file:///w/d.sysml", `package D {
+  part def Engine { attribute mass : Real; }
+  part car { part e : Engine; attribute total = e.mass + 1; }
+  part other { attribute q = mass; }
+}`);
+  it("states the resolved references (count, first locations) and, separately, how many mentions could not be judged", () => {
+    const el = dx.findByQualifiedName("D::Engine")[0]!;
+    const impact = deleteImpact(dx, el);
+    expect(impact.references).toBeGreaterThan(0);
+    expect(impact.unjudged).toBeGreaterThan(0);
+    const { detail } = confirmationText(el, impact);
+    expect(detail).toMatch(/referenced in \d+ places? elsewhere \(d\.sysml:\d+/);
+    expect(detail).toMatch(/\d+ other mentions? of .*could not be checked/);
+    expect(needsConfirmation({ ownedMembers: 0, references: 0, unjudged: 2, locations: [] })).toBe(true);
+  });
+});

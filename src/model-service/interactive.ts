@@ -24,9 +24,13 @@ export class ModelActions {
       const n = r.skippedDiagrams.length;
       void vscode.window.showWarningMessage(`${what}. ${n} diagram file${n === 1 ? "" : "s"} could not be read and ${n === 1 ? "was" : "were"} not updated; ${n === 1 ? "it" : "they"} may refer to the old name.`);
     }
-    if (r.remainingReferences && r.remainingReferences.count > 0) {
+    if (r.remainingReferences && (r.remainingReferences.count > 0 || (r.remainingReferences.unjudged ?? 0) > 0)) {
       const n = r.remainingReferences.count;
-      void vscode.window.showWarningMessage(`${what}. ${n} reference${n === 1 ? "" : "s"} to it remain elsewhere (${r.remainingReferences.locations.slice(0, 3).map(spot).join(", ")}) and will no longer resolve.`);
+      const u = r.remainingReferences.unjudged ?? 0;
+      const parts: string[] = [];
+      if (n) parts.push(`${n} reference${n === 1 ? "" : "s"} to it remain elsewhere (${r.remainingReferences.locations.slice(0, 3).map(spot).join(", ")}) and will no longer resolve`);
+      if (u) parts.push(`${u} other mention${u === 1 ? "" : "s"} could not be checked`);
+      void vscode.window.showWarningMessage(`${what}. ${parts.join("; ")}.`);
     }
     if (r.unjudged && (r.unjudged.count > 0 || r.unjudged.skippedDocuments.length > 0)) {
       const n = r.unjudged.count;
@@ -58,10 +62,10 @@ export class ModelActions {
     const name = await this.ui().input({
       title: `New ${kindLabel(kind)}`,
       prompt: `Name of the new ${kind} in ${owner.name ?? owner.kind}`,
-      validateInput: (v) => nameProblem(v, owner),
+      validateInput: (v) => nameProblem(v, owner, undefined, this.index),
     });
     if (name === undefined) return undefined;
-    const problem = nameProblem(name, owner);
+    const problem = nameProblem(name, owner, undefined, this.index);
     if (problem) {
       void vscode.window.showWarningMessage(problem);
       return undefined;
@@ -77,7 +81,7 @@ export class ModelActions {
     if (refusal) return this.report(refusal, "");
     const name =
       opts.name ??
-      (await this.ui().input({ title: `Rename ${el.name ?? el.kind}`, prompt: "New name", value: el.name ?? "", valueSelection: [0, (el.name ?? "").length], validateInput: (v) => (v === el.name ? undefined : nameProblem(v, el.owner, el)) }));
+      (await this.ui().input({ title: `Rename ${el.name ?? el.kind}`, prompt: "New name", value: el.name ?? "", valueSelection: [0, (el.name ?? "").length], validateInput: (v) => (v === el.name ? undefined : nameProblem(v, el.owner, el, this.index)) }));
     if (name === undefined || name === el.name) return undefined;
     const r = await this.service.rename(target, name, opts.origin);
     return this.report(r, `Renamed ${el.name ?? el.kind} to ${name}`);
