@@ -42,7 +42,7 @@
       {
         "view": "sysmlModel",
         "contents": "No SysML files were found in this workspace.\n[New SysML File](command:sysml.newFile)",
-        "when": "sysml.workspaceEmpty"
+        "when": "sysml.workspaceEmpty && sysml.treeFilter != 'diagrams'"
       }
     ],
     "commands": [

@@ -671,8 +671,8 @@ export function editingTests(c: Ctx): Test[] {
       async ({ model, diagram }) => {
         const CANDIDATES = ["a", "b", "c", "d", "gamma", "delta"];
         const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
-        const treeParts = (): string[] => {
-          const pkg = elementRoots(api).find((r) => label(r) === "EdE2E");
+        const treeParts = async (): Promise<string[]> => {
+          const pkg = (await elementRoots(api)).find((r) => label(r) === "EdE2E");
           const sys = pkg && api.provider.getChildren(pkg).find((n) => label(n) === "Sys");
           return sys ? api.provider.getChildren(sys).map(label).filter((l) => CANDIDATES.includes(l)).sort() : [];
         };
@@ -692,7 +692,7 @@ export function editingTests(c: Ctx): Test[] {
           await waitFor(() => JSON.stringify(textParts(onDisk(model))) === JSON.stringify(expected), 30000, `${step}: the text on disk has parts ${expected.join(",")}`);
           await waitFor(() => /connect a\.o to b\.i;/.test(onDisk(model)) === connected, 30000, `${step}: the connection is ${connected ? "" : "not "}in the text`);
           await clean(model);
-          await waitFor(() => JSON.stringify(treeParts()) === JSON.stringify(expected), 30000, `${step}: the tree shows ${expected.join(",")} (has ${treeParts().join(",")})`);
+          await waitFor(async () => JSON.stringify(await treeParts()) === JSON.stringify(expected), 30000, `${step}: the tree shows ${expected.join(",")} (has ${(await treeParts()).join(",")})`);
           await waitFor(() => JSON.stringify(mem(diagram).nodes.map((n) => n.ref).filter((r): r is string => !!r && /^EdE2E::Sys::\w+$/.test(r)).map((r) => r.split("::")[2]!).sort()) === JSON.stringify(expected), 30000, `${step}: the open diagram has ${expected.join(",")}`);
           await waitFor(() => mem(diagram).edges.length === (connected ? 1 : 0), 30000, `${step}: the diagram has ${connected ? 1 : 0} edges`);
           await c.eventually(async () => {
@@ -712,8 +712,8 @@ export function editingTests(c: Ctx): Test[] {
         await agree(["a", "b", "c"], true, "add from the diagram");
         // 3. tree: rename c -> gamma
         script.input = "gamma";
-        const sys = () => api.provider.getChildren(elementRoots(api).find((r) => label(r) === "EdE2E")).find((n) => label(n) === "Sys");
-        await vscode.commands.executeCommand("sysml.tree.rename", api.provider.getChildren(sys()).find((n) => label(n) === "c"));
+        const sys = async () => api.provider.getChildren((await elementRoots(api)).find((r) => label(r) === "EdE2E")).find((n) => label(n) === "Sys");
+        await vscode.commands.executeCommand("sysml.tree.rename", api.provider.getChildren(await sys()).find((n) => label(n) === "c"));
         await agree(["a", "b", "gamma"], true, "rename from the tree");
         // 4. agent: add delta (placed on the diagram)
         const created = await viaLm("sysml_create_element", { owner: "EdE2E::Sys", kind: "part", name: "delta", diagram });
@@ -725,7 +725,7 @@ export function editingTests(c: Ctx): Test[] {
         await agree(["a", "b", "delta"], true, "delete from an agent");
         // 6. tree: delete delta (confirmation is scripted)
         script.confirm = true;
-        await vscode.commands.executeCommand("sysml.tree.delete", api.provider.getChildren(sys()).find((n) => label(n) === "delta"));
+        await vscode.commands.executeCommand("sysml.tree.delete", api.provider.getChildren(await sys()).find((n) => label(n) === "delta"));
         await agree(["a", "b"], true, "delete from the tree");
         // 7. diagram: add d, then Delete from Model on it
         script.input = "d";

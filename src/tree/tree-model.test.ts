@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { makeExcludeFilter } from "../workspace/exclude.js";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import {
-  affectedDiagramNodes, affectedFolderNodes, diagramChildren, diagramFolderInfo, diagramKindLabel, diagramNode, folderChain, isExcludedPath, visibleDiagrams, hasDiagramBelow, childNodes, fileChildren, folderChildren, folderInfo, folderParent, folderRoots, hasSysmlBelow, fileNode, folderNode, type FolderEnv, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
+  affectedDiagramNodes, affectedFolderNodes, diagramRoots, diagramChildren, diagramFolderInfo, diagramKindLabel, diagramNode, folderChain, isExcludedPath, visibleDiagrams, hasDiagramBelow, childNodes, fileChildren, folderChildren, folderInfo, folderParent, folderRoots, hasSysmlBelow, fileNode, folderNode, type FolderEnv, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -338,5 +338,13 @@ describe("Diagrams view", () => {
     expect(affectedDiagramNodes(env, diagrams, diagrams, ["file:///w/a.sysmld"])).toEqual([diagramNode("file:///w/a.sysmld")]);
     expect(affectedDiagramNodes(env, diagrams, diagrams, ["file:///w/gone.sysmld"])).toEqual([]);
     expect(folderChain(env, "file:///w/zeta/new.sysmld").map((n) => n.id)).toEqual(["file:///w", "file:///w/zeta"]);
+  });
+});
+
+describe("diagramRoots", () => {
+  const env = { roots: [{ name: "w", uri: "file:///w" }] } as unknown as FolderEnv;
+  it("returns the workspace roots only when a diagram exists", () => {
+    expect(diagramRoots(env, new Set())).toEqual([]);
+    expect(diagramRoots(env, new Set(["file:///w/a.sysmld"])).map((n) => n.uri)).toEqual(["file:///w"]);
   });
 });

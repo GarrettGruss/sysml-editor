@@ -323,6 +323,11 @@ export function folderRoots(index: ModelIndex, env: FolderEnv): ModelNode[] {
   return env.roots.map((r) => folderNode(r.uri));
 }
 
+/** The roots of the Diagrams view: the workspace folders, whenever any diagram exists. */
+export function diagramRoots(env: FolderEnv, diagrams: ReadonlySet<string>): ModelNode[] {
+  return diagrams.size === 0 ? [] : env.roots.map((r) => folderNode(r.uri));
+}
+
 /** The shown entries of a folder: non-excluded sub folders (by name) and the names of files passing `isFile`, sorted. */
 async function shownEntries(env: FolderEnv, node: ModelNode, isFile: (name: string) => boolean): Promise<{ folders: string[]; files: string[] } | undefined> {
   const root = rootOf(env, node.uri);

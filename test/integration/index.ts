@@ -111,9 +111,9 @@ type Test = [name: string, fn: () => Promise<void>];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function waitFor(cond: () => boolean, ms: number, what: string): Promise<void> {
+async function waitFor(cond: () => boolean | Promise<boolean>, ms: number, what: string): Promise<void> {
   const end = performance.now() + ms;
-  while (!cond()) {
+  while (!(await cond())) {
     if (performance.now() > end) assert.fail(`timed out waiting for: ${what}`);
     await sleep(25);
   }
@@ -141,8 +141,8 @@ export async function run(): Promise<void> {
   const ix = api.model.index;
   const labelOf = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
   const labels = (nodes: ModelNode[]) => nodes.map(labelOf);
-  const rootOf = (label: string) => {
-    const n = elementRoots(api).find((r) => labelOf(r) === label);
+  const rootOf = async (label: string) => {
+    const n = (await elementRoots(api)).find((r) => labelOf(r) === label);
     assert.ok(n, `root ${label}`);
     return n;
   };
@@ -351,17 +351,17 @@ export async function run(): Promise<void> {
       assert.strictEqual(defaultFilter, "elements");
     }],
     ["the top-level elements of the workspace files are the packages, not the library", async () => {
-      assert.deepStrictEqual(labels(elementRoots(api)).sort(), ["Delivery", "Design", "Lamp", "Mobility", "Notes", "Ordering", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
+      assert.deepStrictEqual(labels(await elementRoots(api)).sort(), ["Delivery", "Design", "Lamp", "Mobility", "Notes", "Ordering", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
       assert.ok(ix.uris().some((u) => ix.isReadOnly(u)), "library is loaded");
-      const lib = labels(elementRoots(api));
+      const lib = labels(await elementRoots(api));
       assert.ok(!lib.includes("ScalarValues") && !lib.includes("ISQ"), "library packages are not roots");
     }],
     ["files under sysml.exclude are not indexed", async () => {
       assert.ok(!ix.uris().some((u) => u.includes("/ignored/")), "ignored/ is not indexed");
-      assert.ok(!labels(elementRoots(api)).includes("Ignored"));
+      assert.ok(!labels(await elementRoots(api)).includes("Ignored"));
     }],
     ["a file that never parsed cleanly shows an error node", async () => {
-      const node = rootOf("broken.sysml");
+      const node = await rootOf("broken.sysml");
       const item = api.provider.getTreeItem(node);
       assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "error");
       assert.strictEqual(item.description, "syntax error");
@@ -372,7 +372,7 @@ export async function run(): Promise<void> {
       assert.ok(ed.selection.active.line >= 0);
     }],
     ["children of a part def and typed usage presentation", async () => {
-      const vehicle = rootOf("Vehicle");
+      const vehicle = await rootOf("Vehicle");
       assert.deepStrictEqual(labels(api.provider.getChildren(vehicle)), ["Engine", "Car", "Wheel"]);
       const car = api.provider.getChildren(vehicle)[1]!;
       const kids = api.provider.getChildren(car);
@@ -383,40 +383,40 @@ export async function run(): Promise<void> {
       assert.strictEqual(item.id, kids[0]!.id);
       assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "symbol-field");
       assert.strictEqual(api.provider.getTreeItem(kids[1]!).description, ": Wheel [4]");
-      assert.deepStrictEqual(labels(api.provider.getChildren(rootOf("Notes"))), ["Mass"]);
+      assert.deepStrictEqual(labels(api.provider.getChildren(await rootOf("Notes"))), ["Mass"]);
     }],
     ["unsaved edit adds a node within one second and fires a targeted refresh", async () => {
       const doc = await vscode.workspace.openTextDocument(vehicleUri);
       const fired: unknown[] = [];
       const sub = api.provider.onDidChangeTreeData((e) => fired.push(e));
-      const before = api.provider.getChildren(rootOf("Vehicle")).map((n) => n.id);
+      const before = api.provider.getChildren(await rootOf("Vehicle")).map((n) => n.id);
       const edit = new vscode.WorkspaceEdit();
       edit.insert(vehicleUri, new vscode.Position(1, 0), "  part def Gearbox;\n");
       assert.ok(await vscode.workspace.applyEdit(edit));
       assert.ok(doc.isDirty, "edit is unsaved");
       const t0 = performance.now();
-      await waitFor(() => labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Gearbox"), 1000, "Gearbox in tree");
+      await waitFor(async () => labels(api.provider.getChildren(await rootOf("Vehicle"))).includes("Gearbox"), 1000, "Gearbox in tree");
       assert.ok(performance.now() - t0 < 1000);
-      const after = api.provider.getChildren(rootOf("Vehicle")).map((n) => n.id);
+      const after = api.provider.getChildren(await rootOf("Vehicle")).map((n) => n.id);
       for (const id of before) assert.ok(after.includes(id), "existing node ids are stable");
       assert.ok(fired.length > 0, "tree data change fired");
       assert.ok(fired.every((e) => e !== undefined), "targeted, not a full refresh");
       sub.dispose();
     }],
     ["syntax error keeps old children and sets the error state", async () => {
-      const kidsBefore = labels(api.provider.getChildren(rootOf("Vehicle")));
+      const kidsBefore = labels(api.provider.getChildren(await rootOf("Vehicle")));
       const edit = new vscode.WorkspaceEdit();
       edit.insert(vehicleUri, new vscode.Position(1, 0), "  part def Broken\n");
       await vscode.workspace.applyEdit(edit);
       await waitFor(() => (ix.getDocument(vehicleUri.toString())?.errors.length ?? 0) > 0, 1500, "error recorded");
-      const root = rootOf("Vehicle");
+      const root = await rootOf("Vehicle");
       assert.deepStrictEqual(labels(api.provider.getChildren(root)), kidsBefore);
       const item = api.provider.getTreeItem(root);
       assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "error");
       assert.match(String(item.description), /syntax error/);
       // The first report may be the provisional fast-path error; wait for the parse worker's details.
       await waitFor(() => ix.getDocument(vehicleUri.toString())?.detailsPending === false, 30000, "error details from the parse worker");
-      const precise = String(api.provider.getTreeItem(rootOf("Vehicle")).tooltip);
+      const precise = String(api.provider.getTreeItem(await rootOf("Vehicle")).tooltip);
       assert.match(precise, /line 3, column 3: mismatched input 'part'/);
       assert.doesNotMatch(precise, /details pending/);
       // Undo the broken text so later tests see a clean model.
@@ -426,7 +426,7 @@ export async function run(): Promise<void> {
       await waitFor(() => (ix.getDocument(vehicleUri.toString())?.errors.length ?? 1) === 0, 1500, "error cleared");
     }],
     ["sysml.goToDefinition selects the name range", async () => {
-      const car = api.provider.getChildren(rootOf("Vehicle")).find((n) => labelOf(n) === "Car")!;
+      const car = api.provider.getChildren(await rootOf("Vehicle")).find((n) => labelOf(n) === "Car")!;
       const item = api.provider.getTreeItem(car);
       assert.strictEqual(item.command?.command, "sysml.goToDefinition");
       await vscode.commands.executeCommand("sysml.goToDefinition", car);
@@ -435,7 +435,7 @@ export async function run(): Promise<void> {
       assert.strictEqual(ed.document.getText(ed.selection), "Car");
     }],
     ["cursor on a declaration reveals the tree node", async () => {
-      const car = api.provider.getChildren(rootOf("Vehicle")).find((n) => labelOf(n) === "Car")!;
+      const car = api.provider.getChildren(await rootOf("Vehicle")).find((n) => labelOf(n) === "Car")!;
       const engine = api.provider.getChildren(car)[0]!;
       const calls: ModelNode[] = [];
       const view = api.view;
@@ -494,7 +494,7 @@ export async function run(): Promise<void> {
       assert.ok(await vscode.workspace.applyEdit(edit));
       const doc = await vscode.workspace.openTextDocument(vehicleUri);
       assert.ok(doc.isDirty, "edit is unsaved");
-      await waitFor(() => labels(api.provider.getChildren(rootOf("Vehicle"))).includes("UnsavedClutch"), 1500, "index sees the edit");
+      await waitFor(async () => labels(api.provider.getChildren(await rootOf("Vehicle"))).includes("UnsavedClutch"), 1500, "index sees the edit");
       const input = { qualifiedName: "Vehicle::UnsavedClutch" };
       const r = await vscode.lm.invokeTool("sysml_get_element", { toolInvocationToken: undefined, input });
       const viaLm = r.content.map((p) => (p as vscode.LanguageModelTextPart).value).join("");
@@ -531,15 +531,15 @@ export async function run(): Promise<void> {
       const doc = await vscode.workspace.openTextDocument(vehicleUri);
 
       // (1) the tree as the provider presents it
-      assert.ok(labels(elementRoots(api)).includes("Vehicle"));
-      assert.ok(!labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"));
+      assert.ok(labels(await elementRoots(api)).includes("Vehicle"));
+      assert.ok(!labels(api.provider.getChildren(await rootOf("Vehicle"))).includes("Trailer"));
 
       // (2) an unsaved edit adds a part def
       const add = new vscode.WorkspaceEdit();
       add.insert(vehicleUri, new vscode.Position(1, 0), "  part def Trailer;\n");
       assert.ok(await vscode.workspace.applyEdit(add));
       assert.ok(doc.isDirty, "edit is unsaved");
-      await waitFor(() => labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"), 2000, "Trailer in the tree");
+      await waitFor(async () => labels(api.provider.getChildren(await rootOf("Vehicle"))).includes("Trailer"), 2000, "Trailer in the tree");
 
       // (3) tree, both channels and document text agree
       const treeJson = await both("sysml_get_element_tree", { root: "Vehicle", depth: 2 });
@@ -547,7 +547,7 @@ export async function run(): Promise<void> {
       assert.ok(names.includes("Trailer"), `tool tree has Trailer: ${names}`);
       assert.deepStrictEqual(
         names.slice().sort(),
-        labels(api.provider.getChildren(rootOf("Vehicle"))).sort(),
+        labels(api.provider.getChildren(await rootOf("Vehicle"))).sort(),
         "tool tree and view tree list the same children",
       );
       const el = (await both("sysml_get_element", { qualifiedName: "Vehicle::Trailer" })).elements[0];
@@ -567,7 +567,7 @@ export async function run(): Promise<void> {
       assert.ok(syntax.length > 0, "validate reports the syntax error");
       assert.ok(syntax.some((p) => p.line === brokenLine && /vehicle\.sysml$/.test(p.file)), `error on line ${brokenLine}: ${JSON.stringify(syntax)}`);
       assert.ok(doc.lineAt(brokenLine - 1).text.includes("123"), "the reported line holds the broken text");
-      assert.ok(labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"), "tree keeps the previous contents");
+      assert.ok(labels(api.provider.getChildren(await rootOf("Vehicle"))).includes("Trailer"), "tree keeps the previous contents");
       const keep = await both("sysml_get_element_tree", { root: "Vehicle", depth: 2 });
       assert.ok((keep.nodes[0].children as { name: string }[]).some((c) => c.name === "Trailer"), "tool tree keeps the previous contents");
 
