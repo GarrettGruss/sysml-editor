@@ -78,13 +78,15 @@ container is drawn at the container's inner edge.
 Edge `points` hold the whole route as an orthogonal polyline in canvas coordinates, ends included
 (each segment horizontal or vertical, the first point on the source's border and the last on the
 target's). The editor keeps a stored route only while it still joins the borders of the two end
-nodes without crossing them; when an end moves, resizes or its node is edited, the route is dropped
-from the file and the editor computes one (routes of edges the model derives, such as composition
-and typing, are never stored). A route from automatic layout is stored together with the positions.
+nodes without crossing them. When an end node moves or resizes, the stored route is kept: the editor
+draws it with its interior bends and only re-attaches the end segments (the end point slides along
+the border, a bend is added where the segment's line no longer meets the node), and computes a route
+only when no valid adjusted one exists. Moving both ends by the same amount translates the stored
+route. (Routes of edges the model derives, such as composition and typing, are never stored.) A route from automatic layout is stored together with the positions.
 A route is adjustable by hand (segment drag, bend drag, double-click to add a bend; collinear bends are
 removed, an end segment dragged past its node's edge is routed around the node) for every drawn edge
 except those the model derives and sequence messages; the edit writes the whole new route to `points`
-and nothing else. Moving or resizing an end node still drops the stored route as described above.
+and nothing else. Moving or resizing an end node keeps the route as described above.
 
 Edge `label` holds the layout of the text drawn on the line (a name, guard, trigger, `«include»`):
 `{ "dx": 12, "dy": -20, "w": 120, "h": 30, "wrap": false }`. `dx` and `dy` are the label box's top-left
@@ -94,7 +96,7 @@ while the label has the size of its text; `wrap` is absent (meaning true: text w
 `false`. The text always comes from the model. Absent `label` means automatic placement; old files
 without it load unchanged. Moving, resizing, "Wrap Text" and "Reset Position and Size" (removes the
 entry) are layout edits like node moves: saved when the user saves the diagram, never written to the
-`.sysml` file, and kept when the route is dropped. Messages and edges the model derives have no `label`.
+`.sysml` file, and independent of the route. Messages and edges the model derives have no `label`.
 
 User edits and what they write: Move and Nudge write `x`, `y` of the moved nodes (relative to the
 parent; a port to its owner); Resize writes `x`, `y`, `w`, `h` and shifts the nested nodes' and ports'

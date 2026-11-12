@@ -64,6 +64,10 @@ Every drawn line with a stored route (for example transitions, successions, flow
 - **WHEN** the user double-clicks on a line, or drags the handle shown at the middle of a segment
 - **THEN** a bend point is added there and the route stays orthogonal
 
+#### Scenario: Node moved: the user's route keeps its bends and stays attached
+- **WHEN** an end node of a line with a user-shaped route is moved or resized
+- **THEN** the route keeps its bends and stays attached: only its end segments are adjusted to meet the node's border orthogonally, and a computed route replaces it only when no valid adjusted route exists
+
 #### Scenario: Remove bend points
 - **WHEN** the user drags a segment back into line with its neighbours so that two consecutive segments are collinear
 - **THEN** the redundant bend points are removed

@@ -38,7 +38,7 @@ export function removeItems(doc: DiagramDocument, ids: readonly string[], vm?: V
   };
 }
 
-/** Write moved or resized boxes; edges attached to a changed node lose their stored route. Undefined when nothing changes. */
+/** Write moved or resized boxes; the stored route of an edge whose two ends moved together moves with them. Undefined when nothing changes. */
 export function applyBoxPatches(doc: DiagramDocument, patches: readonly BoxPatch[]): DiagramDocument | undefined {
   const byId = new Map<string, BoxPatch>();
   for (const p of patches) {
@@ -58,11 +58,18 @@ export function applyBoxPatches(doc: DiagramDocument, patches: readonly BoxPatch
     return next;
   });
   if (!changed.size) return undefined;
-  const touched = withDescendants({ ...doc, nodes }, changed);
+  // A stored route stays: the editor re-attaches its end segments to the moved or resized nodes when it draws it, and draws a
+  // computed route when that is impossible. Only when both ends are moved by the same amount does the route move with them.
+  const shift = (id: string): { dx: number; dy: number } | undefined => {
+    const before = doc.nodes.find((n) => n.id === id), after = nodes.find((n) => n.id === id);
+    if (!before || !after || before === after || before.w !== after.w || before.h !== after.h) return undefined;
+    return { dx: (after.x ?? 0) - (before.x ?? 0), dy: (after.y ?? 0) - (before.y ?? 0) };
+  };
   const edges = doc.edges.map((e) => {
-    if (!e.points || !(touched.has(e.source) || touched.has(e.target))) return e;
-    const { points: _p, ...rest } = e;
-    return rest as typeof e;
+    if (!e.points) return e;
+    const a = shift(e.source), b = shift(e.target);
+    if (!a || !b || a.dx !== b.dx || a.dy !== b.dy || doc.nodes.find((n) => n.id === e.source)?.parent !== doc.nodes.find((n) => n.id === e.target)?.parent) return e;
+    return { ...e, points: e.points.map((p) => ({ x: p.x + a.dx, y: p.y + a.dy })) };
   });
   return { ...doc, nodes, edges };
 }

@@ -97,3 +97,35 @@ export function routeHandleAt(pts: readonly Pt[], p: Pt, reach: number): RouteHa
   const near = (h: RouteHandle) => Math.abs(h.at.x - p.x) <= reach && Math.abs(h.at.y - p.y) <= reach;
   return all.find((h) => h.kind === "bend" && near(h)) ?? all.find((h) => h.kind === "segment" && near(h));
 }
+
+const flip = (p: Pt): Pt => ({ x: p.y, y: p.x });
+const flipBox = (b: Box): Box => ({ x: b.y, y: b.x, w: b.h, h: b.w });
+
+/** Re-attach the start of a route to `box`: the end point moves along the border and the first segment is re-orthogonalised (a stub and a step are added when the segment's line no longer meets the border). */
+function repairStart(pts: readonly Pt[], box: Box): Pt[] | undefined {
+  const p0 = pts[0]!, p1 = pts[1]!;
+  if (!isHorizontal(p0, p1)) {
+    const r = repairStart(pts.map(flip), flipBox(box));
+    return r?.map(flip);
+  }
+  const y = p0.y;
+  const right = p1.x >= box.x + box.w, left = p1.x <= box.x;
+  if (!right && !left) return undefined;
+  const bx = right ? box.x + box.w : box.x;
+  if (y >= box.y && y <= box.y + box.h) return [{ x: bx, y }, ...pts.slice(1)];
+  const yc = Math.min(Math.max(y, box.y), box.y + box.h);
+  const k = Math.min(STUB_MAX, Math.abs(p1.x - bx) / 2);
+  const sx = bx + (right ? k : -k);
+  return [{ x: bx, y: yc }, { x: sx, y: yc }, { x: sx, y }, ...pts.slice(1)];
+}
+
+/** A stored route adjusted to the current boxes of its ends: interior bends are kept, only the end segments change. Undefined when no valid route results. */
+export function repairRoute(pts: readonly Pt[], src: Box, tgt: Box): Pt[] | undefined {
+  if (pts.length < 3) return undefined;
+  const head = repairStart(pts, src);
+  if (!head) return undefined;
+  const tail = repairStart([...head].reverse(), tgt);
+  if (!tail) return undefined;
+  const r = clean(tail.reverse());
+  return routeFits(r, src, tgt) ? r : undefined;
+}

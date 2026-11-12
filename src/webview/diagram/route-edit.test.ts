@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addBend, dragBend, dragSegment, routeHandleAt, routeHandles, segmentAt } from "./route-edit.js";
+import { repairRoute, addBend, dragBend, dragSegment, routeHandleAt, routeHandles, segmentAt } from "./route-edit.js";
 import { isOrthogonal, routeFits } from "./routing.js";
 
 const A = { x: 0, y: 0, w: 100, h: 60 };
@@ -90,5 +90,31 @@ describe("handles", () => {
   it("finds the segment nearest a point", () => {
     expect(segmentAt(Z, { x: 202, y: 90 }, 5)?.index).toBe(1);
     expect(segmentAt(Z, { x: 500, y: 500 }, 5)).toBeUndefined();
+  });
+});
+
+describe("repairRoute", () => {
+  const A2 = { x: 0, y: 0, w: 100, h: 60 };
+  const B2 = { x: 300, y: 100, w: 100, h: 60 };
+  it("keeps interior bends and slides the end along the border", () => {
+    const moved = { ...B2, y: 120 };
+    const r = repairRoute(Z, A2, moved)!;
+    expect(r).toBeDefined();
+    expect(r.slice(0, 3)).toEqual(Z.slice(0, 3));
+    expect(r[r.length - 1]).toEqual({ x: 300, y: 130 });
+    expect(isOrthogonal(r)).toBe(true);
+  });
+  it("adds a bend when the end segment's line no longer meets the node", () => {
+    const moved = { ...B2, y: 300 };
+    const r = repairRoute(Z, A2, moved)!;
+    expect(r).toBeDefined();
+    expect(r.length).toBeGreaterThan(Z.length);
+    expect(isOrthogonal(r)).toBe(true);
+    expect(routeFits(r, A2, moved)).toBe(true);
+    expect(r[1]).toEqual(Z[1]);
+  });
+  it("gives up when the route would cross an end node", () => {
+    expect(repairRoute(Z, A2, { x: 120, y: 0, w: 200, h: 300 })).toBeUndefined();
+    expect(repairRoute(Z.slice(0, 2), A2, B2)).toBeUndefined();
   });
 });

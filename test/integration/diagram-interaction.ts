@@ -659,6 +659,34 @@ export function interactionTests(c: Ctx): Test[] {
       assert.strictEqual(m2.edgesThroughEndNodes, 0);
     })],
 
+    ["moving an end node keeps the user's route: interior bends stay, the route stays orthogonal and attached, nothing passes through the end nodes", withCopy("lamp-state-transition.sysmld", "tmp-route3.sysmld", async () => {
+      const f = "tmp-route3.sysmld";
+      const edge = async () => (await metrics(f)).edges.find((e) => e.label?.startsWith("TurnOn"))!;
+      const e0 = await edge();
+      if (e0.points.length < 4) {
+        await gesture(f, { kind: "dblclickEdge", id: e0.id });
+        await c.eventually(async () => assert.ok((await edge()).points.length >= 4), "bend added");
+      }
+      const p0 = (await edge()).points;
+      await gesture(f, { kind: "dragSegment", id: e0.id, index: 1, d: 24 });
+      await waitFor(() => JSON.stringify(doc(f).edges.find((e) => e.id === e0.id)!.points) !== JSON.stringify(p0), 5000, "route shaped");
+      const shaped = doc(f).edges.find((e) => e.id === e0.id)!.points!;
+      await gesture(f, { kind: "drag", id: e0.source, dx: 0, dy: 8 });
+      await c.eventually(async () => {
+        const m = await metrics(f);
+        const r = m.edges.find((e) => e.id === e0.id)!.points;
+        assert.notDeepStrictEqual(r, shaped, "the end moved");
+        for (const b of shaped.slice(1, -1)) assert.ok(r.some((p) => Math.abs(p.x - b.x) < 0.5 && Math.abs(p.y - b.y) < 0.5), `interior bend ${b.x},${b.y} kept`);
+        assert.strictEqual(m.diagonalSegments, 0);
+        assert.strictEqual(m.edgesThroughEndNodes, 0);
+        assert.ok(m.nodes.length > 0);
+        assert.deepStrictEqual(r[r.length - 1], shaped[shaped.length - 1], "the other end is unchanged");
+      }, "the route follows the moved node");
+      const sn = nodeOf(await metrics(f), e0.source);
+      const first = (await edge()).points[0]!;
+      assert.ok(Math.abs(first.x - sn.x) < 1.5 || Math.abs(first.x - sn.x - sn.w) < 1.5 || Math.abs(first.y - sn.y) < 1.5 || Math.abs(first.y - sn.y - sn.h) < 1.5, "still attached to the moved node's border");
+    })],
+
     ["a line label moves and resizes by its handles, wraps by default, follows its line and persists; the menu resets it and toggles wrapping; the .sysml never changes", withCopy("lamp-state-transition.sysmld", "tmp-label.sysmld", async () => {
       const f = "tmp-label.sysmld";
       const edge = async () => (await metrics(f)).edges.find((e) => e.label?.startsWith("TurnOn"))!;

@@ -10,8 +10,8 @@ import {
 } from "./geometry.js";
 import { HANDLES, handleBoxes } from "./interaction.js";
 import { laidOutLabel, labelHandleBoxes, LABEL_LINE, type LabelLayout } from "./labels.js";
-import { edgeRoute, placeLabel } from "./routing.js";
-import { routeHandles } from "./route-edit.js";
+import { edgeRoute, placeLabel, routeFits } from "./routing.js";
+import { repairRoute, routeHandles } from "./route-edit.js";
 
 export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel" | "inherited";
 export type Palette = Record<Role, string>;
@@ -234,7 +234,10 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     };
     const skip = new Set([...related(e.source), ...related(e.target)]);
     const obstacles = vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!);
-    const pts = edgeRoute(endOf(e.source), endOf(e.target), extras.overrides?.get(e.id)?.points ?? extras.routes?.get(e.id) ?? e.points, obstacles, drawn.map((d) => d.pts));
+    // A stored route that no longer fits (an end moved or was resized) keeps its interior bends where it can.
+    const stored = extras.overrides?.get(e.id)?.points ?? extras.routes?.get(e.id) ?? e.points;
+    const kept = stored && !routeFits(stored as Pt[], s, t) ? repairRoute(stored, s, t) : undefined;
+    const pts = edgeRoute(endOf(e.source), endOf(e.target), kept ?? stored, obstacles, drawn.map((d) => d.pts));
     routes.set(e.id, pts);
     drawn.push({ e, pts, ends: [s, t] });
   }

@@ -62,12 +62,13 @@ describe("layout edits", () => {
     for (const bad of [{ x: big, y: 1 }, { x: 1, y: -big }, { x: 1, y: 1, w: big }, { x: 1, y: 1, h: big }, { x: 1, y: 1, w: 0 }])
       expect(applyBoxPatches(doc, [{ id: "n1", ...bad }]), JSON.stringify(bad)).toBeUndefined();
   });
-  it("drops the stored route of an edge when one of its ends moves", () => {
+  it("keeps the stored route when one end moves and translates it when both ends move together", () => {
     const withRoute: DiagramDocument = { ...doc, edges: [{ id: "e1", ref: "Ports::Drivetrain", source: "n4", target: "n5", points: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }] };
     const moved = applyBoxPatches(withRoute, [{ id: "n5", x: 1, y: 1 }])!;
-    expect(moved.edges[0]!.points).toBeUndefined();
-    const other = applyBoxPatches(withRoute, [{ id: "n1", x: 1, y: 1 }])!;
-    expect(other.edges[0]!.points).toHaveLength(2);
+    expect(moved.edges[0]!.points).toEqual(withRoute.edges[0]!.points);
+    const a = doc.nodes.find((n) => n.id === "n4")!, b = doc.nodes.find((n) => n.id === "n5")!;
+    const both = applyBoxPatches(withRoute, [{ id: "n4", x: a.x! + 8, y: a.y! + 16 }, { id: "n5", x: b.x! + 8, y: b.y! + 16 }])!;
+    expect(both.edges[0]!.points).toEqual([{ x: 9, y: 17 }, { x: 10, y: 17 }]);
   });
   it("auto-layout rewrites every box and route as one change", () => {
     const boxes = doc.nodes.map((n, i) => ({ id: n.id, x: i * 10, y: 5, w: 100, h: 50 }));
@@ -229,10 +230,10 @@ describe("edge layout edits", () => {
     (bad.edges[0] as { label?: unknown }).label = { dx: "a", dy: 0 };
     expect(parseDiagram(JSON.stringify(bad)).ok).toBe(false);
   });
-  it("keeps the label when an end node moves while the route is dropped", () => {
+  it("keeps the label and the route when an end node moves", () => {
     const withBoth = applyEdgeLayout(base, [{ id: e0.id, points: route, label: { dx: 1, dy: 2 } }])!;
     const moved = applyBoxPatches(withBoth, [{ id: e0.source, x: 999, y: 999 }])!;
-    expect(moved.edges[0]!.points).toBeUndefined();
+    expect(moved.edges[0]!.points).toEqual(route);
     expect(moved.edges[0]!.label).toEqual({ dx: 1, dy: 2 });
   });
 });
