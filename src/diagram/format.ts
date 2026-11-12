@@ -96,6 +96,7 @@ export function parseDiagram(text: string): ParseResult {
   else if (!(DIAGRAM_KINDS as readonly unknown[]).includes(raw.kind)) bad("$.kind", `Unknown kind ${JSON.stringify(raw.kind)} (expected ${DIAGRAM_KINDS.join(", ")})`);
   if (raw.root === undefined) bad("$.root", "Missing required field");
   else if (typeof raw.root !== "string" || raw.root === "") bad("$.root", "Must be a non-empty qualified name");
+  // The root need not have a node: a diagram may leave its root out.
   if (raw.sources === undefined) bad("$.sources", "Missing required field");
   else if (!Array.isArray(raw.sources) || raw.sources.some((s) => typeof s !== "string")) bad("$.sources", "Must be an array of strings");
   if (raw.style !== undefined && !isObj(raw.style)) bad("$.style", "Must be an object");
@@ -202,6 +203,7 @@ export function parseDiagram(text: string): ParseResult {
 
 // ---- Canonical serialization -------------------------------------------------------------
 
+/** Geometry is rounded to two decimals. */
 function num(n: number): number {
   const r = Math.round(n * 100) / 100;
   return r === 0 ? 0 : r;
@@ -220,7 +222,7 @@ function canonicalValue(v: unknown): unknown {
     for (const k of Object.keys(v).sort()) if (v[k] !== undefined) out[k] = canonicalValue(v[k]);
     return out;
   }
-  return typeof v === "number" ? num(v) : v;
+  return typeof v === "number" && v === 0 ? 0 : v; // -0 becomes 0, other numbers pass through
 }
 
 function ordered(o: Obj, first: readonly string[], special: (k: string, v: unknown) => unknown = (_k, v) => canonicalValue(v)): Obj {

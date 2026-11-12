@@ -4,7 +4,7 @@ import { validateSchema } from "../agent-tools/schema.js";
 import type { JsonSchema } from "../agent-tools/types.js";
 import { ModelIndex } from "../model/index.js";
 import { createDiagram, addElement, nextId } from "./create.js";
-import { describeDiagram, MAX_DESCRIBED_NODES } from "./describe.js";
+import { describeDiagram, MAX_DESCRIBED_NODES, MAX_DESCRIBED_UNRESOLVED } from "./describe.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument } from "./format.js";
 import { applyUpdates, reconcile, relink, removeItem } from "./reconcile.js";
 import { referenceFor, resolveDiagram, resolveReference } from "./resolve.js";
@@ -273,6 +273,26 @@ describe("reconcile", () => {
     expect(reconcile(doc, ix).unresolved).toContain("n2");
   });
 
+  it("does not treat an unrelated new element as a rename (delete one, add another)", () => {
+    const ix = model(SRC);
+    const doc = docFor();
+    const first = reconcile(doc, ix);
+    ix.setDocument(URI, SRC.replace("part engine : Engine { attribute rpm; }", "").replace("part other : Engine;", "part other : Engine; part spare : Engine;"));
+    const r = reconcile(doc, ix, first.snapshot);
+    expect(r.updates).toEqual([]);
+    expect(r.unresolved).toContain("n2");
+  });
+
+  it("gives up when text inserted before the element moves its name", () => {
+    const ix = model(SRC);
+    const doc = docFor();
+    const first = reconcile(doc, ix);
+    ix.setDocument(URI, SRC.replace("part engine", "part  motor").replace("part def Engine;", "part def Engine; part def Extra;"));
+    const r = reconcile(doc, ix, first.snapshot);
+    expect(r.updates).toEqual([]);
+    expect(r.unresolved).toContain("n2");
+  });
+
   it("re-links and removes items", () => {
     const ix = model(SRC);
     let doc = docFor();
@@ -346,6 +366,63 @@ describe("createDiagram", () => {
     };
     ix.getDocument("file:///ws/simple.sysml")!.model.roots.forEach(visit);
     expect(checked).toBeGreaterThan(3);
+  });
+});
+
+describe("diagram review fixes", () => {
+  it("passes non-geometry numbers through and keeps geometry rounding idempotent", () => {
+    const text = JSON.stringify({
+      version: 1, kind: "general", root: "P", sources: [],
+      nodes: [{ id: "n1", ref: "P", x: 1.005, y: -0, w: 10.126, style: { opacity: 0.125, deep: [{ k: 0.333 }] }, big: 9007199254740991, extra: { a: [1.23456, { b: -0 }] } }],
+      edges: [],
+    });
+    const r = parseDiagram(text);
+    if (!r.ok) throw new Error("parse");
+    const out = serializeDiagram(r.doc);
+    const n = (JSON.parse(out) as { nodes: Record<string, unknown>[] }).nodes[0]!;
+    expect(n.style).toEqual({ opacity: 0.125, deep: [{ k: 0.333 }] });
+    expect(n.big).toBe(9007199254740991);
+    expect(n.extra).toEqual({ a: [1.23456, { b: 0 }] });
+    expect(Object.is(n.y, 0)).toBe(true);
+    expect(n.w).toBe(10.13);
+    const again = parseDiagram(out);
+    expect(again.ok && serializeDiagram(again.doc)).toBe(out);
+  });
+
+  it("rejects an empty root but accepts a root without a node", () => {
+    const base = { version: 1, kind: "general", sources: [], nodes: [{ id: "n1", ref: "P::A" }], edges: [] };
+    expect(parseDiagram(JSON.stringify({ ...base, root: "" })).ok).toBe(false);
+    const r = parseDiagram(JSON.stringify({ ...base, root: "P" }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const ix = model("package P { part def A; }");
+    expect(describeDiagram(r.doc, ix).nodes).toHaveLength(1);
+    expect(reconcile(r.doc, ix).unresolved).toEqual([]);
+  });
+
+  it("leaves an ambiguous locator without index unresolved", () => {
+    const ix = model("package P { part def V { part a; part b; connect a to b; connect a to b; } }");
+    const loc = { owner: "P::V", kind: "connect", ends: ["a", "b"] };
+    expect(resolveReference({ locator: loc }, { sources: [] }, ix)).toBeUndefined();
+    expect(resolveReference({ locator: { ...loc, index: 1 } }, { sources: [] }, ix)).toBeDefined();
+  });
+
+  it("creates a diagram with many connections quickly", () => {
+    const n = 200;
+    const body = Array.from({ length: n }, (_, i) => `part p${i};`).join(" ") + " " + Array.from({ length: n }, (_, i) => `connect p${i} to p${(i + 1) % n};`).join(" ");
+    const ix = model(`package P { part def V { ${body} } }`);
+    const t = Date.now();
+    const doc = createDiagram(ix, "P::V", "general");
+    expect(Date.now() - t).toBeLessThan(500);
+    expect(doc.edges.length).toBe(n);
+  });
+
+  it("caps the unresolved list and notes it", () => {
+    const ix = model("package P { part def A; }");
+    const nodes = Array.from({ length: MAX_DESCRIBED_UNRESOLVED + 5 }, (_, i) => ({ id: `n${i}`, ref: `P::Gone${i}` }));
+    const d = describeDiagram({ version: 1, kind: "general", root: "P", sources: [], nodes, edges: [] }, ix);
+    expect(d.unresolved).toHaveLength(MAX_DESCRIBED_UNRESOLVED);
+    expect(d.note).toMatch(/unresolved/);
   });
 });
 

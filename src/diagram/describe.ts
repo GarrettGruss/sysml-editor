@@ -5,6 +5,7 @@ import { resolveDiagram, type Resolution, type ResolveOptions } from "./resolve.
 
 export const MAX_DESCRIBED_NODES = 500;
 export const MAX_DESCRIBED_EDGES = 1000;
+export const MAX_DESCRIBED_UNRESOLVED = 500;
 
 export interface DescribedElement {
   name?: string;
@@ -52,7 +53,8 @@ export function describeDiagram(doc: DiagramDocument, index: ModelIndex, opts: R
     if (e.points?.length) out.points = e.points;
     return out;
   });
-  const unresolved = [...doc.nodes, ...doc.edges].filter((i) => !res.get(i.id)).map((i) => ({
+  const allUnresolved = [...doc.nodes, ...doc.edges].filter((i) => !res.get(i.id));
+  const unresolved = allUnresolved.slice(0, MAX_DESCRIBED_UNRESOLVED).map((i) => ({
     id: i.id,
     ...(i.ref !== undefined ? { ref: i.ref } : {}),
     ...(i.locator !== undefined ? { locator: i.locator } : {}),
@@ -61,6 +63,7 @@ export function describeDiagram(doc: DiagramDocument, index: ModelIndex, opts: R
   const cut: string[] = [];
   if (doc.nodes.length > nodes.length) cut.push(`${doc.nodes.length} nodes (showing the first ${nodes.length})`);
   if (doc.edges.length > edges.length) cut.push(`${doc.edges.length} edges (showing the first ${edges.length})`);
+  if (allUnresolved.length > unresolved.length) cut.push(`${allUnresolved.length} unresolved items (listing the first ${unresolved.length})`);
   if (cut.length) out.note = `Truncated: the diagram has ${cut.join(" and ")}.`;
   return out;
 }

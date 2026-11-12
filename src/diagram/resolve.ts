@@ -74,7 +74,10 @@ export function resolveReference(
   const key = endsKey(loc.ends);
   for (const owner of preferSources(index.findByQualifiedName(loc.owner), doc.sources, sourceOf)) {
     const matches = ownedCandidates(owner).filter((c) => c.qualifiedName === undefined && c.kind === loc.kind && endsKey(c.ends) === key);
-    if (matches.length) return matches[loc.index ?? 0] ?? (loc.index === undefined ? matches[0] : undefined);
+    if (matches.length) {
+      if (loc.index === undefined) return matches.length === 1 ? matches[0] : undefined; // ambiguous without an index
+      return matches[loc.index];
+    }
   }
   return undefined;
 }

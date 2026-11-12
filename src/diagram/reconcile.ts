@@ -11,7 +11,7 @@ import {
 
 /** What the caller stores between reconciliations. */
 export interface Snapshot {
-  items: Record<string, { ref: string; owner: string; kind: string; types: string[] }>;
+  items: Record<string, { ref: string; owner: string; kind: string; types: string[]; uri?: string; nameOffset?: number }>;
   /** Per owner qualified name: qualified names of its named members at snapshot time. */
   siblings: Record<string, string[]>;
 }
@@ -46,7 +46,9 @@ export function snapshotOf(doc: DiagramDocument, resolution: Resolution): Snapsh
     if (!el || item.ref === undefined) continue;
     const owner = ownerOf(el);
     if (!owner || owner.qualifiedName === undefined) continue;
-    snap.items[item.id] = { ref: item.ref, owner: owner.qualifiedName, kind: el.kind, types: [...el.types] };
+    snap.items[item.id] = { ref: item.ref, owner: owner.qualifiedName, kind: el.kind, types: [...el.types],
+      ...(el.nameRange ? { uri: el.uri, nameOffset: el.nameRange.start.offset } : {}),
+    };
     snap.siblings[owner.qualifiedName] ??= ownedCandidates(owner).flatMap((c) => (c.qualifiedName ? [c.qualifiedName] : [])).sort();
   }
   return snap;
@@ -89,6 +91,9 @@ export function reconcile(doc: DiagramDocument, index: ModelIndex, previous?: Sn
       );
       if (cands.length !== 1) continue;
       const cand = cands[0]!;
+      // Only a rename in place: same document, name token starting where the old one did.
+      if (!prev.uri || prev.nameOffset === undefined || !cand.nameRange || cand.uri !== prev.uri ||
+        cand.nameRange.start.offset !== prev.nameOffset) continue;
       picked.set(item.id, cand);
       claims.set(cand.qualifiedName!, [...(claims.get(cand.qualifiedName!) ?? []), item.id]);
     }

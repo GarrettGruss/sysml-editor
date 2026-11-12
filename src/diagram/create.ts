@@ -2,7 +2,7 @@
 import type { Element, ModelIndex } from "../model/index.js";
 import { isVisible } from "../tree/tree-model.js";
 import type { DiagramDocument, DiagramEdge, DiagramKind, DiagramNode } from "./format.js";
-import { makeSourceMapper, referenceFor, referenceKey, resolveDiagram, type ResolveOptions, type SourceMapper } from "./resolve.js";
+import { makeSourceMapper, resolveReference, referenceFor, referenceKey, resolveDiagram, type Resolution, type ResolveOptions, type SourceMapper } from "./resolve.js";
 
 export interface CreateOptions {
   /** Restrict the members shown to these qualified names (the root is always shown). */
@@ -26,7 +26,9 @@ const isRelationship = (e: Element) => e.ends.length >= 2;
 /** Pre-populate a diagram with the root and its visible direct members; no positions are written. */
 export function createDiagram(index: ModelIndex, rootQualifiedName: string, kind: DiagramKind, options: CreateOptions = {}): DiagramDocument {
   const sourceOf = options.sourceOf ?? makeSourceMapper();
-  const root = index.findByQualifiedName(rootQualifiedName)[0];
+  const root = index.findByQualifiedName(rootQualifiedName).length
+    ? resolveReference({ ref: rootQualifiedName }, { sources: [] }, index, { sourceOf })
+    : undefined;
   if (!root) throw new Error(`No element named ${rootQualifiedName}`);
   const allow = options.elements ? new Set(options.elements) : undefined;
   const members = root.members.filter(isVisible).filter((m) => !allow || (m.qualifiedName !== undefined && allow.has(m.qualifiedName)) || (allow && m.qualifiedName === undefined && isRelationship(m)));
@@ -35,7 +37,9 @@ export function createDiagram(index: ModelIndex, rootQualifiedName: string, kind
   doc = addElement(doc, index, root, undefined, { sourceOf }).doc;
   const rootId = doc.nodes[0]!.id;
   for (const m of members.filter((m) => !isRelationship(m))) doc = addElement(doc, index, m, rootId, { sourceOf }).doc;
-  for (const m of members.filter(isRelationship)) doc = addElement(doc, index, m, undefined, { sourceOf }).doc;
+  // Edges do not change which nodes exist, so resolve once for all relationship ends.
+  const resolution = resolveDiagram(doc, index, { sourceOf });
+  for (const m of members.filter(isRelationship)) doc = addElement(doc, index, m, undefined, { sourceOf, resolution }).doc;
   return doc;
 }
 
@@ -47,8 +51,8 @@ export interface AddResult {
 }
 
 /** Node id whose element is the one an end text such as `engine.drive` starts with, among shown nodes. */
-function endNode(doc: DiagramDocument, index: ModelIndex, owner: Element, end: string, opts: ResolveOptions): string | undefined {
-  const res = resolveDiagram(doc, index, opts);
+function endNode(doc: DiagramDocument, index: ModelIndex, owner: Element, end: string, opts: ResolveOptions & { resolution?: Resolution }): string | undefined {
+  const res = opts.resolution ?? resolveDiagram(doc, index, opts);
   const segs = end.replace(/\s+/g, "").split(/\.|::/);
   for (let n = segs.length; n >= 1; n--) {
     const name = segs.slice(0, n).join("::");
@@ -64,7 +68,7 @@ function endNode(doc: DiagramDocument, index: ModelIndex, owner: Element, end: s
  * Add an element as a node (relationship statements become edges when both ends are shown).
  * Adding an element that is already on the diagram is a no-op returning the existing item.
  */
-export function addElement(doc: DiagramDocument, index: ModelIndex, element: Element, parentNodeId?: string, opts: ResolveOptions = {}): AddResult {
+export function addElement(doc: DiagramDocument, index: ModelIndex, element: Element, parentNodeId?: string, opts: ResolveOptions & { resolution?: Resolution } = {}): AddResult {
   const ref = referenceFor(element);
   if (!ref) return { doc, added: false };
   const key = referenceKey(ref);

@@ -61,8 +61,9 @@ Files are written as UTF-8 JSON, 2-space indent, trailing newline, with a fixed 
 keys `version, kind, root, sources, nodes, edges, style`, then others sorted; node keys `id, ref,
 locator, x, y, w, h`, then the rest sorted; edge keys `id, ref, locator, source, target, points`, then
 the rest sorted; locator keys `owner, kind, ends, index`. Nodes and edges are sorted by `id`, `sources`
-are sorted and de-duplicated, style objects have recursively sorted keys, and numbers are rounded to
-two decimals. Opening and saving an unchanged canonical file is byte-identical. A file that was not
+are sorted and de-duplicated, style objects have recursively sorted keys, and geometry numbers (`x`, `y`, `w`, `h` and
+the coordinates in `points`) are rounded to two decimals; every other number (style values, unknown
+properties) is written unchanged, except `-0`, which becomes `0`. Opening and saving an unchanged canonical file is byte-identical. A file that was not
 canonical is normalised by the first save.
 
 ## Unresolved references
@@ -76,9 +77,21 @@ remove it from the diagram or re-link it to an existing element (which replaces 
 `reconcile` (`src/diagram/reconcile.ts`) compares against a snapshot the caller stored after the
 previous reconciliation. A named reference that resolved before and no longer does is treated as a
 rename when, under the same owner, exactly one element (a) has the same kind, (b) has the same
-declared types, and (c) was not present in the previous snapshot. The reference is then proposed
+declared types, (c) was not present in the previous snapshot, and (d) is in the same document and
+its name token starts at the same character offset as the lost element's name did. Rule (d) means
+only a rename typed in place is detected: deleting `part a : Wheel` and adding an unrelated
+`part spare : Wheel` elsewhere is not a rename. The snapshot records each resolved named element's
+document URI and name start offset. The reference is then proposed
 for update, keeping position and style; references below the renamed element (and the diagram
 root) follow it by prefix. Limits: zero or several candidates, a changed kind or type, a rename
 combined with other changes under the same owner that add a look-alike element, two lost items
-competing for one candidate, a rename without a previous snapshot (for example a file changed
+competing for one candidate, text edited earlier in the file in the same change (which moves the
+name offset; we deliberately give up), a rename without a previous snapshot (for example a file changed
 while the editor was closed) and unnamed elements all stay unresolved for the user to re-link.
+
+## Locator indexes
+
+A locator that matches several identical siblings (same owner, kind and ends) resolves only when it
+carries an `index`; without one it stays unresolved rather than guessing the first match. A stored
+`index` binds by position among those identical siblings, so it can shift if an identical sibling is
+inserted before it.
