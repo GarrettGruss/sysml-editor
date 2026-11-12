@@ -177,6 +177,7 @@ export function parseDiagram(text: string): ParseResult {
     }
     if (e.points !== undefined) {
       if (!Array.isArray(e.points)) bad(`${p}.points`, "Must be an array");
+      else if (e.points.length > 1000) bad(`${p}.points`, "At most 1000 points");
       else e.points.forEach((pt, j) => {
         if (!isObj(pt) || typeof pt.x !== "number" || typeof pt.y !== "number" || !Number.isFinite(pt.x) || !Number.isFinite(pt.y))
           bad(`${p}.points[${j}]`, "Must be an object with numeric x and y");
@@ -186,8 +187,9 @@ export function parseDiagram(text: string): ParseResult {
       const l = e.label;
       if (!isObj(l)) bad(`${p}.label`, "Must be an object");
       else {
-        for (const k of ["dx", "dy"]) if (typeof l[k] !== "number" || !Number.isFinite(l[k])) bad(`${p}.label.${k}`, "Must be a finite number");
-        for (const k of ["w", "h"]) if (l[k] !== undefined && (typeof l[k] !== "number" || !Number.isFinite(l[k]) || (l[k] as number) <= 0)) bad(`${p}.label.${k}`, "Must be a positive number");
+        for (const k of Object.keys(l)) if (!["dx", "dy", "w", "h", "wrap"].includes(k)) bad(`${p}.label.${k}`, "Unknown property");
+        for (const k of ["dx", "dy"]) if (typeof l[k] !== "number" || !Number.isFinite(l[k]) || Math.abs(l[k] as number) > 1_000_000) bad(`${p}.label.${k}`, "Must be a number within +-1000000");
+        for (const k of ["w", "h"]) if (l[k] !== undefined && (typeof l[k] !== "number" || !Number.isFinite(l[k]) || (l[k] as number) <= 0 || (l[k] as number) > 1_000_000)) bad(`${p}.label.${k}`, "Must be a positive number of at most 1000000");
         if (l.wrap !== undefined && typeof l.wrap !== "boolean") bad(`${p}.label.wrap`, "Must be a boolean");
       }
     }

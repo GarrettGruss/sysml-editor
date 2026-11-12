@@ -479,7 +479,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     let label = "Edit diagram";
     switch (edit.kind) {
       case "layout":
-        next = Array.isArray(edit.boxes) ? applyBoxPatches(cur, edit.boxes) : undefined;
+        next = Array.isArray(edit.boxes) ? applyBoxPatches(cur, edit.boxes, { routes: Array.isArray(edit.routes) ? edit.routes : [], drop: Array.isArray(edit.drop) ? edit.drop.filter((i) => typeof i === "string") : [] }, doc.state.viewModel) : undefined;
         label = edit.label === "Resize" ? "Resize" : edit.label === "Nudge" ? "Nudge" : "Move";
         break;
       case "autoLayout":
@@ -487,7 +487,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         label = "Auto-layout";
         break;
       case "edgeLayout":
-        next = Array.isArray(edit.edges) ? applyEdgeLayout(cur, edit.edges) : undefined;
+        next = Array.isArray(edit.edges) ? applyEdgeLayout(cur, edit.edges, doc.state.viewModel) : undefined;
         label = edit.label === "Label" ? "Edit Label" : "Edit Route";
         break;
       case "remove": {

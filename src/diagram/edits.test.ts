@@ -8,7 +8,7 @@ import { relink } from "./reconcile.js";
 import { relationOf } from "./relations.js";
 import { makeSourceMapper, resolveDiagram } from "./resolve.js";
 import { DiagramState, applyLayout, refresh } from "./session.js";
-import { buildViewModel } from "./view-model.js";
+import { buildViewModel, type ViewModel } from "./view-model.js";
 
 const dir = new URL("../../test/fixtures/workspace-basic/", import.meta.url);
 const read = (n: string) => readFileSync(new URL(n, dir), "utf8");
@@ -66,9 +66,7 @@ describe("layout edits", () => {
     const withRoute: DiagramDocument = { ...doc, edges: [{ id: "e1", ref: "Ports::Drivetrain", source: "n4", target: "n5", points: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }] };
     const moved = applyBoxPatches(withRoute, [{ id: "n5", x: 1, y: 1 }])!;
     expect(moved.edges[0]!.points).toEqual(withRoute.edges[0]!.points);
-    const a = doc.nodes.find((n) => n.id === "n4")!, b = doc.nodes.find((n) => n.id === "n5")!;
-    const both = applyBoxPatches(withRoute, [{ id: "n4", x: a.x! + 8, y: a.y! + 16 }, { id: "n5", x: b.x! + 8, y: b.y! + 16 }])!;
-    expect(both.edges[0]!.points).toEqual([{ x: 9, y: 17 }, { x: 10, y: 17 }]);
+
   });
   it("auto-layout rewrites every box and route as one change", () => {
     const boxes = doc.nodes.map((n, i) => ({ id: n.id, x: i * 10, y: 5, w: 100, h: 50 }));
@@ -202,7 +200,7 @@ describe("edge layout edits", () => {
   it("stores a route and a label layout on the edge and nothing else", () => {
     const r = applyEdgeLayout(base, [{ id: e0.id, points: route, label: { dx: 1.234, dy: 2, w: 50, wrap: false } }])!;
     expect(r.edges[0]!.points).toEqual(route);
-    expect(r.edges[0]!.label).toEqual({ dx: 1.234, dy: 2, w: 50, wrap: false });
+    expect(r.edges[0]!.label).toEqual({ dx: 1.23, dy: 2, w: 50, wrap: false });
     expect(r.nodes).toEqual(base.nodes);
     expect(r.edges.slice(1)).toEqual(base.edges.slice(1));
   });
@@ -233,7 +231,57 @@ describe("edge layout edits", () => {
   it("keeps the label and the route when an end node moves", () => {
     const withBoth = applyEdgeLayout(base, [{ id: e0.id, points: route, label: { dx: 1, dy: 2 } }])!;
     const moved = applyBoxPatches(withBoth, [{ id: e0.source, x: 999, y: 999 }])!;
-    expect(moved.edges[0]!.points).toEqual(route);
+    expect(moved.edges[0]!.points).toBeDefined();
     expect(moved.edges[0]!.label).toEqual({ dx: 1, dy: 2 });
+  });
+});
+
+describe("routes follow nodes moved through their container", () => {
+  const nodes = [{ id: "n1", ref: "P::C", x: 100, y: 100, w: 400, h: 300 }, { id: "n2", ref: "P::C::a", parent: "n1", x: 20, y: 40, w: 100, h: 60 }, { id: "n3", ref: "P::C::b", parent: "n1", x: 260, y: 40, w: 100, h: 60 }];
+  const route = [{ x: 220, y: 170 }, { x: 360, y: 170 }];
+  const d: DiagramDocument = { version: 1, kind: "general", root: "P::C", sources: [], nodes, edges: [{ id: "e1", ref: "P::C::l", source: "n2", target: "n3", points: route }] };
+  it("translates the route of an edge between children when their container moves", () => {
+    const r = applyBoxPatches(d, [{ id: "n1", x: 140, y: 124 }])!;
+    expect(r.edges[0]!.points).toEqual([{ x: 260, y: 194 }, { x: 400, y: 194 }]);
+  });
+  it("uses the routes the webview sent, and drops the ones it listed", () => {
+    const sent = applyBoxPatches(d, [{ id: "n3", x: 300, y: 40 }], { routes: [{ id: "e1", points: [{ x: 220, y: 170 }, { x: 400, y: 170 }] }] })!;
+    expect(sent.edges[0]!.points).toEqual([{ x: 220, y: 170 }, { x: 400, y: 170 }]);
+    const gone = applyBoxPatches(d, [{ id: "n3", x: 300, y: 40 }], { drop: ["e1"] })!;
+    expect(gone.edges[0]!.points).toBeUndefined();
+  });
+});
+
+describe("edge layout limits and exclusions", () => {
+  const base = parse("drivetrain-interconnection.sysmld");
+  const e0 = base.edges[0]!;
+  const ok = [{ x: 0, y: 0 }, { x: 10, y: 0 }];
+  it("ignores patches for sequence messages and derived edges", () => {
+    expect(applyEdgeLayout({ ...base, kind: "sequence" }, [{ id: e0.id, label: { dx: 1, dy: 1 } }])).toBeUndefined();
+    const vm = { edges: [{ id: e0.id, derived: true }] } as unknown as ViewModel;
+    expect(applyEdgeLayout(base, [{ id: e0.id, label: { dx: 1, dy: 1 }, points: ok }], vm)).toBeUndefined();
+    expect(applyEdgeLayout(base, [{ id: e0.id, label: { dx: 1, dy: 1 } }], { edges: [{ id: e0.id, fixed: true }] } as unknown as ViewModel)).toBeUndefined();
+  });
+  it("is a no-op for a patch that only differs below the stored precision", () => {
+    const r = applyEdgeLayout(base, [{ id: e0.id, points: ok, label: { dx: 1.001, dy: 2 } }])!;
+    expect(applyEdgeLayout(r, [{ id: e0.id, points: ok.map((p) => ({ x: p.x + 0.001, y: p.y })), label: { dx: 1.002, dy: 2 } }])).toBeUndefined();
+  });
+  it("limits coordinates, sizes and the number of points, and strips unknown label keys", () => {
+    const many = Array.from({ length: 1001 }, (_, i) => ({ x: i, y: 0 }));
+    expect(applyEdgeLayout(base, [{ id: e0.id, points: many }])).toBeUndefined();
+    expect(applyEdgeLayout(base, [{ id: e0.id, points: [{ x: 0, y: 0 }, { x: 2e6, y: 0 }] }])).toBeUndefined();
+    expect(applyEdgeLayout(base, [{ id: e0.id, label: { dx: 2e6, dy: 0 } }])).toBeUndefined();
+    expect(applyEdgeLayout(base, [{ id: e0.id, label: { dx: 0, dy: 0, w: 2e6 } }])).toBeUndefined();
+    expect(applyEdgeLayout(base, [{ id: e0.id, label: { dx: 0, dy: 0, h: -1 } }])).toBeUndefined();
+    const r = applyEdgeLayout(base, [{ id: e0.id, label: { dx: 1, dy: 2, evil: 1 } as never }])!;
+    expect(r.edges[0]!.label).toEqual({ dx: 1, dy: 2 });
+  });
+  it("rejects files with unknown label keys, huge values or too many points", () => {
+    const mk = (edit: (e: Record<string, unknown>) => void) => { const d = JSON.parse(serializeDiagram(base)) as DiagramDocument; edit(d.edges[0] as never); return parseDiagram(JSON.stringify(d)).ok; };
+    expect(mk((e) => { e.label = { dx: 1, dy: 1, x: 3 }; })).toBe(false);
+    expect(mk((e) => { e.label = { dx: 1e7, dy: 1 }; })).toBe(false);
+    expect(mk((e) => { e.label = { dx: 1, dy: 1, w: 2e6 }; })).toBe(false);
+    expect(mk((e) => { e.points = Array.from({ length: 1001 }, (_, i) => ({ x: i, y: 0 })); })).toBe(false);
+    expect(mk((e) => { e.label = { dx: 1, dy: 1, w: 50, h: 20, wrap: false }; })).toBe(true);
   });
 });

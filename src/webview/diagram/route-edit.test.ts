@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { repairRoute, addBend, dragBend, dragSegment, routeHandleAt, routeHandles, segmentAt } from "./route-edit.js";
+import { adjustRoute, repairRoute, addBend, dragBend, dragSegment, routeHandleAt, routeHandles, segmentAt } from "./route-edit.js";
 import { isOrthogonal, routeFits } from "./routing.js";
 
 const A = { x: 0, y: 0, w: 100, h: 60 };
@@ -116,5 +116,34 @@ describe("repairRoute", () => {
   it("gives up when the route would cross an end node", () => {
     expect(repairRoute(Z, A2, { x: 120, y: 0, w: 200, h: 300 })).toBeUndefined();
     expect(repairRoute(Z.slice(0, 2), A2, B2)).toBeUndefined();
+  });
+});
+
+describe("robustness", () => {
+  const A3 = { x: 0, y: 0, w: 100, h: 60 };
+  const B3 = { x: 300, y: 100, w: 100, h: 60 };
+  it("leaves a zero-length segment alone", () => {
+    const r = dragSegment([{ x: 100, y: 30 }, { x: 100, y: 30 }, { x: 200, y: 30 }, { x: 200, y: 130 }, { x: 300, y: 130 }], 0, 20, A3, B3);
+    expect(isOrthogonal(r)).toBe(true);
+  });
+  it("gives a full stub when the end segment has no length", () => {
+    const r = dragSegment([{ x: 100, y: 30 }, { x: 100.5, y: 30 }, { x: 100.5, y: 130 }, { x: 300, y: 130 }], 0, -90, A3, B3);
+    expect(isOrthogonal(r)).toBe(true);
+    expect(routeFits(r, A3, B3)).toBe(true);
+  });
+  it("repairs a route whose first bend lies over the moved node", () => {
+    const route = [{ x: 100, y: 30 }, { x: 200, y: 30 }, { x: 200, y: 130 }, { x: 300, y: 130 }];
+    const moved = { x: 150, y: -40, w: 100, h: 60 }; // now covers the first bend's column from above
+    const r = repairRoute(route, moved, B3)!;
+    expect(r).toBeDefined();
+    expect(isOrthogonal(r)).toBe(true);
+    expect(routeFits(r, moved, B3)).toBe(true);
+  });
+  it("adjustRoute translates when both ends moved alike and otherwise repairs or gives up", () => {
+    const route = [{ x: 100, y: 30 }, { x: 200, y: 30 }, { x: 200, y: 130 }, { x: 300, y: 130 }];
+    const t = adjustRoute(route, A3, B3, { ...A3, x: 10, y: 20 }, { ...B3, x: 310, y: 120 })!;
+    expect(t[0]).toEqual({ x: 110, y: 50 });
+    expect(adjustRoute(route, A3, B3, A3, { x: 120, y: 0, w: 200, h: 300 })).toBeUndefined();
+    expect(adjustRoute(route, A3, B3, A3, B3)).toEqual(route);
   });
 });

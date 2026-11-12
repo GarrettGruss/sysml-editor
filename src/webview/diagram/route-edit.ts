@@ -7,12 +7,20 @@ export const STUB_MAX = 20;
 /** Size of the step a double-click adds to a straight segment. */
 export const JOG = 16;
 
+/** Outward direction at a border point, along the axis the moved segment runs on. */
+function outward(p: Pt, b: Box, horiz: boolean): Pt {
+  if (horiz) return { x: Math.abs(p.x - b.x) <= Math.abs(p.x - b.x - b.w) ? -1 : 1, y: 0 };
+  return { x: 0, y: Math.abs(p.y - b.y) <= Math.abs(p.y - b.y - b.h) ? -1 : 1 };
+}
+
 const eq = (a: number, b: number) => Math.abs(a - b) < 0.01;
 export const isHorizontal = (a: Pt, b: Pt): boolean => eq(a.y, b.y);
 
 /** Segment `i` (from point `i` to `i + 1`) moved by `d` perpendicular to its direction, before the route is simplified. `inserted` points were added before it. */
 function dragRaw(pts: readonly Pt[], i: number, d: number, src: Box, tgt: Box): { pts: Pt[]; inserted: number } {
   const n = pts.length;
+  // A zero-length segment has no direction to move perpendicular to.
+  if (Math.hypot(pts[i + 1]!.x - pts[i]!.x, pts[i + 1]!.y - pts[i]!.y) < 0.01) return { pts: pts.map((p) => ({ ...p })), inserted: 0 };
   const horiz = isHorizontal(pts[i]!, pts[i + 1]!);
   const shift = (p: Pt): Pt => (horiz ? { x: p.x, y: p.y + d } : { x: p.x + d, y: p.y });
   // An end of the route stays on its node's border. When the moved segment would leave the border, the route keeps its end
@@ -21,9 +29,10 @@ function dragRaw(pts: readonly Pt[], i: number, d: number, src: Box, tgt: Box): 
     const moved = shift(p);
     if (onBorder(moved, box, 1.5)) return [moved];
     const len = Math.hypot(q.x - p.x, q.y - p.y);
-    if (len < 1) return [moved];
-    const k = Math.min(STUB_MAX, len / 2);
-    const s = { x: p.x + ((q.x - p.x) / len) * k, y: p.y + ((q.y - p.y) / len) * k };
+    // A (nearly) zero-length end segment has no direction: leave the border along its outward normal, with a full stub.
+    const dir = len < 1 ? outward(p, box, horiz) : { x: (q.x - p.x) / len, y: (q.y - p.y) / len };
+    const k = len < 1 ? STUB_MAX : Math.min(STUB_MAX, len / 2);
+    const s = { x: p.x + dir.x * k, y: p.y + dir.y * k };
     return [p, s, shift(s)];
   };
   const head = i === 0 ? end(pts[0]!, pts[1]!, src) : [shift(pts[i]!)];
@@ -110,7 +119,12 @@ function repairStart(pts: readonly Pt[], box: Box): Pt[] | undefined {
   }
   const y = p0.y;
   const right = p1.x >= box.x + box.w, left = p1.x <= box.x;
-  if (!right && !left) return undefined;
+  if (!right && !left) {
+    // The first bend lies over the moved node: leave through its top or bottom instead, straight towards the bend.
+    const below = p1.y >= box.y + box.h, above = p1.y <= box.y;
+    if (!below && !above) return undefined;
+    return [{ x: p1.x, y: below ? box.y + box.h : box.y }, ...pts.slice(1)];
+  }
   const bx = right ? box.x + box.w : box.x;
   if (y >= box.y && y <= box.y + box.h) return [{ x: bx, y }, ...pts.slice(1)];
   const yc = Math.min(Math.max(y, box.y), box.y + box.h);
@@ -120,7 +134,8 @@ function repairStart(pts: readonly Pt[], box: Box): Pt[] | undefined {
 }
 
 /** A stored route adjusted to the current boxes of its ends: interior bends are kept, only the end segments change. Undefined when no valid route results. */
-export function repairRoute(pts: readonly Pt[], src: Box, tgt: Box): Pt[] | undefined {
+export function repairRoute(input: readonly Pt[], src: Box, tgt: Box): Pt[] | undefined {
+  const pts = clean(input.map((p) => ({ ...p })));
   if (pts.length < 3) return undefined;
   const head = repairStart(pts, src);
   if (!head) return undefined;
@@ -128,4 +143,19 @@ export function repairRoute(pts: readonly Pt[], src: Box, tgt: Box): Pt[] | unde
   if (!tail) return undefined;
   const r = clean(tail.reverse());
   return routeFits(r, src, tgt) ? r : undefined;
+}
+
+/**
+ * A stored route after its end nodes changed from `oldSrc`, `oldTgt` to `src`, `tgt`: unchanged while it still fits, translated when both
+ * ends moved by the same amount, otherwise repaired at its ends. Undefined when no valid route results (the caller drops it).
+ */
+export function adjustRoute(pts: readonly Pt[], oldSrc: Box, oldTgt: Box, src: Box, tgt: Box): Pt[] | undefined {
+  const same = (a: Box, b: Box) => Math.abs(a.w - b.w) < 0.01 && Math.abs(a.h - b.h) < 0.01;
+  const dx = src.x - oldSrc.x, dy = src.y - oldSrc.y;
+  if (same(oldSrc, src) && same(oldTgt, tgt) && Math.abs(tgt.x - oldTgt.x - dx) < 0.01 && Math.abs(tgt.y - oldTgt.y - dy) < 0.01) {
+    const moved = pts.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+    return routeFits(moved, src, tgt) ? moved : undefined;
+  }
+  if (routeFits(pts as Pt[], src, tgt)) return pts.map((p) => ({ ...p }));
+  return repairRoute(pts, src, tgt);
 }

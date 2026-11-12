@@ -2,8 +2,12 @@
 import type { DiagramDocument } from "./format.js";
 import type { BoxPatch, EdgePatch, EdgePoints, NodeBox } from "./protocol.js";
 import type { ViewModel } from "./view-model.js";
+import { adjustRoute } from "../webview/diagram/route-edit.js";
+import type { Box } from "../webview/diagram/geometry.js";
 import { MAX_COORD, validBox } from "./session.js";
 
+const MAX_POINTS = 1000;
+const sameBox = (a: Box, b: Box) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 const finite = (v: unknown, max = MAX_COORD): v is number => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= max;
 
 /** Ids of the nodes under `ids` (children, and ports attached to them), by the stored parents and the view model. */
@@ -38,8 +42,22 @@ export function removeItems(doc: DiagramDocument, ids: readonly string[], vm?: V
   };
 }
 
+/** Absolute box of a node from the stored relative boxes (a port: relative to its owner). Undefined when a box on the way is not stored. */
+function absBox(nodes: readonly DiagramDocument["nodes"][number][], id: string, vm?: ViewModel): Box | undefined {
+  let x = 0, y = 0;
+  let w: number | undefined, h: number | undefined;
+  for (let cur: string | undefined = id, i = 0; cur !== undefined; i++) {
+    const n = nodes.find((m) => m.id === cur);
+    if (!n || i > 100 || n.x === undefined || n.y === undefined) return undefined;
+    x += n.x; y += n.y;
+    if (i === 0) { w = n.w; h = n.h; }
+    cur = n.parent ?? vm?.nodes.find((m) => m.id === cur)?.attachedTo;
+  }
+  return w !== undefined && h !== undefined ? { x, y, w, h } : undefined;
+}
+
 /** Write moved or resized boxes; the stored route of an edge whose two ends moved together moves with them. Undefined when nothing changes. */
-export function applyBoxPatches(doc: DiagramDocument, patches: readonly BoxPatch[]): DiagramDocument | undefined {
+export function applyBoxPatches(doc: DiagramDocument, patches: readonly BoxPatch[], extra?: { routes?: readonly EdgePoints[]; drop?: readonly string[] }, vm?: ViewModel): DiagramDocument | undefined {
   const byId = new Map<string, BoxPatch>();
   for (const p of patches) {
     if (!p || typeof p.id !== "string" || !finite(p.x) || !finite(p.y)) continue;
@@ -58,18 +76,21 @@ export function applyBoxPatches(doc: DiagramDocument, patches: readonly BoxPatch
     return next;
   });
   if (!changed.size) return undefined;
-  // A stored route stays: the editor re-attaches its end segments to the moved or resized nodes when it draws it, and draws a
-  // computed route when that is impossible. Only when both ends are moved by the same amount does the route move with them.
-  const shift = (id: string): { dx: number; dy: number } | undefined => {
-    const before = doc.nodes.find((n) => n.id === id), after = nodes.find((n) => n.id === id);
-    if (!before || !after || before === after || before.w !== after.w || before.h !== after.h) return undefined;
-    return { dx: (after.x ?? 0) - (before.x ?? 0), dy: (after.y ?? 0) - (before.y ?? 0) };
-  };
+  // Stored routes of edges whose ends changed: the webview sends the routes it adjusted (`routes`) or the ids to drop. For callers
+  // that send neither, a route moves with its ends when both moved by the same absolute amount, and is dropped when it no longer fits.
+  const sent = new Map((extra?.routes ?? []).filter((r) => Array.isArray(r?.points) && r.points.length >= 2 && r.points.length <= MAX_POINTS && r.points.every((q) => finite(q?.x) && finite(q?.y))).map((r) => [r.id, r.points] as const));
+  const dropped = new Set(extra?.drop ?? []);
   const edges = doc.edges.map((e) => {
     if (!e.points) return e;
-    const a = shift(e.source), b = shift(e.target);
-    if (!a || !b || a.dx !== b.dx || a.dy !== b.dy || doc.nodes.find((n) => n.id === e.source)?.parent !== doc.nodes.find((n) => n.id === e.target)?.parent) return e;
-    return { ...e, points: e.points.map((p) => ({ x: p.x + a.dx, y: p.y + a.dy })) };
+    if (dropped.has(e.id)) { const { points: _p, ...rest } = e; return rest as typeof e; }
+    const p = sent.get(e.id);
+    if (p) return { ...e, points: p.map((q) => ({ x: q.x, y: q.y })) };
+    const os = absBox(doc.nodes, e.source, vm), ot = absBox(doc.nodes, e.target, vm), ns = absBox(nodes, e.source, vm), nt = absBox(nodes, e.target, vm);
+    if (!os || !ot || !ns || !nt || (sameBox(os, ns) && sameBox(ot, nt))) return e;
+    const r = adjustRoute(e.points, os, ot, ns, nt);
+    if (r) return r.every((q, i) => q.x === e.points![i]?.x && q.y === e.points![i]?.y) && r.length === e.points.length ? e : { ...e, points: r };
+    const { points: _p, ...rest } = e;
+    return rest as typeof e;
   });
   return { ...doc, nodes, edges };
 }
@@ -104,29 +125,36 @@ export function applyAutoLayout(doc: DiagramDocument, boxes: readonly NodeBox[],
   return changed ? { ...doc, nodes, edges } : undefined;
 }
 
+const r2 = (n: number): number => Math.round(n * 100) / 100;
 const validLabel = (l: unknown): l is NonNullable<EdgePatch["label"]> => {
   if (typeof l !== "object" || l === null) return false;
   const o = l as Record<string, unknown>;
   return finite(o.dx) && finite(o.dy) && (o.w === undefined || (finite(o.w) && o.w > 0)) && (o.h === undefined || (finite(o.h) && o.h > 0)) && (o.wrap === undefined || typeof o.wrap === "boolean");
 };
 
-/** Hand-edited routes and label layouts of lines; layout only, so the edges' model references are untouched. Undefined when nothing changes. */
-export function applyEdgeLayout(doc: DiagramDocument, patches: readonly EdgePatch[]): DiagramDocument | undefined {
+/**
+ * Hand-edited routes and label layouts of lines; layout only, so the edges' model references are untouched. Edges the model derives
+ * and sequence messages are not adjustable (their patches are ignored). Undefined when nothing changes.
+ */
+export function applyEdgeLayout(doc: DiagramDocument, patches: readonly EdgePatch[], vm?: ViewModel): DiagramDocument | undefined {
   const byId = new Map(patches.filter((p) => p && typeof p.id === "string").map((p) => [p.id, p] as const));
   let changed = false;
   const edges = doc.edges.map((e) => {
     const p = byId.get(e.id);
     if (!p) return e;
+    const v = vm?.edges.find((x) => x.id === e.id);
+    if (doc.kind === "sequence" || v?.derived || v?.fixed || e.locator?.kind === "message") return e;
     let next = e;
-    if (p.points !== undefined && doc.kind !== "sequence" && Array.isArray(p.points) && p.points.length >= 2 && p.points.every((q) => finite(q?.x) && finite(q?.y))) {
-      const pts = p.points.map((q) => ({ x: q.x, y: q.y }));
-      if (JSON.stringify(pts) !== JSON.stringify(e.points)) next = { ...next, points: pts };
+    if (p.points !== undefined && Array.isArray(p.points) && p.points.length >= 2 && p.points.length <= MAX_POINTS && p.points.every((q) => finite(q?.x) && finite(q?.y))) {
+      const pts = p.points.map((q) => ({ x: r2(q.x), y: r2(q.y) }));
+      if (JSON.stringify(pts) !== JSON.stringify(e.points?.map((q) => ({ x: r2(q.x), y: r2(q.y) })))) next = { ...next, points: pts };
     }
     if (p.label === null) {
       if (next.label !== undefined) { const { label: _l, ...rest } = next; next = rest as typeof e; }
     } else if (validLabel(p.label)) {
-      const l = { dx: p.label.dx, dy: p.label.dy, ...(p.label.w !== undefined ? { w: p.label.w } : {}), ...(p.label.h !== undefined ? { h: p.label.h } : {}), ...(p.label.wrap === false ? { wrap: false } : {}) };
-      if (JSON.stringify(l) !== JSON.stringify(next.label)) next = { ...next, label: l };
+      const l = { dx: r2(p.label.dx), dy: r2(p.label.dy), ...(p.label.w !== undefined ? { w: r2(p.label.w) } : {}), ...(p.label.h !== undefined ? { h: r2(p.label.h) } : {}), ...(p.label.wrap === false ? { wrap: false } : {}) };
+      const cur = next.label && { ...next.label, dx: r2(next.label.dx), dy: r2(next.label.dy) };
+      if (JSON.stringify(l) !== JSON.stringify(cur)) next = { ...next, label: l };
     }
     if (next !== e) changed = true;
     return next;

@@ -681,10 +681,25 @@ export function interactionTests(c: Ctx): Test[] {
         assert.strictEqual(m.edgesThroughEndNodes, 0);
         assert.ok(m.nodes.length > 0);
         assert.deepStrictEqual(r[r.length - 1], shaped[shaped.length - 1], "the other end is unchanged");
+        assert.deepStrictEqual(doc(f).edges.find((e) => e.id === e0.id)!.points, r, "the stored route is the drawn route (one layout edit)");
       }, "the route follows the moved node");
       const sn = nodeOf(await metrics(f), e0.source);
       const first = (await edge()).points[0]!;
       assert.ok(Math.abs(first.x - sn.x) < 1.5 || Math.abs(first.x - sn.x - sn.w) < 1.5 || Math.abs(first.y - sn.y) < 1.5 || Math.abs(first.y - sn.y - sn.h) < 1.5, "still attached to the moved node's border");
+    })],
+
+    ["double-click renames nodes next to attached lines and inside containers that lines cross, and adds a bend only on a line", withCopy("lamp-state-transition.sysmld", "tmp-dbl.sysmld", async () => {
+      const f = "tmp-dbl.sysmld";
+      const m0 = await metrics(f);
+      for (const n of m0.nodes.filter((x) => x.shape === "state")) {
+        await gesture(f, { kind: "inlineRename", id: n.id, text: n.text?.split(" | ")[0] ?? "x", commit: false });
+        assert.strictEqual((await metrics(f)).inlineEditor, false, "the editor closed again without committing");
+      }
+      assert.strictEqual(dirty(f), false, "renaming does not touch the diagram");
+      const e0 = m0.edges.find((e) => e.label?.startsWith("TurnOn"))!;
+      const n = e0.points.length;
+      await gesture(f, { kind: "dblclickEdge", id: e0.id });
+      await c.eventually(async () => assert.ok((await metrics(f)).edges.find((e) => e.id === e0.id)!.points.length > n, "a bend was added on the line"), "bend added");
     })],
 
     ["a line label moves and resizes by its handles, wraps by default, follows its line and persists; the menu resets it and toggles wrapping; the .sysml never changes", withCopy("lamp-state-transition.sysmld", "tmp-label.sysmld", async () => {
@@ -708,6 +723,9 @@ export function interactionTests(c: Ctx): Test[] {
         assert.deepStrictEqual(e.labelLines, [e0.label], "no wrapping needed at its own width");
       }, "label moved");
       assert.ok((await metrics(f)).labelHandles >= 2, "a selected label shows its handles");
+      const um = await metrics(f);
+      assert.strictEqual(um.userLabelsOffCanvas, 0, "a placed label lies inside the canvas");
+      assert.strictEqual(um.userLabelsOverNodes, 0, "a placed label is not over a node");
       // resize narrower and taller: the text wraps within the width
       await gesture(f, { kind: "labelResize", id: e0.id, dw: -(Math.round(box0.w / 2)), dh: 20 });
       await waitFor(() => stored(e0.id).label?.w !== undefined, 5000, "the size reaches the document");

@@ -47,7 +47,8 @@ export interface EdgePoints {
 
 /** User edits from the webview. Each one is a single undoable edit of the diagram file only. */
 export type DiagramEdit =
-  | { kind: "layout"; label: "Move" | "Resize" | "Nudge"; boxes: BoxPatch[] }
+  /** `routes` and `drop`: the stored routes of lines at the moved or resized nodes, adjusted by the webview (or to be removed), in the same edit. */
+  | { kind: "layout"; label: "Move" | "Resize" | "Nudge"; boxes: BoxPatch[]; routes?: EdgePoints[]; drop?: string[] }
   | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
   /** A hand-edited route or label layout of lines. */
   | { kind: "edgeLayout"; label: "Route" | "Label"; edges: EdgePatch[] }
@@ -173,6 +174,9 @@ export interface DiagramMetrics {
   labelsOverLabels: number;
   /** Pairs of segments of different edges that are collinear and overlap by more than 4 px. */
   edgeOverlaps: number;
+  /** Labels the user placed: touching a node, or outside the canvas. */
+  userLabelsOverNodes: number;
+  userLabelsOffCanvas: number;
   selected: string[];
   /** Labels of the open context menu's items (empty when none is open). */
   menu: string[];

@@ -11,8 +11,8 @@ import type { LayoutResult } from "./layout.js";
 import { checkEdges } from "./metrics.js";
 import { showMenu, type MenuItem } from "./menu.js";
 import { labelHit, layoutAt, moveBox, resizeBox, toggleWrap, type LabelLayout } from "./labels.js";
-import { addBend, dragBend, dragSegment, isHorizontal, routeHandleAt, segmentAt } from "./route-edit.js";
-import { routeFits } from "./routing.js";
+import { addBend, adjustRoute, dragBend, dragSegment, isHorizontal, routeHandleAt, segmentAt } from "./route-edit.js";
+import { clean, routeFits } from "./routing.js";
 import { buildScene } from "./scene.js";
 import { Tools, type Suggestion, type Tool } from "./tools.js";
 import { DARK_PALETTE, LIGHT_PALETTE, buildSvg, edgeHandlesSvg, overlaySvg, wrapStandalone } from "./svg.js";
@@ -83,7 +83,7 @@ export class SvgRenderer implements DiagramRenderer {
     const ihost: InteractionHost = {
       onSelection: (ids) => { this.selectedEdge = undefined; this.repaint(); this.tools.setSelection(this.vm, ids); cb.onSelection(ids); },
       onPreview: (boxes, band) => { this.preview = boxes; this.band = band; this.repaint(); },
-      onEdit: (edit) => cb.onEdit(edit),
+      onEdit: (edit) => cb.onEdit(this.withRoutes(edit)),
       onPan: (dx, dy) => {
         this.panStart ??= { ...this.view };
         this.view = { ...this.view, x: this.view.x + dx, y: this.view.y + dy };
@@ -190,7 +190,7 @@ export class SvgRenderer implements DiagramRenderer {
     if (!e || e.derived || e.fixed || e.source === e.target) return undefined;
     const pts = this.drawn.routes.get(id);
     const src = this.scene.get(e.source)?.abs, tgt = this.scene.get(e.target)?.abs;
-    return pts && pts.length >= 2 && src && tgt ? { pts, src, tgt } : undefined;
+    return pts && pts.length >= 2 && src && tgt ? { pts: clean(pts), src, tgt } : undefined;
   }
 
   /** The label of a line the user may adjust, as drawn. */
@@ -204,7 +204,34 @@ export class SvgRenderer implements DiagramRenderer {
   /** The line whose label is under the point (that of the selected line first). */
   private labelAtPoint(p: Pt): string | undefined {
     const ids = [...(this.selectedEdge !== undefined ? [this.selectedEdge] : []), ...this.drawn.labels.keys()];
-    return ids.find((id) => { const l = this.labelOf(id); return l !== undefined && labelHit(l.box, p, this.view.k) !== undefined; });
+    // A label over a node only takes the press when its line is selected, so it never steals clicks, drags or connections from the node.
+    const nodeUnder = hit(this.scene, p) !== undefined;
+    return ids.find((id) => { const l = this.labelOf(id); return l !== undefined && (id === this.selectedEdge || !nodeUnder) && labelHit(l.box, p, this.view.k) !== undefined; });
+  }
+
+  /** A move or resize edit also carries the stored routes of the lines at the changed nodes, adjusted (or to be dropped), so the file holds what is drawn. */
+  private withRoutes(edit: DiagramEdit): DiagramEdit {
+    const vm = this.vm;
+    if (edit.kind !== "layout" || !vm) return edit;
+    const old = absoluteBoxes(vm, this.rel);
+    const nrel = new Map(this.rel);
+    for (const b of edit.boxes) {
+      const cur = this.rel.get(b.id);
+      if (cur) nrel.set(b.id, { x: b.x, y: b.y, w: b.w ?? cur.w, h: b.h ?? cur.h });
+    }
+    const now = absoluteBoxes(vm, nrel);
+    const routes: { id: string; points: Pt[] }[] = [];
+    const drop: string[] = [];
+    const same = (a: Box | undefined, b: Box | undefined) => a !== undefined && b !== undefined && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+    for (const e of vm.edges) {
+      if (e.derived || e.fixed || !e.points?.length) continue;
+      const os = old.get(e.source), ot = old.get(e.target), ns = now.get(e.source), nt = now.get(e.target);
+      if (!os || !ot || !ns || !nt || (same(os, ns) && same(ot, nt))) continue;
+      const r = adjustRoute(e.points, os, ot, ns, nt);
+      if (!r) drop.push(e.id);
+      else routes.push({ id: e.id, points: r.map((q) => ({ x: Math.round(q.x * 100) / 100, y: Math.round(q.y * 100) / 100 })) });
+    }
+    return routes.length || drop.length ? { ...edit, ...(routes.length ? { routes } : {}), ...(drop.length ? { drop } : {}) } : edit;
   }
 
   private emitEdge(label: "Route" | "Label", patch: EdgePatch): void {
@@ -411,8 +438,9 @@ export class SvgRenderer implements DiagramRenderer {
     svg.addEventListener("dblclick", (e) => {
       const at = this.toInput(e, 0);
       const line = this.edgeHit(at);
-      if (line !== undefined) { this.bendAt(line, at); return; }
       const id = hit(this.scene, at);
+      // A node under the point is renamed; a line adds a bend where no node is, or inside a container only when the line is selected.
+      if (line !== undefined && (id === undefined || line === this.selectedEdge)) { this.bendAt(line, at); return; }
       if (id !== undefined) this.openEditor(id);
     });
     svg.addEventListener("pointermove", (e) => { if (this.rg) this.moveLineGesture(this.toInput(e)); else this.ia.pointerMove(this.toInput(e)); });
@@ -804,7 +832,7 @@ export class SvgRenderer implements DiagramRenderer {
   getMetrics(): Metrics {
     const vm = this.vm;
     const empty: Metrics = {
-      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
+      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0, userLabelsOverNodes: 0, userLabelsOffCanvas: 0,
       portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, routeHandles: 0, labelHandles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
     if (!vm) return empty;
