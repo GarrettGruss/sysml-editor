@@ -71,6 +71,24 @@ Grammar: `daltskin/sysml-v2-grammar` tag v2026.09.1 (commit 27a1344), MIT, vendo
 - Token re-join: 0 failures in 346 `.sysml` files after the lexer patch.
 - Standard library parse time (58 `.sysml` files, one Node process, including the re-join check): about 19.7 s with single-stage full-LL parsing; about 17.7 s with two-stage parsing (SLL with bail, then full LL on failure). Both exceed the 5 s target; a few large files (`ShapeItems.sysml`, `MeasurementReferences.sysml`) dominate. A cached index (task 2.6) is required, and the parse time needs more work.
 
+#### Parser performance
+
+Measured with `npm run bench:parser` (one process, Node 24, ms). Root cause: the cost was ANTLR's lazily built prediction DFA, not grammar ambiguity. `parse.ts` was not defeating the cache (the DFA array is a static on the generated parser class and is shared across instances); warm parses were already fast. Cold cost was dominated by decision 278 (`usageDeclaration`, about 6.8 s of 10.6 s), then 133 (`featureSpecializationPart`, 1.5 s), 20 (`identification`, 0.8 s), 139 (`multiplicityPart`, 0.6 s) and 135 (`featureSpecializationPart`, 0.6 s), measured on the cold Annex A parse.
+
+| Measurement | Before | After |
+|---|---|---|
+| Annex A, 1st parse in process (cold) | 10916 | 62 |
+| Annex A, parses 2-4 (warm) | 39 / 18 / 15 | 28 / 26 / 21 |
+| ShapeItems, 1st (after Annex A) / 2nd / 3rd | 5159 / 11 / 9 | 16 / 13 / 22 |
+| Library, 58 files, pass 1 (cold) / pass 2 (warm) | 19961 / 279 | 296 / 218 |
+| Annex A lex only (warm) / full parse (warm) | 3 / 28 | 3 / 15 |
+
+Upstream `daltskin/sysml-v2-lsp` (MIT) reaches its speedup with a build-time DFA snapshot of the parser's static DFAs loaded at startup, SLL with bail then LL fallback, shared parser/lexer singletons, and a parse worker. This change adopts the snapshot and keeps the existing two-stage parse.
+
+Changes: `src/parser/dfa-snapshot.ts` (extract/load/purge), `src/parser/dfa-snapshot.json` (about 370 KB, 20k states, trained on all `.sysml` fixtures by `npm run generate:dfa`, about 1 min, regenerate whenever the grammar changes; a snapshot whose ATN hash does not match is ignored), and `parse()` loads it at import. Restored states have empty ATN config sets, so they cannot grow new edges: if a parse has errors while the snapshot is active, `parse()` purges all DFAs once and reparses from the ATN, so results are identical to an unseeded parse. Set `SYSML_DFA_SNAPSHOT=off` to disable. Gate unchanged (337 of 340 clean, 0 re-join failures).
+
+Remaining: the first file with a syntax error (or a construct not in the training set) in a session pays a one-off purge and partial cold rebuild (seconds; for example a held-out run trained on the release files only, parsing the community models, cost 0.3 to 3.9 s on the few files that triggered it). Not tried: serializing full ATN configs (exact states, no purge), a parse worker, and grammar rewrites of `usageDeclaration` / `featureSpecializationPart`, which would also shrink the cold cost.
+
 Decisions taken from the gate: (1) the gate counts `.sysml` files that are valid under the official grammar; community files using pre-release syntax (bare `import`, package-level `actor`) are expected-invalid test cases. (2) The vendored lexer is patched to keep whitespace and line notes on a hidden channel. (3) KerML is not parsed by this parser: the standard library's `.kerml` files are read by a small outline indexer (task 2.6), and user-written `.kerml` files are not supported in this change. Task 2.3 (own full parser) is not needed.
 
 ### D8: Tree view

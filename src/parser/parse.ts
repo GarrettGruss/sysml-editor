@@ -13,6 +13,12 @@ import {
 } from "antlr4ng";
 import { SysMLv2Lexer } from "./generated/SysMLv2Lexer.js";
 import { SysMLv2Parser } from "./generated/SysMLv2Parser.js";
+import { isSnapshotActive, loadSnapshot, purgeSnapshotDfas, type DfaSnapshot } from "./dfa-snapshot.js";
+import snapshotData from "./dfa-snapshot.json";
+
+// Pre-seed the shared prediction DFAs so the first parse is not a ~10 s cold start (see
+// dfa-snapshot.ts). Set SYSML_DFA_SNAPSHOT=off to measure or regenerate without it.
+if (process.env["SYSML_DFA_SNAPSHOT"] !== "off") loadSnapshot(snapshotData as DfaSnapshot);
 
 export interface SyntaxErrorInfo {
   line: number;
@@ -64,12 +70,7 @@ function run(text: string, fast: boolean): ParseResult {
   return { tree, tokens, parser, errors };
 }
 
-/**
- * Parse SysML v2 text. Tokens (including hidden channel) are all fetched.
- * Two-stage: fast SLL prediction that bails on the first error, then, only on failure,
- * a full-LL reparse with normal error reporting and recovery.
- */
-export function parse(text: string): ParseResult {
+function twoStage(text: string): ParseResult {
   try {
     const r = run(text, true);
     if (r.errors.length === 0) return r;
@@ -77,6 +78,22 @@ export function parse(text: string): ParseResult {
     if (!(e instanceof ParseCancellationException)) throw e;
   }
   return run(text, false);
+}
+
+/**
+ * Parse SysML v2 text. Tokens (including hidden channel) are all fetched.
+ * Two-stage: fast SLL prediction that bails on the first error, then, only on failure,
+ * a full-LL reparse with normal error reporting and recovery. If the DFA snapshot is active
+ * and the result has errors, the snapshot may be the cause (it cannot extend itself), so the
+ * DFAs are purged once and the text is parsed again from the ATN.
+ */
+export function parse(text: string): ParseResult {
+  const r = twoStage(text);
+  if (r.errors.length > 0 && isSnapshotActive()) {
+    purgeSnapshotDfas();
+    return twoStage(text);
+  }
+  return r;
 }
 
 export type { Token };
