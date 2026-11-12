@@ -228,5 +228,7 @@ export function placeLabel(pts: readonly Pt[], w: number, h: number, avoid: read
     }
   }
   const off = cands.filter((c) => !labelOnRoute(c, pts));
-  return off.find((c) => !avoid.some((a) => hit(c, a))) ?? off[0] ?? cands[0] ?? { x: 0, y: 0, w, h };
+  // A label also keeps a little distance from the boxes it must avoid, so it does not sit on a border.
+  const apart = (c: Rect) => !avoid.some((a) => hit(c, { x: a.x - 3, y: a.y - 3, w: a.w + 6, h: a.h + 6 }));
+  return off.find(apart) ?? off.find((c) => !avoid.some((a) => hit(c, a))) ?? off[0] ?? cands[0] ?? { x: 0, y: 0, w, h };
 }

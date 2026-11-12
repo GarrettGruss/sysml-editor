@@ -4,6 +4,7 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "no
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { interactionTests } from "./diagram-interaction.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
@@ -20,7 +21,7 @@ export interface TestApi {
     apply(): Promise<void>;
     currentPlan(): { lmTools: boolean; mcpServer: boolean; registerWithVsCode: boolean };
     mcpEndpoint(): { url: string; port: number; token: string } | undefined;
-    testCallToolOverMcp(name: string, input: object): Promise<{ text: string; isError: boolean }>;
+    testCallToolOverMcp(name: string, input: object): Promise<{ text: string; isError: boolean; images: { mimeType: string; base64: string }[] }>;
   };
   diagram: {
     open(uri: vscode.Uri): Promise<void>;
@@ -291,6 +292,8 @@ export async function run(): Promise<void> {
     }],
   ];
 
+  const TOOL_COUNT = 10; // four model tools and six diagram tools
+
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
       assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Design", "Notes", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
@@ -397,23 +400,36 @@ export async function run(): Promise<void> {
     ["channel contract: every tool gives identical text over Language Model Tools and MCP", async () => {
       await api.agent.apply();
       assert.ok(api.agent.mcpEndpoint(), "MCP server is running under the default channels");
-      const lm = async (name: string, input: object) => {
-        const r = await vscode.lm.invokeTool(name, { toolInvocationToken: undefined, input });
-        return r.content.map((p) => (p as vscode.LanguageModelTextPart).value).join("");
-      };
+      const lm = async (name: string, input: object) => (await viaLm(name, input)).text;
+      await eventually(async () => assert.ok((await lm("sysml_list_diagrams", {})).includes("ports-general.sysmld")), "the diagram index is built");
       const calls: Array<[string, object]> = [
         ["sysml_list_files", {}],
         ["sysml_get_element_tree", { depth: 1 }],
         ["sysml_get_element", { qualifiedName: "Vehicle::Car" }],
         ["sysml_validate", {}],
+        ["sysml_list_diagrams", {}],
+        ["sysml_read_diagram", { path: "ports-general.sysmld" }],
+        ["sysml_read_diagram", { path: "ports-general.sysmld", includeImage: true }],
+        ["sysml_read_diagram", { path: "drivetrain-interconnection.sysmld" }],
+        ["sysml_read_diagram", { path: "requirements.sysmld" }],
       ];
       for (const [name, input] of calls) {
-        const viaLm = await lm(name, input);
-        const viaMcp = await api.agent.testCallToolOverMcp(name, input);
-        assert.strictEqual(viaMcp.isError, false, `${name} over MCP`);
-        assert.strictEqual(viaLm, viaMcp.text, `${name}: identical results`);
-        JSON.parse(viaLm);
+        const a = await viaLm(name, input);
+        const b = await viaMcp(api, name, input);
+        assert.strictEqual(b.isError, false, `${name} over MCP`);
+        assert.strictEqual(a.text, b.text, `${name}: identical results`);
+        JSON.parse(a.text);
+        const wantImage = (input as { includeImage?: boolean }).includeImage === true;
+        assert.strictEqual(a.images.length, wantImage ? 1 : 0, `${name}: images over Language Model Tools`);
+        assert.strictEqual(b.images.length, wantImage ? 1 : 0, `${name}: images over MCP`);
+        for (const img of [...a.images, ...b.images]) assert.ok(img.mimeType === "image/png" && isPng(img.data) && img.data.length > 2048, `${name}: a PNG image`);
       }
+      // the write tools give the same error text on both channels
+      const badCall: [string, object] = ["sysml_add_to_diagram", { path: "missing.sysmld", elements: ["Vehicle::Car"] }];
+      const ea = await viaLm(...badCall);
+      const eb = await viaMcp(api, ...badCall);
+      assert.strictEqual(eb.isError, true);
+      assert.strictEqual(ea.text, eb.text, "identical error text");
       const car = JSON.parse(await lm("sysml_get_element", { qualifiedName: "Vehicle::Car" }));
       assert.ok(car.elements.length > 0, "in-editor agent reads an element");
     }],
@@ -543,12 +559,12 @@ export async function run(): Promise<void> {
         assert.ok(api.agent.mcpEndpoint());
         await set("lmTools");
         assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: true, mcpServer: false, registerWithVsCode: false });
-        await listing(4);
+        await listing(TOOL_COUNT);
         await invoke(true);
         assert.strictEqual(api.agent.mcpEndpoint(), undefined);
         await set("both");
         assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: true, mcpServer: true, registerWithVsCode: false });
-        await listing(4);
+        await listing(TOOL_COUNT);
         await invoke(true);
         assert.ok(api.agent.mcpEndpoint());
       } finally {
@@ -557,6 +573,7 @@ export async function run(): Promise<void> {
     }],
     ...diagramTests(),
     ...interactionTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];
