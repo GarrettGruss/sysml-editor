@@ -6,7 +6,9 @@ import { paletteFor, type PaletteItem } from "../../diagram/palette.js";
 import type { ModelIntent, PropertyChanges } from "../../diagram/protocol.js";
 import type { ViewModel, VmNode } from "../../diagram/view-model.js";
 
-export type Tool = { kind: "add"; item: PaletteItem } | { kind: "connect" };
+type Relation = "satisfy" | "verify" | "derivation";
+const isConnect = (kind: string): boolean => kind === "connection" || kind === "satisfy" || kind === "verify" || kind === "derivation";
+export type Tool = { kind: "add"; item: PaletteItem } | { kind: "connect"; relation?: Relation };
 export type Field = "name" | "shortName" | "type" | "multiplicity" | "documentation";
 export interface Suggestion { name: string; qualifiedName: string; library: boolean }
 
@@ -76,22 +78,22 @@ export class Tools {
       const b = el("button", "palette-item", item.label);
       b.type = "button";
       b.dataset.kind = item.kind;
-      b.title = item.kind === "connection" ? "Connection: click the source, then the target" : `${item.label}: click here, then click the container (or the canvas) to create it`;
+      b.title = isConnect(item.kind) ? `${item.label}: click the source, then the target` : `${item.label}: click here, then click the container (or the canvas) to create it`;
       b.setAttribute("aria-pressed", "false");
-      b.addEventListener("click", () => this.cb.chooseTool(this.tool && this.isActive(item) ? undefined : item.kind === "connection" ? { kind: "connect" } : { kind: "add", item }));
+      b.addEventListener("click", () => this.cb.chooseTool(this.tool && this.isActive(item) ? undefined : isConnect(item.kind) ? { kind: "connect", ...(item.kind !== "connection" ? { relation: item.kind as Relation } : {}) } : { kind: "add", item }));
       this.palette.append(b);
       this.buttons.push(b);
     }
   }
 
   private isActive(item: PaletteItem): boolean {
-    return item.kind === "connection" ? this.tool?.kind === "connect" : this.tool?.kind === "add" && this.tool.item.kind === item.kind;
+    return isConnect(item.kind) ? this.tool?.kind === "connect" && (this.tool.relation ?? "connection") === item.kind : this.tool?.kind === "add" && this.tool.item.kind === item.kind;
   }
 
   setTool(t: Tool | undefined): void {
     this.tool = t;
     for (const b of this.buttons) {
-      const on = !!t && (t.kind === "connect" ? b.dataset.kind === "connection" : b.dataset.kind === t.item.kind);
+      const on = !!t && (t.kind === "connect" ? b.dataset.kind === (t.relation ?? "connection") : b.dataset.kind === t.item.kind);
       b.setAttribute("aria-pressed", String(on));
       b.classList.toggle("active", on);
     }

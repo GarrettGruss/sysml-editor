@@ -11,9 +11,15 @@ export interface PaletteItem {
 const item = (kind: string, label?: string): PaletteItem => ({ kind, label: label ?? kind.charAt(0).toUpperCase() + kind.slice(1) });
 
 // Every palette kind comes from the one list of kinds the model service accepts (`ALL_KINDS`).
-const GENERAL: PaletteItem[] = ALL_KINDS.filter((k) => k !== "package" && !k.startsWith("requirement")).map((k) => item(k));
+const GENERAL: PaletteItem[] = ALL_KINDS.filter((k) => k !== "package" && !k.startsWith("requirement") && !k.startsWith("verification")).map((k) => item(k));
 const INTERCONNECTION: PaletteItem[] = [...USAGE_KINDS.filter((k) => k === "part" || k === "port" || k === "attribute").map((k) => item(k)), item("connection", "Connection")];
-const REQUIREMENTS: PaletteItem[] = ALL_KINDS.filter((k) => k.startsWith("requirement")).map((k) => item(k));
+// The relationship tools go through the same model operations as the requirements editor (click the source, then the target).
+const REQUIREMENTS: PaletteItem[] = [
+  ...ALL_KINDS.filter((k) => k.startsWith("requirement")).map((k) => item(k)),
+  item("satisfy", "Satisfy"),
+  item("verify", "Verify"),
+  item("derivation", "Derivation"),
+];
 
 export function paletteFor(kind: DiagramKind): PaletteItem[] {
   return kind === "general" ? GENERAL : kind === "interconnection" ? INTERCONNECTION : REQUIREMENTS;

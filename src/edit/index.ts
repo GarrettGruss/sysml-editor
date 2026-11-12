@@ -1,12 +1,14 @@
 export type { DiagramUpdate, PlanFailure, PlanOk, PlanResult, PlanSource, RemainingReferences, SourceLocation, TextEdit, TextRange, UnjudgedReferences } from "./types.js";
 export { hashText, isPlanCurrent, sourceMatches, sourceOf, staleSources, type TextReader } from "./hash.js";
-export { applyEdits, groupByUri } from "./text.js";
+export { applyEdits, groupByUri, detectIndentUnit } from "./text.js";
 export { validatePlan, checkResolutionPreserved, type ResolutionExpectations } from "./validate.js";
 export { planInsertMember, buildDeclaration, type MemberSpec } from "./insert.js";
 export type { InsertPosition } from "./body.js";
 export { planDeleteElement, referencesAfterDelete } from "./delete.js";
 export { planRename, type LoadedDiagram, type RenameOptions } from "./rename.js";
 export { planSetType, planSetMultiplicity, planSetShortName, planSetDocumentation } from "./props.js";
+export * from "./comment.js";
+export * from "./requirements.js";
 export { planConnect, planSatisfy } from "./connect.js";
-export { writeReference, type WrittenReference } from "./refs.js";
+export { writeReference, referenceText, enclosingPackage, type WrittenReference } from "./refs.js";
 export { checkDocument, checkElement } from "./guard.js";

@@ -10,7 +10,7 @@ import { ToolError, type EditContext, type ToolContext, type ToolDefinition } fr
 
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
 
-function editing(ctx: ToolContext): EditContext {
+export function editing(ctx: ToolContext): EditContext {
   if (!ctx.edits) throw new ToolError("Model editing is not available in this session.");
   if (!ctx.edits.isTrusted())
     throw new ToolError("This workspace is not trusted, so model edits are disabled. Ask the user to trust the workspace (Workspace Trust) to allow them. Reading with sysml_get_element and sysml_get_element_tree still works.");
@@ -21,7 +21,7 @@ function pathOf(ctx: ToolContext, uri: string): string {
   return ctx.uriToPath(uri) ?? uri;
 }
 
-function locate(ctx: ToolContext, ed: EditContext, qn: string, what: string): Target {
+export function locate(ctx: ToolContext, ed: EditContext, qn: string, what: string): Target {
   const t = ed.service.find(qn);
   if (!t) throw new ToolError(`No ${what} with qualified name "${qn}". Use sysml_get_element_tree to find qualified names.`);
   if (isLibraryUri(t.element.uri)) throw new ToolError(`"${qn}" is standard library content, which is read-only.`);
@@ -33,7 +33,7 @@ function refused(r: OpFailure): ToolError {
   return new ToolError(r.reason + (r.goToDefinition ? ` (The declaring element is ${r.goToDefinition.name}.)` : "") + " No files were changed.");
 }
 
-function ok(r: OpResult): OpOk {
+export function ok(r: OpResult): OpOk {
   if (!r.ok) throw refused(r);
   return r;
 }
@@ -43,7 +43,7 @@ async function diagramTarget(ctx: ToolContext, ed: EditContext, input: Record<st
   return { uri: await ed.diagramUri(input.diagram), path: input.diagram };
 }
 
-function summary(ctx: ToolContext, r: OpOk, extra: Record<string, unknown> = {}) {
+export function summary(ctx: ToolContext, r: OpOk, extra: Record<string, unknown> = {}) {
   const unsaved = r.saveError?.unsaved ?? [];
   const saved = r.files.filter((u) => !unsaved.includes(u));
   const problems = r.diagramProblems;
@@ -233,16 +233,22 @@ const createRelationship: ToolDefinition = {
   description:
     "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. " +
     "`kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. " +
+    "`kind: \"verify\"` adds `verify <requirement>;` to the objective of a verification case (SysML v2 allows verify only there): give `verificationCase` (qualified name of an existing verification case; its objective is created when missing) or `newVerificationCase` (a name; a new `verification` containing the objective is created in `owner`, default the package of the requirement). " +
+    "`kind: \"derivation\"` adds `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; ... }` (derivation is not a keyword) to `owner` (default: the package of the first derived requirement) and `private import RequirementDerivation::*;` when missing; `original` and `derived` (a list) are qualified names of requirements. " +
     "With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
   inputSchema: {
     type: "object",
     properties: {
-      kind: { type: "string", enum: ["connection", "satisfy"], description: "connection or satisfy." },
+      kind: { type: "string", enum: ["connection", "satisfy", "verify", "derivation"], description: "connection, satisfy, verify or derivation." },
       owner: { type: "string", description: "Qualified name of the element that receives the statement. Required for a connection." },
       source: { type: "string", description: "connection: qualified name of the first end." },
       target: { type: "string", description: "connection: qualified name of the second end." },
       requirement: { type: "string", description: "satisfy: qualified name of the requirement." },
       by: { type: "string", description: "satisfy: qualified name of the satisfying element." },
+      verificationCase: { type: "string", description: "verify: qualified name of an existing verification case (def or usage)." },
+      newVerificationCase: { type: "string", description: "verify: name of a new verification case to create." },
+      original: { type: "string", description: "derivation: qualified name of the original requirement." },
+      derived: { type: "array", items: { type: "string", minLength: 1 }, minItems: 1, description: "derivation: qualified names of the derived requirements." },
       diagram: diagramProp,
     },
     required: ["kind"],
@@ -252,7 +258,7 @@ const createRelationship: ToolDefinition = {
   async handler(input, ctx) {
     const ed = editing(ctx);
     const need = (k: string) => {
-      if (typeof input[k] !== "string" || input[k] === "") throw new ToolError(`${input.kind === "connection" ? "A connection" : "A satisfy relationship"} needs \`${k}\`.`);
+      if (typeof input[k] !== "string" || input[k] === "") throw new ToolError(`A ${String(input.kind)} relationship needs \`${k}\`.`);
       return input[k] as string;
     };
     const target = await diagramTarget(ctx, ed, input);
@@ -263,6 +269,25 @@ const createRelationship: ToolDefinition = {
       const b = relationshipEnd(ctx, ed, need("target"), "target");
       const r = ok(await ed.service.connect(owner.element, a, b, origin));
       return summary(ctx, r, { created: { kind: "connection", owner: input.owner, source: input.source, target: input.target }, ...placementNote(ctx, r, target) });
+    }
+    if (input.kind === "verify") {
+      const req = relationshipEnd(ctx, ed, need("requirement"), "requirement");
+      const hasCase = typeof input.verificationCase === "string" && input.verificationCase !== "";
+      const hasNew = typeof input.newVerificationCase === "string" && input.newVerificationCase !== "";
+      if (hasCase === hasNew) throw new ToolError("A verify relationship needs exactly one of `verificationCase` (an existing case) or `newVerificationCase` (a name for a new one).");
+      const ownerEl = typeof input.owner === "string" && input.owner !== "" ? locate(ctx, ed, input.owner, "owner element").element : undefined;
+      const to = hasCase ? locate(ctx, ed, input.verificationCase as string, "verification case").element : { create: input.newVerificationCase as string, ...(ownerEl ? { owner: ownerEl } : {}) };
+      const r = ok(await ed.service.verify(req.element, to));
+      return summary(ctx, r, { created: { kind: "verify", requirement: input.requirement, verificationCase: hasCase ? input.verificationCase : input.newVerificationCase } });
+    }
+    if (input.kind === "derivation") {
+      const orig = relationshipEnd(ctx, ed, need("original"), "original requirement");
+      const list = Array.isArray(input.derived) ? (input.derived as unknown[]).filter((x): x is string => typeof x === "string" && x !== "") : [];
+      if (list.length === 0) throw new ToolError("A derivation needs `derived` with at least one requirement.");
+      const derived = list.map((qn) => relationshipEnd(ctx, ed, qn, "derived requirement").element);
+      const ownerEl = typeof input.owner === "string" && input.owner !== "" ? locate(ctx, ed, input.owner, "owner element").element : undefined;
+      const r = ok(await ed.service.derive(orig.element, derived, ownerEl));
+      return summary(ctx, r, { created: { kind: "derivation", original: input.original, derived: list } });
     }
     const req = relationshipEnd(ctx, ed, need("requirement"), "requirement");
     const by = relationshipEnd(ctx, ed, need("by"), "satisfying element");

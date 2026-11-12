@@ -17,7 +17,7 @@ import { startMcpServer, tokenMatches, type RunningMcpServer } from "./server.js
 
 const ROOT = "file:///w/";
 const index = new ModelIndex();
-const M_TEXT = "package P { part def Engine; part def Car { part engine : Engine; part gearbox; } }";
+const M_TEXT = "package P { part def Engine; part def Car { part engine : Engine; part gearbox; } requirement def Req; requirement def Req2; requirement ua; requirement ub; }";
 index.setDocument(ROOT + "m.sysml", M_TEXT);
 index.setDocument(ROOT + "bad.sysml", "package Q { part x : Nope; }");
 index.setDocument(ROOT + "ports.sysml", fixtureText("ports.sysml"));
@@ -50,7 +50,15 @@ const INPUTS: Record<string, unknown> = {
   sysml_rename_element: { element: "P::Engine", newName: "Motor" },
   sysml_set_element_properties: { element: "P::Car::engine", multiplicity: "2" },
   sysml_create_relationship: { kind: "connection", owner: "P::Car", source: "P::Car::engine", target: "P::Car::gearbox" },
+  sysml_read_requirements_document: { package: "P" },
+  sysml_create_requirement: { owner: "P", name: "massLimit", id: "R1", documentation: "The mass shall be low." },
 };
+/** More inputs of tools above: the relationship kinds of the requirements editor, over both channels. */
+const MORE: [string, unknown][] = [
+  ["sysml_create_relationship", { kind: "satisfy", requirement: "P::Req", by: "P::Car" }],
+  ["sysml_create_relationship", { kind: "verify", requirement: "P::Req", newVerificationCase: "check" }],
+  ["sysml_create_relationship", { kind: "derivation", original: "P::ua", derived: ["P::ub"] }],
+];
 
 let home: string;
 let workspace: string;
@@ -87,6 +95,26 @@ describe("tokenMatches", () => {
 describe("MCP server over HTTP", () => {
   it("covers every tool definition in this test", () => {
     expect(Object.keys(INPUTS).sort()).toEqual(toolDefinitions.map((t) => t.name).sort());
+  });
+  it("the requirement relationship kinds give the same result and text over MCP and directly", async () => {
+    const client = await connect(server.token);
+    for (const [name, input] of MORE) {
+      const reset = () => {
+        host.buffers.set(ROOT + "m.sysml", M_TEXT);
+        host.disk.set(ROOT + "m.sysml", M_TEXT);
+        index.setDocument(ROOT + "m.sysml", M_TEXT);
+      };
+      reset();
+      const r = await client.callTool({ name, arguments: input as Record<string, unknown> });
+      const viaMcp = host.buffers.get(ROOT + "m.sysml");
+      reset();
+      const expected = await callTool(name, input, ctx);
+      expect(r.content, JSON.stringify(input)).toEqual([{ type: "text", text: expected.text }]);
+      expect(r.isError).toBeUndefined();
+      expect(host.buffers.get(ROOT + "m.sysml")).toBe(viaMcp);
+      expect(viaMcp).not.toBe(M_TEXT);
+    }
+    await client.close();
   });
   it("lists every definition with its schema", async () => {
     const client = await connect(server.token);

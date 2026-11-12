@@ -544,8 +544,8 @@ describe("set type, multiplicity, short name, documentation", () => {
     expect(created).toContain("part def A {\n        doc /*\n         * line1\n         * line2\n         */\n    }");
     expect(errorsOf(A, created)).toEqual([]);
     expect(el(one(created), "P::A").documentation).toBe("line1\nline2");
-    const r = planSetDocumentation(ix, el(ix, "P::A"), "bad */ text");
-    expect(r.ok).toBe(false);
+    // a comment terminator is stored escaped (star, backslash, slash) instead of refused
+    expect(apply(ix, planSetDocumentation(ix, el(ix, "P::A"), "bad */ text"))).toContain("doc /* bad *\\/ text */");
     expect(planSetDocumentation(ix, el(ix, "P::A"), undefined).ok).toBe(false);
   });
 });

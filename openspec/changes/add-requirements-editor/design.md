@@ -38,6 +38,8 @@ Numbering and TOC are computed, never stored, so reordering never needs text ren
 
 Document edits reuse EditPlanner operations (rename, insert member, move member, set comment body); moving a section is a new `moveMember` plan that cuts the declaration (with its leading comments) and reinserts it at the target position with re-indentation. The agent tool `read_requirements_document` renders the same `DocumentModel` to Markdown with `<!-- qn: ... -->` markers.
 
+Implementation notes (verified against the real parser): the library text above parses and resolves unchanged (no edit was needed), `@DocumentRoot { title = "x"; version = "y"; }` and `@Appendix;` parse inside a package, and `DocumentAnnotations::DocumentRoot` resolves in the index. The model does not record the type of a metadata usage, so the document model reads the annotation name and `title`/`version` values from the declaration text; an unresolved annotation name is therefore not reported as an unresolved reference. The library is bundled as `dist/sysml.library/DocumentAnnotations.sysml` and indexed with the standard library. Appendices are the packages directly under the root that carry `@Appendix`. Requirement short names are written quoted (`<'R2'>`), as ids usually are.
+
 Alternatives: (a) a separate document file (e.g. Markdown with embedded references), rejected because the user requires the document to adhere to SysML v2 syntax and a second source of truth would drift; (b) storing section numbers as short names (`package <'3.1'> ...`), rejected because reordering would rewrite many declarations and short names are better left for user-assigned ids.
 
 Requirement relationships follow the language, not SysML v1 habits:

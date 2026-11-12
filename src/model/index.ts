@@ -53,6 +53,14 @@ interface Entry {
 let nextVersion = 1;
 
 /**
+ * Library packages that the extension bundles but that are not part of the standard SysML library. A workspace
+ * document that declares a root package of the same name shadows the bundled one entirely: name resolution,
+ * qualified-name lookup and everything built on them see only the workspace declaration, so a copy of the package in
+ * the workspace (e.g. `sysml.copyDocumentAnnotations`) is never ambiguous with the bundled copy.
+ */
+export const SHADOWABLE_LIBRARY_PACKAGES: ReadonlySet<string> = new Set(["DocumentAnnotations"]);
+
+/**
  * Holds the models of many documents, keyed by URI string, with a workspace-wide qualified-name
  * index and name resolution. Synchronous and free of debouncing; callers (the VS Code adapter)
  * decide when to call `setDocument`.
@@ -79,8 +87,8 @@ export class ModelIndex {
     this.details = opts.details;
     this.resolver = new Resolver({
       modelOf: (uri) => this.docs.get(uri)?.model,
-      rootsNamed: (name) => this.roots.get(name) ?? [],
-      withQualifiedName: (qn) => this.byQn.get(qn) ?? [],
+      rootsNamed: (name) => this.unshadowed(name, this.roots.get(name) ?? []),
+      withQualifiedName: (qn) => this.unshadowed(qn.split("::")[0]!, this.byQn.get(qn) ?? []),
     });
   }
 
@@ -167,7 +175,14 @@ export class ModelIndex {
 
   /** All elements with this qualified name (more than one when a package is declared in several files). */
   findByQualifiedName(qn: string): readonly Element[] {
-    return this.byQn.get(qn) ?? [];
+    return this.unshadowed(qn.split("::")[0]!, this.byQn.get(qn) ?? []);
+  }
+
+  /** `list` without the bundled library declarations of the root package `root` when a workspace document declares it too. */
+  private unshadowed(root: string, list: readonly Element[]): readonly Element[] {
+    if (!SHADOWABLE_LIBRARY_PACKAGES.has(root) || list.length < 2 || !list.some((e) => isLibraryUri(e.uri))) return list;
+    if (!(this.roots.get(root) ?? []).some((r) => !isLibraryUri(r.uri))) return list;
+    return list.filter((e) => !isLibraryUri(e.uri));
   }
 
   /** Resolve a name as written in the source from the point of view of `from`. */
@@ -347,5 +362,5 @@ export { loadLibraryChunked } from "./library.js";
 export { buildDocumentModel, documentFromParse, mapSyntaxErrors } from "./antlr-builder.js";
 export { antlrDocumentParser, DETAILS_PENDING_MESSAGE } from "./antlr-parser.js";
 export { serializeModel, deserializeModel, type SerializedModel } from "./serialize.js";
-export { quoteName, unquoteName, splitQualified } from "./names.js";
+export { quoteName, unquoteName, splitQualified, processDocComment } from "./names.js";
 export { inheritedMembers, inheritedFrom, inheritedVia, isInheritedIn, supertypesOf, locate, type InheritedMember, type Located } from "./inherited.js";

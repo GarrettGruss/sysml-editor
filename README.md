@@ -80,6 +80,15 @@ The SysML text is the source of truth and the diagram is always kept in step wit
 
 **Inherited features.** A usage inherits the features of its definition and supertypes. In a General View a usage lists them (in italics) in a compartment; in an Interconnection View of a usage, inherited parts and ports that are on the diagram are drawn **dashed on a muted fill** (they are not added automatically). Inherited features, and everything inside them, cannot be deleted, renamed, retyped or extended from the usage by a person or an agent (nodes and compartment lines nested under an inherited node are drawn inherited too; standard library supertypes are not followed): the message names the definition and offers **Go to Definition**. Adding a feature inside a usage adds it to that usage only; the definition and other usages are unchanged. Redefining an inherited feature is not offered.
 
+## Requirements editor
+
+`SysML: Open Requirements Editor` (tree context menu on a package, Explorer menu on a `.sysml` file, or the command palette) opens a **Table**
+of the requirements of a package or file (id, name, text, owner, satisfy and verify counts; inline editing, add, delete, relationships,
+navigation) and a **Document** view that renders the package as a numbered specification with a table of contents, paragraphs and appendices. SysML text
+stays the only stored form. See [docs/requirements-document.md](docs/requirements-document.md) for the mapping, the `DocumentAnnotations` metadata library
+(`SysML: Copy Document Annotations Library to Workspace`), the `*\/` comment-terminator convention and the Markdown subset. The Requirements View palette
+offers Satisfy, Verify and Derivation tools, and agents get `sysml_read_requirements_document` and `sysml_create_requirement`.
+
 ## AI agents
 
 Agents can read and validate the open SysML model, edit diagrams and edit the model (create, delete, rename, change properties, connect and satisfy) through Language Model Tools and MCP; model edits go through the same operations as the tree and the diagrams, are saved at once, are one undo step and are refused in untrusted workspaces. See [docs/agents.md](docs/agents.md).

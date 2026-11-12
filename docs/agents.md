@@ -22,7 +22,9 @@ VS Code is open on that workspace.
 | `sysml_delete_element` | Delete an element from the model (its declaration and body, and its entries on every diagram). Not the same as removing it from a diagram. |
 | `sysml_rename_element` | Rename an element, every reference to it, and the diagram files that refer to it. |
 | `sysml_set_element_properties` | Change name, short name, type, multiplicity or documentation of an element. |
-| `sysml_create_relationship` | Add a `connect` (connection) or `satisfy` statement. |
+| `sysml_create_relationship` | Add a `connect` (connection), `satisfy`, `verify` or `derivation` (a `#derivation connection`) statement. |
+| `sysml_create_requirement` | Create a requirement (or `requirement def`) with an optional id (`<'R1'>`) and documentation. |
+| `sysml_read_requirements_document` | Read a package as a specification document in Markdown: generated section numbers, table of contents, paragraphs, requirement items and appendices, each heading and requirement followed by a `<!-- qn: ... -->` marker with its qualified name. Read-only; output is cut at 60000 characters with a note. |
 
 Results are JSON text. The model tools (`sysml_list_files`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_validate`) never write
 files. The four diagram write tools (`sysml_create_diagram`, `sysml_add_to_diagram`, `sysml_remove_from_diagram`,
@@ -63,8 +65,8 @@ Tool inputs are treated as untrusted. Every diagram path is checked before any r
 
 ### Untrusted workspaces
 
-In an untrusted workspace (`vscode.workspace.isTrusted` is false) all write tools (the four diagram tools and the five model
-tools below) return an error and change nothing. The read tools (`sysml_list_diagrams`, `sysml_read_diagram`, including images,
+In an untrusted workspace (`vscode.workspace.isTrusted` is false) all write tools (the four diagram tools and the six model
+edit tools below) return an error and change nothing. The read tools (`sysml_list_diagrams`, `sysml_read_diagram`, including images,
 and the model read tools) keep working.
 
 ## Model edits
@@ -179,3 +181,29 @@ The workspace is the folder opened in VS Code. The bridge finds the running serv
   declarations; `sysml_get_element_tree` at most 500 nodes; `sysml_list_diagrams` at most 500 diagrams;
   `sysml_read_diagram` at most 500 nodes, 1000 edges and 500 unresolved items (with a note); `sysml_create_diagram` and
   `sysml_add_to_diagram` at most 200 elements per call; `sysml_remove_from_diagram` at most 200 ids.
+
+## Requirements
+
+`sysml_read_requirements_document` returns the same projection as the Document view of the requirements editor (see
+[requirements-document.md](requirements-document.md)): the title (from `@DocumentRoot`, else the package name), a table of
+contents, numbered sections (`1`, `1.1`, ...; numbers are computed, never in the model), paragraphs, requirement items with
+their relationships, and appendices (`@Appendix`, lettered A, B, ...). Headings and requirements end with a marker such as
+`<!-- qn: VehicleSpec::'Performance Requirements'::massLimit -->`; pass that qualified name to the edit tools. Text from the model
+cannot forge a marker (`<!--` and `-->` in model text are escaped).
+
+`sysml_create_requirement` and the `verify` and `derivation` kinds of `sysml_create_relationship` go through the same
+`ModelService` operations as the requirements editor and the Requirements View palette, so the text is byte-identical:
+
+- `kind: "verify"` with `requirement` and either `verificationCase` (an existing case, whose objective gets `verify <requirement>;`;
+  an objective is created when missing) or `newVerificationCase` (a name; `verification <name> { objective { verify <requirement>; } }`
+  is created in `owner`, default the requirement's package). SysML v2 allows `verify` only inside a verification case.
+  A requirement definition is verified as `verify requirement : R;`.
+- `kind: "derivation"` with `original` and `derived` (a list; usages only, a definition is refused; a second derivation from the same original in the same owner extends the existing connection): `#derivation connection { end #original ::> a; end #derive ::> b; }`
+  in `owner` (default the package of the first derived requirement), plus `private import RequirementDerivation::*;` when
+  those names are not visible there.
+
+String inputs are bounded (names and ids 1000 characters, qualified names 4096, documentation 100000); ids and names are quoted as needed (`<'R 1'>`).
+Comment text containing `*/` is stored as `*\/`; Markdown read through `sysml_read_requirements_document` shows it unescaped (one backslash is removed from each run of backslashes between `*` and `/`).
+
+Both channels (language model tools and MCP) return identical results; write tools are refused in an untrusted workspace and on
+files with syntax errors.

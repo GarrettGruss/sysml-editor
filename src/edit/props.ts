@@ -3,11 +3,12 @@ import { deleteEdit } from "./delete.js";
 import { declarationTokens, findRuns } from "./decl.js";
 import { checkElement, describeElement } from "./guard.js";
 import { importEdits, referenceText } from "./refs.js";
-import { insertWithImports, nameClash, normalizeMultiplicity } from "./insert.js";
+import { insertWithImports, nameClash, normalizeMultiplicity, shortNameText } from "./insert.js";
 import { detectEol, isBlockComment, lineIndent, tokenize, type Tok } from "./text.js";
 import { fail, type PlanResult, type TextEdit } from "./types.js";
 import { validatePlan } from "./validate.js";
 import { declStart } from "./decl.js";
+import { buildComment, commentStyle, escapeTerminator, newCommentDecl } from "./comment.js";
 
 function ownNameTokens(el: Element): Set<number> {
   const s = new Set<number>();
@@ -151,7 +152,7 @@ export function planSetShortName(index: ModelIndex, element: Element, shortName:
   if (shortName !== undefined && (shortName === "" || /[\r\n]/.test(shortName))) return fail("The short name must be a single line of text and not empty.");
   const uri = element.uri;
   const text = c.state.text;
-  const q = shortName === undefined ? undefined : quoteName(shortName);
+  const q = shortName === undefined ? undefined : shortNameText(element.kind.split(" "), shortName);
   if (shortName !== undefined) {
     const reason = nameClash(index, element.owner, [shortName], element);
     if (reason) return fail(reason);
@@ -183,30 +184,15 @@ export function planSetShortName(index: ModelIndex, element: Element, shortName:
   return validatePlan(index, { ok: true, edits: [edit], description: `Set the short name of ${describeElement(element)}${q ? " to <" + q + ">" : " (removed)"}` });
 }
 
-function commentText(raw: string): { multi: boolean; margin: boolean; tight: boolean } {
-  const multi = raw.includes("\n");
-  const lines = raw.split(/\r?\n/).slice(1);
-  const margin = multi && lines.length > 0 && lines.slice(0, -1).every((l) => /^\s*\*/.test(l)) && lines.slice(0, -1).length > 0;
-  return { multi, margin, tight: /^\/\*[^\s*]/.test(raw) };
-}
-
-function buildComment(body: string, eol: string, indent: string, style: { multi: boolean; margin: boolean; tight: boolean }, keyword: string): string {
-  const lines = body.split("\n");
-  if (!style.multi && lines.length === 1) return style.tight ? `${keyword}/*${body}*/` : `${keyword}/* ${body} */`;
-  if (style.multi && !style.margin) return [`${keyword}/*`, ...lines.map((l) => (l === "" ? "" : indent + l)), `${indent}*/`].join(eol);
-  return [`${keyword}/*`, ...lines.map((l) => (l === "" ? `${indent} *` : `${indent} * ${l}`)), `${indent} */`].join(eol);
-}
-
 /**
  * Create, replace or remove (`undefined` or empty text) the owned `doc` comment of an element,
- * keeping the existing comment style (single-line versus multi-line with ` * ` margins). Text
- * containing `*` followed by `/` is refused: the escaping convention is not defined yet.
+ * keeping the existing comment style (single-line versus multi-line with margins). Text containing a comment
+ * terminator is stored with a backslash before the slash (see comment.ts).
  */
 export function planSetDocumentation(index: ModelIndex, element: Element, documentation: string | undefined): PlanResult {
   const c = checkElement(index, element);
   if (!c.ok) return c;
-  const body = documentation?.replace(/\r\n/g, "\n").trim();
-  if (body !== undefined && body.includes("*/")) return fail("Documentation text cannot contain '*/'; it would end the comment.");
+  const body = documentation === undefined ? undefined : escapeTerminator(documentation.replace(/\r\n/g, "\n").trim());
   const text = c.state.text;
   const doc = element.members.find((m) => m.kind === "doc" && m.range.start.offset >= (element.bodyRange?.start.offset ?? Infinity));
   const label = describeElement(element);
@@ -218,7 +204,7 @@ export function planSetDocumentation(index: ModelIndex, element: Element, docume
     }
     const tok = tokenize(text).find((t) => isBlockComment(t) && t.start >= doc.range.start.offset && t.end <= doc.range.end.offset);
     if (!tok) return fail(`Could not find the documentation comment of ${label}.`);
-    const style = commentText(tok.text);
+    const style = commentStyle(tok.text);
     const eol = detectEol(text);
     const indent = lineIndent(text, declStart(text, doc));
     const newText = buildComment(body, eol, indent, style, "");
@@ -226,7 +212,7 @@ export function planSetDocumentation(index: ModelIndex, element: Element, docume
     return validatePlan(index, { ok: true, edits: [{ uri: element.uri, range: { start: tok.start, end: tok.end }, newText }], description: `Change the documentation of ${label}` });
   }
   if (body === undefined || body === "") return fail(`${label} has no documentation to remove.`);
-  const decl = body.includes("\n") ? buildComment(body, "\n", "", { multi: true, margin: true, tight: false }, "doc ") : `doc /* ${body} */`;
+  const decl = newCommentDecl("doc", body, "\n", "");
   const r = insertWithImports(index, element, [decl], [], "start");
   if (!r.ok) return r;
   return validatePlan(index, { ok: true, edits: r.edits, description: `Add documentation to ${label}` });

@@ -8,6 +8,8 @@ import {
   buildDeclaration, planConnect, planDeleteElement, planInsertMember, planRename, planSatisfy, planSetDocumentation,
   planSetMultiplicity, planSetShortName, planSetType, validatePlan,
   isPlanCurrent, sourceMatches, sourceOf,
+  detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, planRemoveDerivation, planRemoveSatisfy,
+  planRemoveVerify, planSetCommentBody, planVerify, type MoveTarget,
   type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
@@ -389,11 +391,11 @@ export class ModelService {
           }
           const memberSpec = { kind: spec.kind, ...(spec.name !== undefined ? { name: spec.name } : {}), ...(spec.shortName ? { shortName: spec.shortName } : {}), ...(type !== undefined ? { type } : {}), ...(spec.multiplicity ? { multiplicity: spec.multiplicity } : {}) };
           if (!spec.documentation) return planInsertMember(this.index, ownerNow, memberSpec);
-          if (spec.documentation.includes("*/")) return fail("The documentation must not contain a comment terminator.");
           const b = buildDeclaration(this.index, ownerNow, memberSpec);
           if (!b.ok) return b;
-          const docText = spec.documentation.includes("\n") ? `doc /* ${spec.documentation.split(/\r?\n/).join("\n * ")} */` : `doc /* ${spec.documentation} */`;
-          const decl = b.text.replace(/;$/, ` {\n  ${docText.split("\n").join("\n  ")}\n}`);
+          const docText = newCommentDecl("doc", escapeTerminator(spec.documentation.replace(/\r\n/g, "\n").trim()), "\n", "");
+          const unit = detectIndentUnit(this.index.getDocument(ownerNow.uri)?.text ?? "");
+          const decl = b.text.replace(/;$/, ` {\n${unit}${docText.split("\n").join("\n" + unit)}\n}`);
           return planInsertMember(this.index, ownerNow, decl);
         },
         () => ({
@@ -586,20 +588,168 @@ export class ModelService {
   }
 
   satisfy(requirement: Element, by: Element, owner?: Element, origin?: Origin): Promise<OpResult> {
+    return this.statementOp(
+      ["satisfy"],
+      () => {
+        const r = this.fresh(requirement);
+        const b = this.fresh(by);
+        const o = owner ? this.fresh(owner) : undefined;
+        if (!r || !b || (owner && !o)) return fail("An element is out of date; refresh and try again.");
+        return planSatisfy(this.index, r, b, o);
+      },
+      () => [requirement.uri, ...(owner ? [owner.uri] : []), by.uri],
+      origin,
+      "Satisfy",
+    );
+  }
+
+  /**
+   * An operation that writes a relationship statement (satisfy, verify, derivation connection). With `origin.diagram` the
+   * new statement is also placed on that diagram as an edge (when both ends are shown) and the diagram gets the undo entry.
+   */
+  private statementOp(kinds: readonly string[], plan: () => PlanResult | OpFailure, touched: () => string[], origin: Origin | undefined, label: string): Promise<OpResult> {
+    return this.serial(async () => {
+      const sig = (e: Element) => `${e.uri}\0${e.kind}\0${this.index.getDocument(e.uri)?.text.slice(e.range.start.offset, e.range.end.offset)}`;
+      const pre = new Map<string, number>();
+      const all = (): Element[] => {
+        const out: Element[] = [];
+        const walk = (e: Element) => {
+          if (kinds.includes(e.kind)) out.push(e);
+          e.members.forEach(walk);
+        };
+        for (const u of new Set(touched())) this.index.getDocument(u)?.model.roots.forEach(walk);
+        return out;
+      };
+      let created: Element | undefined;
+      return this.run(
+        () => {
+          pre.clear();
+          for (const e of all()) pre.set(sig(e), (pre.get(sig(e)) ?? 0) + 1);
+          return plan();
+        },
+        () => ({
+          element: () => {
+            const seen = new Map<string, number>();
+            created = all().find((e) => {
+              const k = sig(e);
+              const n = (seen.get(k) ?? 0) + 1;
+              seen.set(k, n);
+              return n > (pre.get(k) ?? 0);
+            });
+            return created;
+          },
+          ...(origin?.diagram ? { change: () => placeElementChange(this.index, () => created, { diagram: origin.diagram! }, label) } : {}),
+        }),
+        origin,
+        touched,
+      );
+    });
+  }
+
+  // ---- requirements and documents ------------------------------------------------------------
+
+  /** Run a plan over fresh elements; `elements` are re-read from the current model right before planning. */
+  private plain(elements: readonly (Element | undefined)[], plan: (fresh: Element[]) => PlanResult, touched: () => string[], origin?: Origin): Promise<OpResult> {
     return this.serial(async () =>
       this.run(
         () => {
-          const r = this.fresh(requirement);
-          const b = this.fresh(by);
-          const o = owner ? this.fresh(owner) : undefined;
-          if (!r || !b || (owner && !o)) return fail("An element is out of date; refresh and try again.");
-          return planSatisfy(this.index, r, b, o);
+          const fresh: Element[] = [];
+          for (const e of elements) {
+            if (!e) continue;
+            const f = this.fresh(e);
+            if (!f) return fail("An element is out of date; refresh and try again.");
+            fresh.push(f);
+          }
+          return plan(fresh);
         },
         () => ({}),
         origin,
-        () => [requirement.uri],
+        touched,
       ),
     );
+  }
+
+  /** `verify <requirement>;` in the objective of a verification case, or in a new case named `{ create }`. */
+  verify(requirement: Element, to: Element | { create: string; owner?: Element }, origin?: Origin): Promise<OpResult> {
+    const target = "create" in to ? to.owner : to;
+    return this.statementOp(
+      ["verify"],
+      () => {
+        const r = this.fresh(requirement);
+        const t = target ? this.fresh(target) : undefined;
+        if (!r || (target && !t)) return fail("An element is out of date; refresh and try again.");
+        return planVerify(this.index, r, "create" in to ? { create: to.create, ...(t ? { owner: t } : {}) } : t!);
+      },
+      () => [requirement.uri, ...(target ? [target.uri] : [])],
+      origin,
+      "Verify",
+    );
+  }
+
+  /** `#derivation connection { end #original ::> original; end #derive ::> derived; ... }`. */
+  derive(original: Element, derived: readonly Element[], owner?: Element, origin?: Origin): Promise<OpResult> {
+    return this.statementOp(
+      ["connection"],
+      () => {
+        const f = [original, ...derived, ...(owner ? [owner] : [])].map((e) => this.fresh(e));
+        if (f.some((e) => !e)) return fail("An element is out of date; refresh and try again.");
+        return planDerivation(this.index, f[0]!, f.slice(1, 1 + derived.length) as Element[], owner ? f[f.length - 1]! : undefined);
+      },
+      () => [derived[0]?.uri ?? original.uri, ...(owner ? [owner.uri] : [])],
+      origin,
+      "Derivation",
+    );
+  }
+
+  removeSatisfy(statement: Element, origin?: Origin): Promise<OpResult> {
+    return this.plain([statement], ([s]) => planRemoveSatisfy(this.index, s!), () => [statement.uri], origin);
+  }
+
+  removeVerify(statement: Element, origin?: Origin): Promise<OpResult> {
+    return this.plain([statement], ([s]) => planRemoveVerify(this.index, s!), () => [statement.uri], origin);
+  }
+
+  removeDerivation(connection: Element, derived?: Element, origin?: Origin): Promise<OpResult> {
+    return this.plain([connection, derived], (f) => planRemoveDerivation(this.index, f[0]!, derived ? f[1] : undefined), () => [connection.uri], origin);
+  }
+
+  /** Reorder a declaration within its owner, or move it into another owner (refused when references would change meaning). */
+  moveMember(element: Element, to: MoveTarget, origin?: Origin): Promise<OpResult> {
+    const slots: (Element | undefined)[] = [element, to.owner, to.after, to.before];
+    return this.plain(slots, (f) => {
+      const [el, ...rest] = f;
+      const it = rest[Symbol.iterator]();
+      const mt: MoveTarget = { ...(to.position ? { position: to.position } : {}) };
+      if (to.owner) mt.owner = it.next().value as Element;
+      if (to.after) mt.after = it.next().value as Element;
+      if (to.before) mt.before = it.next().value as Element;
+      return planMoveMember(this.index, el!, mt);
+    }, () => [...new Set([element.uri, ...(to.owner ? [to.owner.uri] : []), ...(to.after ? [to.after.uri] : []), ...(to.before ? [to.before.uri] : [])])], origin);
+  }
+
+  /** Replace the body of a `doc` or `comment` element (an empty text removes it). */
+  setParagraph(comment: Element, text: string, origin?: Origin): Promise<OpResult> {
+    return this.plain([comment], ([c]) => planSetCommentBody(this.index, c!, text), () => [comment.uri], origin);
+  }
+
+  /** A new `doc` (the first paragraph) or `comment` in a package. */
+  addParagraph(pkg: Element, text: string, after?: Element, origin?: Origin): Promise<OpResult> {
+    return this.plain([pkg, after], (f) => planAddParagraph(this.index, f[0]!, text, after ? f[1] : undefined), () => [pkg.uri], origin);
+  }
+
+  /** A new section (package) or appendix (package with `@Appendix;` and the library import when missing). */
+  addSection(parent: Element, name: string, opts: { appendix?: boolean; after?: Element } = {}, origin?: Origin): Promise<OpResult> {
+    return this.plain([parent, opts.after], (f) => planAddSection(this.index, f[0]!, name, { ...(opts.appendix ? { appendix: true } : {}), ...(opts.after ? { after: f[1]! } : {}) }), () => [parent.uri], origin);
+  }
+
+  /** A new requirement (usage or definition) with an optional id (short name) and documentation. */
+  createRequirement(owner: Element, spec: { definition?: boolean; id?: string; name: string; documentation?: string }, origin?: Origin): Promise<OpResult> {
+    return this.addElement(owner, {
+      kind: spec.definition ? "requirement def" : "requirement",
+      name: spec.name,
+      ...(spec.id ? { shortName: spec.id } : {}),
+      ...(spec.documentation ? { documentation: spec.documentation } : {}),
+    }, origin?.diagram ? { diagram: origin.diagram } : {});
   }
 
   // ---- undo and redo -------------------------------------------------------------------------

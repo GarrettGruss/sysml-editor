@@ -34,5 +34,5 @@
 
 ## 5. Integration
 
-- [ ] 5.1 End-to-end test: add, rename, connect, and delete elements from a diagram, from the tree, and from an agent; verify text, tree, and diagrams stay consistent after reload
+- [x] 5.1 End-to-end test: add, rename, connect, and delete elements from a diagram, from the tree, and from an agent; verify text, tree, and diagrams stay consistent after reload
 - [x] 5.2 Package with `vsce package` and verify an edit made from a diagram in an installed `.vsix` is written to the `.sysml` file

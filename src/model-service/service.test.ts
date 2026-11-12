@@ -367,7 +367,7 @@ describe("kinds", () => {
     const { ALL_KINDS } = await import("./kinds.js");
     expect(ADD_KINDS.map((k) => k.kind)).toEqual([...ALL_KINDS]);
     for (const dk of ["general", "interconnection", "requirements"] as const)
-      for (const p of paletteFor(dk)) if (p.kind !== "connection") expect(ALL_KINDS, p.kind).toContain(p.kind);
+      for (const p of paletteFor(dk)) if (!["connection", "satisfy", "verify", "derivation"].includes(p.kind)) expect(ALL_KINDS, p.kind).toContain(p.kind);
   });
 });
 

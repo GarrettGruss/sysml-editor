@@ -21,8 +21,8 @@ export const parseStats = { fastPath: 0, fallback: 0 };
  * the extension runs in the parse worker (see `src/parse-worker.ts`).
  */
 export function tryFastParse(text: string, opts: { ll?: boolean } = {}): FastResult {
-  let r = fastParse(text);
-  if (!r.ok && !r.lexer && opts.ll) r = fastParse(text, undefined, true);
+  let r = fastParse(text, undefined, false, true);
+  if (!r.ok && !r.lexer && opts.ll) r = fastParse(text, undefined, true, true);
   if (r.ok) parseStats.fastPath++;
   return r;
 }

@@ -97,6 +97,7 @@ export interface JsonSchema {
   items?: JsonSchema;
   minItems?: number;
   minLength?: number;
+  maxLength?: number;
   /** Exactly one of the alternatives must match. */
   oneOf?: JsonSchema[];
   /** Local reference of the form `#/definitions/<name>`. */

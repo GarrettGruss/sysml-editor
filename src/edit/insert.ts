@@ -19,6 +19,12 @@ export interface MemberSpec {
   visibility?: "public" | "private" | "protected";
 }
 
+/** Short names of requirements are written quoted (`<'R2'>`), as ids usually are; others only when needed. */
+export function shortNameText(kindWords: readonly string[], shortName: string): string {
+  const q = quoteName(shortName);
+  return kindWords.includes("requirement") && !q.startsWith("'") ? `'${q}'` : q;
+}
+
 export function normalizeMultiplicity(m: string): string | undefined {
   const t = m.trim();
   const inner = t.startsWith("[") && t.endsWith("]") ? t.slice(1, -1).trim() : t;
@@ -78,7 +84,7 @@ export function buildDeclaration(
   if (spec.type !== undefined && isDef) return fail("A definition has no type; specialization is not supported by this edit.");
   const needs: ImportNeed[] = [];
   let out = (spec.visibility ? spec.visibility + " " : "") + words.join(" ");
-  if (spec.shortName !== undefined) out += ` <${quoteName(spec.shortName)}>`;
+  if (spec.shortName !== undefined) out += ` <${shortNameText(words, spec.shortName)}>`;
   if (spec.name !== undefined) {
     if (spec.name === "" || /[\r\n]/.test(spec.name)) return fail("The name must be a single line of text.");
     out += " " + quoteName(spec.name);

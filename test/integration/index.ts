@@ -7,6 +7,7 @@ import * as vscode from "vscode";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { interactionTests } from "./diagram-interaction.js";
 import { editingTests } from "./editing.js";
+import { requirementsTests } from "./requirements.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
 export interface ModelNode { id: string; uri: string }
@@ -39,6 +40,33 @@ export interface TestApi {
     activeUri(): string | undefined;
   };
   dnd: { handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void };
+  requirements: {
+    open(scope: ReqScope, view?: "table" | "document"): Promise<void>;
+    close(scope: ReqScope): Promise<void>;
+    metrics(scope: ReqScope): Promise<ReqMetrics>;
+    png(scope: ReqScope): Promise<string>;
+    gesture(scope: ReqScope, g: ReqGesture): Promise<void>;
+    setWidth(scope: ReqScope, width: number | null): Promise<void>;
+    intent(scope: ReqScope, intent: Record<string, unknown>): Promise<{ ok: boolean; message?: string }>;
+    setView(scope: ReqScope, view: "table" | "document"): Promise<void>;
+    setUi(ui: { confirm?: (m: string, d: string, a: string) => Promise<boolean>; pickOne?: (items: { id: string; label: string }[], title: string) => Promise<string | undefined>; pickMany?: (items: { id: string; label: string }[], title: string) => Promise<string[] | undefined>; pickVerification?: (cases: { id: string; label: string }[], title: string) => Promise<{ existing: string } | { create: string } | undefined>; inputName?: (p: string) => Promise<string | undefined> } | undefined): void;
+    navigation(): string[];
+    errors(): string[];
+    settled(scope: ReqScope): Promise<void>;
+  };
+}
+export type ReqScope = { kind: "package"; qualifiedName: string } | { kind: "file"; uri: string };
+export type ReqGesture =
+  | { kind: "click"; selector: string }
+  | { kind: "input"; selector: string; value: string; event?: "change" | "input" }
+  | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
+  | { kind: "key"; selector: string; key: string };
+export interface ReqMetrics {
+  view: "table" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
+  table: { rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[]; selected?: string; counts: { total: number; unsatisfied: number; unverified: number }; detail?: { qn: string; satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] } };
+  document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string }[]; rootBlocks: number };
+  pendingEdits: string[]; conflicts: string[]; overflow: { count: number; horizontalScroll: boolean; samples: string[] }; notice?: { level: string; message: string }; errors: string[]; size: { width: number; height: number };
+  layout: { width: number; mode: "table" | "card"; detail: "beside" | "below"; textWidths: number[]; rowWidths: number[] };
 }
 export interface Failure { reason: string; goToError?: { uri: string; line: number; column: number }; goToDefinition?: { uri: string; line: number; column: number; name: string } }
 export interface PickItem { label: string; description?: string; detail?: string }
@@ -57,7 +85,7 @@ export type Gesture =
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[] }
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
-  | { kind: "connect"; source: string; target: string }
+  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" }
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation"; value: string }
   | { kind: "flush" };
@@ -305,7 +333,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 15; // four model read tools, six diagram tools and five model edit tools
+  const TOOL_COUNT = 17; // four model read tools, six diagram tools, five model edit tools and two requirements tools
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
@@ -595,6 +623,7 @@ export async function run(): Promise<void> {
     ...interactionTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...requirementsTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];

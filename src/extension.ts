@@ -10,6 +10,8 @@ import { ModelService } from "./model-service/service.js";
 import { VsCodeModelHost } from "./model-service/vscode-host.js";
 import { ModelActions } from "./model-service/interactive.js";
 import { registerModelCommands } from "./model-service/commands.js";
+import { RequirementsEditor, type RequirementsTestApi } from "./requirements/editor.js";
+import { registerRequirementsCommands } from "./requirements/commands.js";
 
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
@@ -21,6 +23,8 @@ export interface TestApi {
   dnd: ModelTreeDragAndDrop;
   /** The model-changing operations shared by the tree, the diagrams and the agent tools. */
   edit: ModelService;
+  /** The requirements editor (table and document views). */
+  requirements: RequirementsTestApi;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -39,6 +43,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   diagrams.editBlocker = (uri) => edit.blockedReason(uri);
   const actions = new ModelActions(edit, model.index, () => diagrams.ui);
   diagrams.modelActions = actions;
+  const requirements = new RequirementsEditor(context.extensionUri, model, edit, actions, () => diagrams.ui);
   const folders = () => (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
   const diagramService = new VsCodeDiagramService(diagrams, files, folders);
   const agent = new AgentIntegration(model, (m) => log.info(m), String(context.extension.packageJSON.version ?? "0.0.1"), diagramService, {
@@ -51,6 +56,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     const node = nodeForElement(model.index, el);
     if (node && view.selection[0]?.id !== node.id) void Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {});
   };
+
+  requirements.revealInTree = diagrams.revealInTree;
 
   const updateContext = () => {
     const empty = !model.index.uris().some((u) => !model.index.isReadOnly(u));
@@ -80,9 +87,11 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     view,
     registerCursorSync(model.index, view),
     diagrams,
+    requirements,
     files,
     ...registerDiagramCommands({ model, diagrams, files }),
     ...registerModelCommands({ model, actions, diagrams, selection: () => view.selection }),
+    ...registerRequirementsCommands({ model, editor: requirements, extensionUri: context.extensionUri, selection: () => view.selection }),
     vscode.window.registerCustomEditorProvider(DIAGRAM_VIEW_TYPE, diagrams, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: true,
@@ -90,7 +99,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
   );
-  return { model, provider, view, agent, diagram: diagrams.testApi, dnd, edit };
+  return { model, provider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi };
 }
 
 export function deactivate(): void {}

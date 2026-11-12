@@ -21,14 +21,14 @@ describe("palette", () => {
   it("lists the kinds valid for each diagram kind", () => {
     expect(paletteFor("general").map((i) => i.kind)).toEqual(["part def", "port def", "attribute def", "item def", "action def", "part", "port", "attribute", "item", "action"]);
     expect(paletteFor("interconnection").map((i) => i.kind)).toEqual(["part", "port", "attribute", "connection"]);
-    expect(paletteFor("requirements").map((i) => i.kind)).toEqual(["requirement def", "requirement"]);
+    expect(paletteFor("requirements").map((i) => i.kind)).toEqual(["requirement def", "requirement", "satisfy", "verify", "derivation"]);
   });
 });
 
 describe("tree and dialog helpers", () => {
   it("offers package, definitions and usages under a package and usages under others", () => {
-    expect(allowedChildKinds(q("P"))).toEqual(expect.arrayContaining(["package", "part def", "port def", "attribute def", "item def", "action def", "requirement def", "part", "port", "attribute", "item", "action", "requirement"]));
-    expect(allowedChildKinds(q("P::Vehicle"))).toEqual(["part", "port", "attribute", "item", "action", "requirement"]);
+    expect(allowedChildKinds(q("P"))).toEqual(expect.arrayContaining(["package", "part def", "port def", "attribute def", "item def", "action def", "requirement def", "part", "port", "attribute", "item", "action", "requirement", "verification"]));
+    expect(allowedChildKinds(q("P::Vehicle"))).toEqual(["part", "port", "attribute", "item", "action", "requirement", "verification"]);
   });
   it("validates names", () => {
     expect(nameProblem("", q("P"))).toMatch(/Enter a name/);
