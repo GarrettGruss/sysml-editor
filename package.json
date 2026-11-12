@@ -40,7 +40,8 @@
         },
         {
           "id": "sysmlModel",
-          "name": "SysML Model"
+          "name": "SysML Model",
+          "initialSize": 12
         }
       ]
     },
