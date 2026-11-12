@@ -198,5 +198,6 @@ export * from "./types.js";
 export { kermlOutlineParser, buildKermlOutline } from "./kerml-outline.js";
 export { LIBRARY_URI_SCHEME, isLibraryUri } from "./library-uri.js";
 export { loadLibrary } from "./library.js";
+export { loadLibraryChunked } from "./library.js";
 export { antlrDocumentParser, buildDocumentModel } from "./antlr-builder.js";
 export { quoteName, unquoteName, splitQualified } from "./names.js";

@@ -6,6 +6,13 @@ async function main(): Promise<void> {
   await runTests({
     extensionDevelopmentPath: root,
     extensionTestsPath: path.resolve(__dirname, "index"),
+    launchArgs: [
+      path.join(root, "test/fixtures/workspace-basic"),
+      "--disable-extensions",
+      "--disable-workspace-trust",
+      "--no-sandbox",
+      "--disable-gpu",
+    ],
   });
 }
 
