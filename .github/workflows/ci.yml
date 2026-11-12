@@ -21,3 +21,4 @@ jobs:
       - run: npm test
       - run: npm run gate:parser
       - run: npm run build
+      - run: xvfb-run -a npm run test:integration
