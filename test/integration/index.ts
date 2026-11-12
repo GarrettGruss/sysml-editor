@@ -474,8 +474,15 @@ export async function run(): Promise<void> {
         return r.text;
       };
       const both = async (name: string, input: object) => {
-        const a = await lm(name, input);
-        const b = await mcp(name, input);
+        // The two calls are sequential, and the model can change between them (for example when the
+        // parse worker's error details arrive). Compare again until two consecutive calls agree.
+        let a = await lm(name, input);
+        let b = await mcp(name, input);
+        for (let i = 0; i < 5 && a !== b; i++) {
+          await sleep(500);
+          a = await lm(name, input);
+          b = await mcp(name, input);
+        }
         assert.strictEqual(a, b, `${name}: identical over both channels`);
         return JSON.parse(a);
       };
