@@ -353,8 +353,9 @@ export class SvgRenderer implements DiagramRenderer {
       return;
     }
     const source = this.connectFrom;
+    const relation = this.tool?.kind === "connect" ? this.tool.relation : undefined;
     this.setTool(undefined);
-    if (source !== id) this.cb.onModel({ kind: "connect", sourceId: source, targetId: id });
+    if (source !== id) this.cb.onModel({ kind: "connect", sourceId: source, targetId: id, ...(relation ? { relation } : {}) });
   }
 
   private closeEditor(): void {
@@ -479,7 +480,9 @@ export class SvgRenderer implements DiagramRenderer {
         break;
       }
       case "connect": {
-        this.tools.palette.querySelector<HTMLButtonElement>('button[data-kind="connection"]')?.click();
+        const btn = this.tools.palette.querySelector<HTMLButtonElement>(`button[data-kind="${g.relation ?? "connection"}"]`);
+        if (!btn) throw new Error(`the palette has no ${g.relation ?? "connection"} tool`);
+        btn.click();
         this.click(this.pointOn(g.source));
         this.click(this.pointOn(g.target));
         break;

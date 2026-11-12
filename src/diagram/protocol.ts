@@ -56,7 +56,8 @@ export interface PropertyChanges {
 export type ModelIntent =
   /** Create an element of `kind` in the element of node `ownerId` (the diagram's root when absent), placed at (x, y) relative to that node. */
   | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number }
-  | { kind: "connect"; sourceId: string; targetId: string }
+  /** `relation`: a requirement relationship from the Requirements View palette (satisfy, verify, derivation); absent: a connection. */
+  | { kind: "connect"; sourceId: string; targetId: string; relation?: "satisfy" | "verify" | "derivation" }
   | { kind: "deleteFromModel"; ids: string[] }
   | { kind: "rename"; id: string; name: string }
   | { kind: "setProperties"; id: string; changes: PropertyChanges }
@@ -78,7 +79,7 @@ export type TestGesture =
   /** Choose a palette item, then click a node (or the canvas, with `id` absent) at a point relative to that node. */
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
   /** Connection tool: click the source, then the target. */
-  | { kind: "connect"; source: string; target: string }
+  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" }
   /** Double-click a node label: opens the inline editor; `text` types into it and Enter commits (or Escape cancels). */
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   /** Edit a field of the properties panel as the user would: sets the value and fires `change`. */

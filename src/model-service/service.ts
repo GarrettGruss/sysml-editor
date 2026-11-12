@@ -588,20 +588,62 @@ export class ModelService {
   }
 
   satisfy(requirement: Element, by: Element, owner?: Element, origin?: Origin): Promise<OpResult> {
-    return this.serial(async () =>
-      this.run(
-        () => {
-          const r = this.fresh(requirement);
-          const b = this.fresh(by);
-          const o = owner ? this.fresh(owner) : undefined;
-          if (!r || !b || (owner && !o)) return fail("An element is out of date; refresh and try again.");
-          return planSatisfy(this.index, r, b, o);
-        },
-        () => ({}),
-        origin,
-        () => [requirement.uri],
-      ),
+    return this.statementOp(
+      ["satisfy"],
+      () => {
+        const r = this.fresh(requirement);
+        const b = this.fresh(by);
+        const o = owner ? this.fresh(owner) : undefined;
+        if (!r || !b || (owner && !o)) return fail("An element is out of date; refresh and try again.");
+        return planSatisfy(this.index, r, b, o);
+      },
+      () => [requirement.uri, ...(owner ? [owner.uri] : []), by.uri],
+      origin,
+      "Satisfy",
     );
+  }
+
+  /**
+   * An operation that writes a relationship statement (satisfy, verify, derivation connection). With `origin.diagram` the
+   * new statement is also placed on that diagram as an edge (when both ends are shown) and the diagram gets the undo entry.
+   */
+  private statementOp(kinds: readonly string[], plan: () => PlanResult | OpFailure, touched: () => string[], origin: Origin | undefined, label: string): Promise<OpResult> {
+    return this.serial(async () => {
+      const sig = (e: Element) => `${e.uri}\0${e.kind}\0${this.index.getDocument(e.uri)?.text.slice(e.range.start.offset, e.range.end.offset)}`;
+      const pre = new Map<string, number>();
+      const all = (): Element[] => {
+        const out: Element[] = [];
+        const walk = (e: Element) => {
+          if (kinds.includes(e.kind)) out.push(e);
+          e.members.forEach(walk);
+        };
+        for (const u of new Set(touched())) this.index.getDocument(u)?.model.roots.forEach(walk);
+        return out;
+      };
+      let created: Element | undefined;
+      return this.run(
+        () => {
+          pre.clear();
+          for (const e of all()) pre.set(sig(e), (pre.get(sig(e)) ?? 0) + 1);
+          return plan();
+        },
+        () => ({
+          element: () => {
+            const seen = new Map<string, number>();
+            created = all().find((e) => {
+              const k = sig(e);
+              const n = (seen.get(k) ?? 0) + 1;
+              seen.set(k, n);
+              return n > (pre.get(k) ?? 0);
+            });
+            return created;
+          },
+          ...(origin?.diagram ? { change: () => placeElementChange(this.index, () => created, { diagram: origin.diagram! }, label) } : {}),
+        }),
+        origin,
+        touched,
+      );
+    });
   }
 
   // ---- requirements and documents ------------------------------------------------------------
@@ -630,12 +672,33 @@ export class ModelService {
   /** `verify <requirement>;` in the objective of a verification case, or in a new case named `{ create }`. */
   verify(requirement: Element, to: Element | { create: string; owner?: Element }, origin?: Origin): Promise<OpResult> {
     const target = "create" in to ? to.owner : to;
-    return this.plain([requirement, target], ([r, t]) => planVerify(this.index, r!, "create" in to ? { create: to.create, ...(t ? { owner: t } : {}) } : t!), () => [requirement.uri, ...(target ? [target.uri] : [])], origin);
+    return this.statementOp(
+      ["verify"],
+      () => {
+        const r = this.fresh(requirement);
+        const t = target ? this.fresh(target) : undefined;
+        if (!r || (target && !t)) return fail("An element is out of date; refresh and try again.");
+        return planVerify(this.index, r, "create" in to ? { create: to.create, ...(t ? { owner: t } : {}) } : t!);
+      },
+      () => [requirement.uri, ...(target ? [target.uri] : [])],
+      origin,
+      "Verify",
+    );
   }
 
   /** `#derivation connection { end #original ::> original; end #derive ::> derived; ... }`. */
   derive(original: Element, derived: readonly Element[], owner?: Element, origin?: Origin): Promise<OpResult> {
-    return this.plain([original, ...derived, owner], (f) => planDerivation(this.index, f[0]!, f.slice(1, 1 + derived.length), owner ? f[f.length - 1] : undefined), () => [derived[0]?.uri ?? original.uri, ...(owner ? [owner.uri] : [])], origin);
+    return this.statementOp(
+      ["connection"],
+      () => {
+        const f = [original, ...derived, ...(owner ? [owner] : [])].map((e) => this.fresh(e));
+        if (f.some((e) => !e)) return fail("An element is out of date; refresh and try again.");
+        return planDerivation(this.index, f[0]!, f.slice(1, 1 + derived.length) as Element[], owner ? f[f.length - 1]! : undefined);
+      },
+      () => [derived[0]?.uri ?? original.uri, ...(owner ? [owner.uri] : [])],
+      origin,
+      "Derivation",
+    );
   }
 
   removeSatisfy(statement: Element, origin?: Origin): Promise<OpResult> {

@@ -7,7 +7,7 @@ import * as vscode from "vscode";
 import { isInheritedIn, isLibraryUri, type Element } from "../model/index.js";
 import type { ModelActions } from "../model-service/interactive.js";
 import { showFailure } from "../model-service/vscode-host.js";
-import type { OpFailure } from "../model-service/service.js";
+import type { OpFailure, OpResult } from "../model-service/service.js";
 import { commonOwner, type Target } from "../model-service/service.js";
 import { typeCandidates } from "../model-service/support.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
@@ -288,6 +288,25 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     );
   }
 
+  /** Satisfy, verify and derivation from the Requirements View palette: the same service operations as the requirements editor. */
+  private async drawRequirementRelation(actions: ModelActions, relation: "satisfy" | "verify" | "derivation", a: Element, b: Element, origin: { diagram: string }): Promise<OpResult> {
+    const isReq = (e: Element) => e.kind === "requirement" || e.kind === "requirement def";
+    const isCase = (e: Element) => e.kind === "verification" || e.kind === "verification def";
+    const bad = (m: string): OpResult => ({ ok: false, reason: m });
+    if (relation === "derivation") {
+      if (!isReq(a) || !isReq(b)) return bad("A derivation connects two requirements: click the original requirement, then the derived one.");
+      return actions.service.derive(a, [b], undefined, origin);
+    }
+    // Either order is accepted: the requirement is the one that is a requirement.
+    if (relation === "satisfy") {
+      if (isReq(a) === isReq(b)) return bad("A satisfy relationship connects a requirement and the element that satisfies it.");
+      return isReq(a) ? actions.service.satisfy(a, b, undefined, origin) : actions.service.satisfy(b, a, undefined, origin);
+    }
+    const [req, vc] = isReq(a) ? [a, b] : [b, a];
+    if (!isReq(req) || !isCase(vc)) return bad("A verify relationship connects a requirement and a verification case.");
+    return actions.service.verify(req, vc, origin);
+  }
+
   private onMessage(doc: SysmlDiagramDocument, p: Panel, m: WebviewToHost): void {
     if (doc.renderOnly && !["ready", "layoutChanged", "pngResult", "metricsResult", "gestureResult", "error"].includes(m.type)) return;
     switch (m.type) {
@@ -483,6 +502,12 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         const a = this.targetOf(doc, intent.sourceId);
         const b = this.targetOf(doc, intent.targetId);
         if (!a || !b) return this.notice(doc, "Both ends of a connection must be resolved elements.");
+        if (intent.relation) {
+          const r = await this.drawRequirementRelation(actions, intent.relation, a.element, b.element, origin);
+          const shown = await actions.report(r, `Added ${intent.relation}`);
+          if (!shown.ok) this.notice(doc, shown.reason);
+          return;
+        }
         const chainA = this.ancestry(doc, intent.sourceId);
         const chainB = this.ancestry(doc, intent.targetId);
         const ownerNode = chainA.slice(1).find((n) => chainB.slice(1).includes(n));
