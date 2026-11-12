@@ -6,6 +6,10 @@ import { ToolError, type ToolContext, type ToolDefinition } from "./types.js";
 export const DEFAULT_DEPTH = 2;
 export const MAX_DEPTH = 10;
 export const NODE_CAP = 500;
+export const PROBLEM_CAP = 200;
+export const FILE_CAP = 500;
+export const MEMBER_CAP = 200;
+export const DECLARATION_CAP = 20;
 
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
 
@@ -46,6 +50,11 @@ const listFiles: ToolDefinition = {
       };
     });
     files.sort((a, b) => a.path.localeCompare(b.path));
+    if (files.length > FILE_CAP)
+      return json({
+        files: files.slice(0, FILE_CAP),
+        note: `Showing the first ${FILE_CAP} of ${files.length} files (sorted by path). Use sysml_get_element_tree to browse packages instead.`,
+      });
     return json({ files });
   },
 };
@@ -171,6 +180,11 @@ const getElementTree: ToolDefinition = {
 
 function describeElement(e: Element, ctx: ToolContext) {
   const members = visibleChildren(e);
+  const owned = members.filter((m) => m.ends.length === 0);
+  const rels = members.filter((m) => m.ends.length > 0);
+  const notes: string[] = [];
+  if (owned.length > MEMBER_CAP) notes.push(`ownedMembers shows ${MEMBER_CAP} of ${owned.length}; use sysml_get_element_tree with this element as root and a depth to browse the rest.`);
+  if (rels.length > MEMBER_CAP) notes.push(`relationships shows ${MEMBER_CAP} of ${rels.length}.`);
   return {
     kind: e.kind,
     name: e.name,
@@ -184,8 +198,11 @@ function describeElement(e: Element, ctx: ToolContext) {
     documentation: e.documentation,
     visibility: e.visibility,
     owner: e.owner?.qualifiedName,
-    ownedMembers: members.filter((m) => m.ends.length === 0).map((m) => ({ name: m.name, kind: m.kind, type: typeOf(m) })),
-    relationships: members.filter((m) => m.ends.length > 0).map((m) => ({ kind: m.kind, name: m.name, ends: m.ends, ...lines(m) })),
+    ownedMembers: owned.slice(0, MEMBER_CAP).map((m) => ({ name: m.name, kind: m.kind, type: typeOf(m) })),
+    ...(owned.length > MEMBER_CAP ? { ownedMembersTotal: owned.length } : {}),
+    relationships: rels.slice(0, MEMBER_CAP).map((m) => ({ kind: m.kind, name: m.name, ends: m.ends, ...lines(m) })),
+    ...(rels.length > MEMBER_CAP ? { relationshipsTotal: rels.length } : {}),
+    ...(notes.length ? { note: notes.join(" ") } : {}),
     file: relPath(ctx, e.uri),
     ...lines(e),
     readOnly: ctx.index.isReadOnly(e),
@@ -209,7 +226,10 @@ const getElement: ToolDefinition = {
   readOnly: true,
   handler(input, ctx) {
     const hits = lookup(ctx.index, input.qualifiedName as string);
-    return json({ elements: hits.map((e) => describeElement(e, ctx)) });
+    const shown = hits.slice(0, DECLARATION_CAP).map((e) => describeElement(e, ctx));
+    if (hits.length > DECLARATION_CAP)
+      return json({ elements: shown, note: `Showing ${DECLARATION_CAP} of ${hits.length} declarations of this name.` });
+    return json({ elements: shown });
   },
 };
 
@@ -246,6 +266,11 @@ const validate: ToolDefinition = {
       for (const u of findUnresolvedNames(ctx.index, uri))
         problems.push({ file, line: u.line + 1, column: u.column + 1, severity: "warning", message: u.message });
     }
+    if (problems.length > PROBLEM_CAP)
+      return json({
+        problems: problems.slice(0, PROBLEM_CAP),
+        note: `Showing ${PROBLEM_CAP} of ${problems.length} problems. Call sysml_validate with \`file\` for one file at a time to see the rest.`,
+      });
     return json({ problems });
   },
 };

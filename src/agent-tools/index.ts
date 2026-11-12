@@ -3,7 +3,7 @@ import { toolDefinitions } from "./tools.js";
 import { ToolError, type ToolContext, type ToolResult } from "./types.js";
 
 export * from "./types.js";
-export { toolDefinitions, DEFAULT_DEPTH, MAX_DEPTH, NODE_CAP } from "./tools.js";
+export { toolDefinitions, DEFAULT_DEPTH, MAX_DEPTH, NODE_CAP, PROBLEM_CAP, FILE_CAP, MEMBER_CAP, DECLARATION_CAP } from "./tools.js";
 export { validateSchema } from "./schema.js";
 export { findUnresolvedNames } from "./unresolved.js";
 
