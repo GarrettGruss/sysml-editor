@@ -4,6 +4,7 @@
  * fit their children; ports are put on the owner's border. No DOM: ELK and text measuring are injected.
  */
 import type { VmNode, ViewModel } from "../../diagram/view-model.js";
+import { layoutSequence } from "./sequence-layout.js";
 import { PAD, PORT_SIZE, absoluteBoxes, describeBox, type Box, type Measure, type Pt } from "./geometry.js";
 
 /** The part of ELK's API used here (the `elkjs` default export satisfies it). */
@@ -40,7 +41,11 @@ const SIDE_LABEL_MARGIN = 8;
 
 const hasPos = (n: VmNode) => n.geometry?.x !== undefined || n.geometry?.y !== undefined;
 
+/** Action Flow and State Transition views flow from top to bottom (design D17); the others from left to right. */
+const flowsDown = (vm: ViewModel): boolean => vm.kind === "actionFlow" || vm.kind === "stateTransition";
+
 export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measure): Promise<LayoutResult> {
+  if (vm.kind === "sequence") return layoutSequence(vm, measure);
   const byId = new Map(vm.nodes.map((n) => [n.id, n] as const));
   const children = new Map<string | undefined, VmNode[]>();
   const ports = new Map<string, VmNode[]>();
@@ -151,7 +156,7 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const graph: ElkGraph = {
       id: "root",
       layoutOptions: edges.length
-        ? { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.edgeRouting": "ORTHOGONAL", "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
+        ? { "elk.algorithm": "layered", "elk.direction": flowsDown(vm) ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL", "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
         : { "elk.algorithm": "rectpacking", "elk.spacing.nodeNode": "40", "elk.aspectRatio": "1.6", "elk.padding": "[top=0,left=0,bottom=0,right=0]" },
       children: loose.map((k) => ({ id: k.id, width: sizes.get(k.id)!.w, height: sizes.get(k.id)!.h })),
       edges,

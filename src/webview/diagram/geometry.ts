@@ -54,8 +54,15 @@ export function wrapText(text: string, max: number, measure: Measure, style: Tex
   return out.length ? out : [""];
 }
 
+/** Fixed sizes of the pseudostates and control nodes (the label, if any, is not drawn inside them). */
+export const CONTROL_SIZE: Record<string, { w: number; h: number }> = {
+  start: { w: 20, h: 20 }, done: { w: 26, h: 26 }, fork: { w: 90, h: 8 }, decision: { w: 40, h: 40 },
+};
+
 /** Rows, dividers and natural size of a node box, from its text only. */
 export function describeBox(n: VmNode, measure: Measure): BoxContent {
+  const fixed = CONTROL_SIZE[n.shape];
+  if (fixed) return { ...fixed, headerH: fixed.h, bodyTop: fixed.h, rows: [], dividers: [] };
   const rows: Row[] = [];
   const dividers: number[] = [];
   let y = n.shape === "package" ? TAB_H : 0;
@@ -84,9 +91,17 @@ export function describeBox(n: VmNode, measure: Measure): BoxContent {
     y += 4;
     dividers.push(y);
     y += 2;
-    push("ctitle", c.title, "italic");
+    if (c.title !== "") push("ctitle", c.title, "italic");
     c.lines.forEach((l, i) => push(c.inherited?.[i] !== undefined ? "icline" : "cline", l, c.inherited?.[i] !== undefined ? "italic" : "normal"));
   }
+  if (n.shape === "usecase") {
+    // An oval: wider than its text, and the text sits in the middle.
+    const ow = Math.max(120, Math.ceil(w * 1.35) + 2 * PAD);
+    const oh = Math.max(64, y + 24);
+    const shift = (oh - (y + 8)) / 2;
+    return { w: ow, h: oh, headerH: oh, bodyTop: oh, rows: rows.map((r) => ({ ...r, y: r.y + shift })), dividers };
+  }
+  if (n.shape === "lifeline") return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH: y + 8, bodyTop: y + 8, rows, dividers };
   return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH, bodyTop: Math.max(headerH, y), rows, dividers };
 }
 
