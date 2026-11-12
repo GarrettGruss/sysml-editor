@@ -140,3 +140,20 @@ describe("messages", () => {
     expect(i.participants.map((p) => p.name)).toEqual(["driver", "vehicle"]);
   });
 });
+
+describe("ordering across other members", () => {
+  test("a message after another member is not ordered after the message before it", () => {
+    const { index, q } = load("package P { part def Pt { part a; part b; message m1 from a to b; part p; then message m2 from b to a; } }");
+    const i = interactionOf(index, q("P::Pt"));
+    expect(i.messages.every((m) => m.unordered)).toBe(true);
+  });
+});
+
+describe("dotted succession and transition ends", () => {
+  const model = "package P { state def S { state s1 { state sub; } state s2; transition first s1.sub then s2; transition first s1.nope then s2; } }";
+  test("every segment of the path is resolved; an unresolvable path leaves the statement undrawn", () => {
+    const { index, q } = load(model);
+    const t = analyze(index, q("P::S")).transitions;
+    expect(t.map((x) => `${x.source.name}>${x.target.name}`)).toEqual(["sub>s2"]);
+  });
+});

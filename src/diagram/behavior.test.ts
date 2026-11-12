@@ -128,9 +128,7 @@ describe("structural locators of successions, transitions and messages (design D
     expect(await survives(REL + "training/25. Transitions/Transition Actions.sysml", "'Transition Actions'::vehicleStates", "stateTransition", "vehicleStates", "    state extra;")).toBeGreaterThanOrEqual(4);
   });
   it("messages without names", async () => {
-    const path = "/tmp/claude-1000/-home-garre-development-sysml-editor/af101c4b-0cdd-4e3e-990e-64139f3592b0/scratchpad/unnamed-messages.sysml";
-    const { writeFileSync } = await import("node:fs");
-    writeFileSync(path, "package P { item def T; part def Pt { part a; part b; message of T from a to b; message of T from b to a; message of T from a to b; } }");
+    const path = "test/fixtures/unnamed-messages.sysml";
     expect(await survives(path, "P::Pt", "sequence", "Pt", "    attribute extra;")).toBe(3);
   });
   it("twin statements are told apart by index", () => {

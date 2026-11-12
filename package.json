@@ -655,6 +655,10 @@
                 "index": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "description": "The `fingerprint` that sysml_read_diagram lists with the locator; the call is refused when the statement is no longer the one that was read."
                 }
               },
               "required": [
@@ -896,6 +900,10 @@
                 "index": {
                   "type": "integer",
                   "minimum": 0
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "description": "The `fingerprint` that sysml_read_diagram lists with the locator; the call is refused when the statement is no longer the one that was read."
                 }
               },
               "required": [

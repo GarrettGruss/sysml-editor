@@ -17,7 +17,7 @@ export function requirementsTests(c: Ctx): Test[] {
   const onDisk = (name: string) => readFileSync(uriOf(name).fsPath, "utf8");
   const textDoc = (name: string) => vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uriOf(name).fsPath);
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
-    // Monotonic time: the clock of this machine can jump by an hour (WSL), which performance.now() would count as a timeout.
+    // Monotonic time: the clock of this machine can jump by an hour (WSL), and Date.now() is what would count that jump as a timeout.
     const t0 = performance.now();
     const end = t0 + ms;
     while (!(await cond())) {

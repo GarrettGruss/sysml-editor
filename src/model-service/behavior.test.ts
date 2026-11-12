@@ -89,6 +89,23 @@ describe("behaviour operations", () => {
     expect(analyze(host.index, q("P::Pt")).successions).toEqual([]);
   });
 
+  test("deleting one of several identical statements re-indexes the entries of the others", async () => {
+    const model = "package P { part def Pt { part a; part b; message from a to b; message from a to b; message from a to b; } }";
+    const loc = (index?: number) => ({ owner: "P::Pt", kind: "message", ends: ["a", "b"], ...(index !== undefined ? { index } : {}) });
+    const { host, svc, q } = setup(model, diagram("sequence", "P::Pt", [{ id: "n1", ref: "P::Pt" }, { id: "n2", ref: "P::Pt::a" }, { id: "n3", ref: "P::Pt::b" }], [0, 1, 2].map((i) => ({ id: `e${i}`, locator: loc(i), source: "n2", target: "n3" }))));
+    ok(await svc.deleteElement({ element: q("P::Pt").members.filter((m) => m.kind === "message")[0]! }));
+    const edges = host.diagramOnDisk(D).edges;
+    expect(edges.map((e) => [e.id, e.locator?.index])).toEqual([["e1", 0], ["e2", 1]]);
+  });
+  test("adding a statement identical to an existing one gives the existing entry an explicit index", async () => {
+    const model = "package P { part def Pt { part a; part b; message from a to b; } }";
+    const { host, svc, q } = setup(model, diagram("sequence", "P::Pt", [{ id: "n1", ref: "P::Pt" }, { id: "n2", ref: "P::Pt::a" }, { id: "n3", ref: "P::Pt::b" }], [{ id: "e1", locator: { owner: "P::Pt", kind: "message", ends: ["a", "b"] }, source: "n2", target: "n3" }]));
+    ok(await svc.addMessage(q("P::Pt"), "a", "b", {}, { diagram: D, placement: { diagram: D } }));
+    const edges = host.diagramOnDisk(D).edges;
+    expect(edges.find((e) => e.id === "e1")!.locator?.index).toBe(0);
+    expect(edges).toHaveLength(2);
+    expect(edges.find((e) => e.id !== "e1")!.locator?.index).toBe(1);
+  });
   test("rule: staleness: a change between planning and applying re-plans once, and a second change fails untouched", async () => {
     const { host, svc, q } = setup(fx("states"));
     host.beforeApply = () => host.buffers.set(U, "// header\n" + host.buffers.get(U)!);

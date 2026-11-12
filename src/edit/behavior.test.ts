@@ -88,6 +88,30 @@ describe("transitions", () => {
     const r = apply(planSetTransition(index, tr, { guard: "x > 1" }), text);
     expect(r).toContain("transition first off accept Sig if x > 1 then on;");
   });
+  test("a shorthand transition inside a state body is rewritten and the source and target read back", () => {
+    const { index, q, text } = setup("package P { attribute def T; state def S { state a { state x; accept T then y; state y; } state b; } }");
+    const tr = q("P::S::a").members.find((m) => m.kind === "transition")!;
+    const p = planSetTransition(index, tr, { guard: "x > 1" });
+    const r = apply(p, text);
+    expect(r).toContain("transition first x accept T if x > 1 then y;");
+    const i2 = reparse(r);
+    const t2 = analyze(i2, i2.findByQualifiedName("P::S::a")[0]!).transitions;
+    expect(t2.map((t) => `${t.source.name}>${t.target.name} ${t.guard}`)).toEqual(["x>y x > 1"]);
+  });
+  test("a doc comment or visibility before a transition is kept", () => {
+    const { index, q, text } = setup("package P { state def S { state a; state b;\n /** why */ private transition first a then b;\n transition t2 first b then a; } }");
+    const [t1, t2] = q("P::S").members.filter((m) => m.kind === "transition");
+    const r = apply(planSetTransition(index, t1!, { guard: "g" }), text);
+    expect(r).toContain("/** why */ private transition first a if g then b;");
+    reparse(r);
+    expect(planSetTransition(index, t2!, { guard: "g" }).ok).toBe(true);
+  });
+  test("a transition from a dotted path is rewritten with the path as written", () => {
+    const { index, q, text } = setup("package P { state def S { state s1 { state sub; } state s2; transition first s1.sub then s2; } }");
+    const tr = q("P::S").members.find((m) => m.kind === "transition")!;
+    const r = apply(planSetTransition(index, tr, { guard: "g" }), text);
+    expect(r).toContain("transition first s1.sub if g then s2;");
+  });
   test("invalid guard text is refused with the syntax error and nothing changes", () => {
     const { index, q } = setup(fx("states"));
     const t = q("Lamp::lamp::off_to_on");
@@ -119,6 +143,21 @@ describe("messages", () => {
   });
 });
 
+describe("message item type", () => {
+  test("only a qualified name is accepted as the item type", () => {
+    const { index, q } = setup("package P { item def T; part def Pt { part a; part b; } }");
+    for (const bad of ["T /* c */", "T\rU", "T U", "T // x", "'unclosed", "T::"]) expect(planAddMessage(index, q("P::Pt"), "a", "b", { itemType: bad }).ok, bad).toBe(false);
+    expect(planAddMessage(index, q("P::Pt"), "a", "b", { itemType: "P::T" }).ok).toBe(true);
+  });
+  test("the new message reads back with its name, type and ends when it is the first", () => {
+    const { index, q, text } = setup("package P { item def T; part def Pt { part a; part b; } }");
+    const r = apply(planAddMessage(index, q("P::Pt"), "a", "b", { name: "m", itemType: "T" }), text);
+    const i2 = reparse(r);
+    const m = interactionOf(i2, i2.findByQualifiedName("P::Pt")[0]!).messages;
+    expect(m.map((x) => `${x.name}:${x.itemType}:${x.fromParticipant}>${x.toParticipant}`)).toEqual(["m:T:a>b"]);
+  });
+});
+
 describe("delete with dependents", () => {
   test("deleting a state deletes the transitions that reference it, in one plan", () => {
     const { index, q, text } = setup(fx("states"));
@@ -136,7 +175,7 @@ describe("delete with dependents", () => {
     const { index, q, text } = setup("package P { action def A { first start; then action a; then action b; flow from a.x to b.y; } }");
     const r = apply(planDeleteBehavior(index, q("P::A::a")), text);
     expect(r).not.toMatch(/\bthen\s*;/);
-    expect(r).toContain("then action b;");
+    expect(r).toContain("first start; action b;");
     reparse(r);
   });
   test("deleting a message and the succession that orders it", () => {
@@ -144,6 +183,24 @@ describe("delete with dependents", () => {
     const r = apply(planDeleteBehavior(index, q("P::Pt::m2")), text);
     expect(r).not.toContain("first m1 then m2");
     expect(r).toContain("message m1 from a to b;");
+  });
+  test("deleting a node never re-binds the following then to the node before it", () => {
+    const run = (body: string, name: string) => { const { index, q, text } = setup(`package P { action def A { ${body} } }`); return apply(planDeleteBehavior(index, q(`P::A::${name}`)), text); };
+    expect(run("action a; action b; then action c;", "b")).toContain("action a; action c;");
+    expect(run("action a; action b; then action c;", "b")).not.toMatch(/then/);
+    expect(run("action a; then action b; then action c;", "b")).not.toMatch(/then/);
+    expect(run("action a; then action b; then c; action c;", "b")).not.toMatch(/then/);
+    expect(run("action a; action b; then c; action c;", "b")).not.toMatch(/then/);
+    // the then belongs to the declaration even across a line break and a comment
+    const r = run("action a;\n then // note\n action b;\n action c;", "b");
+    expect(r).not.toMatch(/then/);
+  });
+  test("deleting a message keeps a following then only when it still follows a message", () => {
+    const run = (body: string, name: string) => { const { index, q, text } = setup(`package P { part def Pt { part a; part b; ${body} } }`); return apply(planDeleteBehavior(index, q(`P::Pt::${name}`)), text); };
+    expect(run("message m1 from a to b; then message m2 from b to a;", "m1")).toContain("message m2 from b to a;");
+    expect(run("message m1 from a to b; then message m2 from b to a;", "m1")).not.toMatch(/then/);
+    expect(run("message m0 from a to b; then message m1 from a to b; then message m2 from b to a;", "m1")).toContain("then message m2");
+    expect(run("part c; message m1 from a to b; then message m2 from b to a;", "m1")).not.toMatch(/then/);
   });
   test("implied statements cannot be deleted on their own", () => {
     const { index, q } = setup("package P { action def A { first start; then action a; } }");

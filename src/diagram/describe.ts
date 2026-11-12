@@ -1,7 +1,7 @@
 /** A bounded plain-JSON description of a diagram for agents. No `vscode` import. */
 import { analyze, interactionOf, isSynthetic, type Element, type ModelIndex } from "../model/index.js";
 import type { DiagramDocument, ElementLocator, Point } from "./format.js";
-import { referenceFor, resolveDiagram, type Resolution, type ResolveOptions } from "./resolve.js";
+import { referenceFor, resolveDiagram, statementFingerprint, type Resolution, type ResolveOptions } from "./resolve.js";
 
 export const MAX_DESCRIBED_NODES = 500;
 export const MAX_DESCRIBED_EDGES = 1000;
@@ -17,6 +17,8 @@ export interface DescribedElement {
   implied?: boolean;
   /** For unnamed elements: owner, kind and ends (and an index among twins) that identify it. */
   locator?: ElementLocator;
+  /** With a locator: a fingerprint of the statement's text and ordinal, to pass back with the locator so a stale locator is refused. */
+  fingerprint?: string;
 }
 
 export interface DescribedItem {
@@ -93,7 +95,10 @@ export function describeDiagram(doc: DiagramDocument, index: ModelIndex, opts: R
     // An unnamed statement (a succession, transition or message) is addressed by this locator, e.g. by sysml_delete_element.
     if (el.qualifiedName === undefined) {
       const loc = referenceFor(el, index)?.locator;
-      if (loc) element.locator = loc;
+      if (loc) {
+        element.locator = loc;
+        element.fingerprint = statementFingerprint(index, el, loc.index ?? 0);
+      }
     }
     return { id, element, resolved: true };
   };

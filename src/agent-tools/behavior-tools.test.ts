@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { FakeHost } from "../model-service/fake-host.js";
 import { ModelService } from "../model-service/service.js";
 import { ModelIndex } from "../model/index.js";
+import { statementFingerprint } from "../diagram/resolve.js";
 import { callTool, invokeTool, ToolError, type ToolContext } from "./index.js";
 import { FakeDiagrams } from "./test-support.js";
 
@@ -125,6 +126,22 @@ describe("agent write tools for behaviour", () => {
     expect(host.disk.get(URI)).not.toContain("from y to x");
     expect(host.disk.get(URI)).toContain("message m1 from x to y;");
     expect(new ModelIndex()).toBeTruthy();
+  });
+  it("refuses element and statement together, and a statement fingerprint that no longer matches", async () => {
+    const { host, ctx } = setup("package P { part def Pt { part x; part y; message from x to y; message from x to y; } }");
+    const loc = { owner: "P::Pt", kind: "message", ends: ["x", "y"], index: 1 };
+    const both = await call(ctx, "sysml_delete_element", { element: "P::Pt::x", statement: loc });
+    expect(both.isError).toBe(true);
+    expect(host.disk.get(URI)).toContain("part x;");
+    const msgs = ctx.index.findByQualifiedName("P::Pt")[0]!.members.filter((m) => m.kind === "message");
+    const good = statementFingerprint(ctx.index, msgs[1]!, 1);
+    const stale = await call(ctx, "sysml_delete_element", { statement: { ...loc, fingerprint: "000000000000" } });
+    expect(stale.isError).toBe(true);
+    expect(stale.text).toMatch(/no longer the one that was read/);
+    expect(host.disk.get(URI)!.match(/message from/g)).toHaveLength(2);
+    const fine = await call(ctx, "sysml_delete_element", { statement: { ...loc, fingerprint: good } });
+    expect(fine.isError, fine.text).toBeUndefined();
+    expect(host.disk.get(URI)!.match(/message from/g)).toHaveLength(1);
   });
   it("is refused in an untrusted workspace", async () => {
     const { ctx } = setup("package P { state def S { state a; state b; } }");

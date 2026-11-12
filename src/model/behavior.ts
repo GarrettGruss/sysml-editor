@@ -203,11 +203,22 @@ export function analyze(index: ModelIndex, owner: Element): Analysis {
     const n = unq(name);
     return owner.members.find((m) => m.name === n && m.kind !== "import") ?? owner.members.find((m) => m.shortName === n);
   };
-  const endEl = (txt: string | undefined): Element | undefined => {
+  /** `strict`: every segment of a dotted path must resolve (a succession or transition end); otherwise only the first (a flow end names a node and a feature of it). */
+  const endEl = (txt: string | undefined, strict = false): Element | undefined => {
     if (!txt) return undefined;
+    const segs = txt.trim().replace(/\s+/g, "").split(".");
     const seg = unq(firstSegment(txt.trim()));
     const m = byName(seg);
-    if (m) return m;
+    if (m) {
+      let cur: Element | undefined = m;
+      if (strict) for (const part of segs.slice(1)) {
+        const name = unq(part);
+        cur = cur.members.find((x) => x.name === name && x.kind !== "import") ?? cur.members.find((x) => x.shortName === name);
+        if (!cur) return undefined;
+      }
+      return cur;
+    }
+    if (strict && segs.length > 1) return undefined;
     if (seg === "start") { usedStart.v = true; return start; }
     if (seg === "done") { usedDone.v = true; return done; }
     return undefined;
@@ -225,7 +236,7 @@ export function analyze(index: ModelIndex, owner: Element): Analysis {
   for (let mi = 0; mi < members.length; mi++) {
     const m = members[mi]!;
     if (m.kind === "first" && m.ends[0] !== undefined) {
-      last = endEl(m.ends[0]);
+      last = endEl(m.ends[0], true);
       continue;
     }
     if (m.kind === "entry" && m.ends.length === 0 && /^entry\s*;/.test(slice(m))) {
@@ -249,16 +260,16 @@ export function analyze(index: ModelIndex, owner: Element): Analysis {
         const { parts } = sections(text, toks.slice(i), SECTION);
         const get = (kw: string) => parts.find((p) => p.kw === kw)?.text;
         const elseTarget = parts.find((p) => p.kw === "else")?.text;
-        const target = endEl(get("then") ?? elseTarget);
-        const source = get("first") !== undefined ? endEl(get("first")) : last;
+        const target = endEl(get("then") ?? elseTarget, true);
+        const source = get("first") !== undefined ? endEl(get("first"), true) : last;
         if (source && target) {
           const guard = elseTarget !== undefined ? "else" : get("if");
           out.successions.push({ statement: m, source, target, ...(guard !== undefined ? { guard } : {}), implied: false });
         }
       } else {
         const info = parseTransition(text, m);
-        const source = info.first !== undefined ? endEl(info.first) : last;
-        const target = endEl(info.then);
+        const source = info.first !== undefined ? endEl(info.first, true) : last;
+        const target = endEl(info.then, true);
         if (source && target) {
           out.transitions.push({
             statement: m, source, target,
@@ -405,9 +416,10 @@ export function interactionOf(index: ModelIndex, owner: Element): Interaction {
       if (lastMsg !== undefined && precededByThen(text, m)) before.push([lastMsg, i]);
       lastMsg = i;
     } else if (m.kind === "succession" && m.ends.length === 2) {
+      lastMsg = undefined;
       const a = idx.get(unq(m.ends[0]!)), b = idx.get(unq(m.ends[1]!));
       if (a !== undefined && b !== undefined) before.push([a, b]);
-    }
+    } else lastMsg = undefined;
   }
   // `then event x.sourceEvent;` chains inside the participants.
   const eventMsg = (e: Element): number | undefined => {
@@ -424,8 +436,8 @@ export function interactionOf(index: ModelIndex, owner: Element): Interaction {
         if (mi !== undefined) {
           if (prev !== undefined && prev !== mi && precededByThen(text, e)) before.push([prev, mi]);
           prev = mi;
-        }
-      } else if (OCCURRENCE_PART_KINDS.has(e.kind)) walkEvents(e);
+        } else prev = undefined;
+      } else if (OCCURRENCE_PART_KINDS.has(e.kind)) { prev = undefined; walkEvents(e); } else prev = undefined;
     }
   };
   for (const m of owner.members) if (OCCURRENCE_PART_KINDS.has(m.kind)) walkEvents(m);

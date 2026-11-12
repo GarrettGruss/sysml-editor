@@ -4,12 +4,20 @@
  * and the diagram editor, so an agent and a person making the same edit produce the same text.
  */
 import { isLibraryUri, virtualNode, type Element } from "../model/index.js";
-import { resolveReference } from "../diagram/resolve.js";
+import { resolveReference, statementFingerprint } from "../diagram/resolve.js";
 import type { OpFailure, OpOk, OpResult, Properties, Target } from "../model-service/service.js";
 import { CREATABLE_KINDS } from "../model-service/kinds.js";
 import { ToolError, type EditContext, type ToolContext, type ToolDefinition } from "./types.js";
 
+function staleCheck(ctx: ToolContext, el: Element, index: number | undefined, fingerprint: string | undefined): void {
+  if (fingerprint !== undefined && fingerprint !== statementFingerprint(ctx.index, el, index ?? 0))
+    throw new ToolError("That statement is no longer the one that was read (the model changed since the locator was listed). Read the diagram again with sysml_read_diagram and use the new locator and fingerprint. Nothing was changed.");
+}
+
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
+
+/** The kinds `sysml_create_relationship` accepts (also the palette kinds that are not creatable elements). */
+export const RELATIONSHIP_KINDS = ["connection", "satisfy", "verify", "derivation", "succession", "transition", "message"] as readonly string[];
 
 export function editing(ctx: ToolContext): EditContext {
   if (!ctx.edits) throw new ToolError("Model editing is not available in this session.");
@@ -136,7 +144,7 @@ const deleteElement: ToolDefinition = {
       statement: {
         type: "object",
         description: "An unnamed succession, transition or message: its locator.",
-        properties: { owner: { type: "string", minLength: 1 }, kind: { type: "string", minLength: 1 }, ends: { type: "array", items: { type: "string" } }, index: { type: "integer", minimum: 0 } },
+        properties: { owner: { type: "string", minLength: 1 }, kind: { type: "string", minLength: 1 }, ends: { type: "array", items: { type: "string" } }, index: { type: "integer", minimum: 0 }, fingerprint: { type: "string", description: "The `fingerprint` that sysml_read_diagram lists with the locator; the call is refused when the statement is no longer the one that was read." } },
         required: ["owner", "kind", "ends"],
         additionalProperties: false,
       },
@@ -148,9 +156,11 @@ const deleteElement: ToolDefinition = {
     const ed = editing(ctx);
     let t: Target;
     let label: string;
-    if (input.statement !== undefined && typeof input.statement === "object" && input.element === undefined) {
-      const loc = input.statement as { owner: string; kind: string; ends: string[]; index?: number };
+    if (input.statement !== undefined && input.element !== undefined) throw new ToolError("Give either `element` or `statement`, not both.");
+    if (input.statement !== undefined && typeof input.statement === "object") {
+      const { fingerprint, ...loc } = input.statement as { owner: string; kind: string; ends: string[]; index?: number; fingerprint?: string };
       const el = resolveReference({ locator: loc }, { sources: [] }, ctx.index);
+      if (el) staleCheck(ctx, el, loc.index, fingerprint);
       if (!el) throw new ToolError(`No ${loc.kind} with ends [${(loc.ends ?? []).join(", ")}] in "${loc.owner}". Use the locator from sysml_read_diagram exactly as listed (add \`index\` when several are alike).`);
       if (isLibraryUri(el.uri)) throw new ToolError("That statement is standard library content, which is read-only.");
       t = { element: el };
@@ -267,7 +277,7 @@ const createRelationship: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      kind: { type: "string", enum: ["connection", "satisfy", "verify", "derivation", "succession", "transition", "message"], description: "connection, satisfy, verify, derivation, succession, transition or message." },
+      kind: { type: "string", enum: [...RELATIONSHIP_KINDS], description: "connection, satisfy, verify, derivation, succession, transition or message." },
       owner: { type: "string", description: "Qualified name of the element that receives the statement. Required for a connection." },
       source: { type: "string", description: "connection: qualified name of the first end." },
       target: { type: "string", description: "connection: qualified name of the second end." },
@@ -372,7 +382,7 @@ const setTransition: ToolDefinition = {
       statement: {
         type: "object",
         description: "Locator of an unnamed transition.",
-        properties: { owner: { type: "string", minLength: 1 }, kind: { type: "string", enum: ["transition"] }, ends: { type: "array", items: { type: "string" } }, index: { type: "integer", minimum: 0 } },
+        properties: { owner: { type: "string", minLength: 1 }, kind: { type: "string", enum: ["transition"] }, ends: { type: "array", items: { type: "string" } }, index: { type: "integer", minimum: 0 }, fingerprint: { type: "string", description: "The `fingerprint` that sysml_read_diagram lists with the locator; the call is refused when the statement is no longer the one that was read." } },
         required: ["owner", "kind", "ends"],
         additionalProperties: false,
       },
@@ -387,7 +397,11 @@ const setTransition: ToolDefinition = {
     const ed = editing(ctx);
     let el: Element | undefined;
     if (typeof input.element === "string" && input.element !== "") el = locate(ctx, ed, input.element, "transition").element;
-    else if (input.statement && typeof input.statement === "object") el = resolveReference({ locator: input.statement as never }, { sources: [] }, ctx.index);
+    else if (input.statement && typeof input.statement === "object") {
+      const { fingerprint, ...loc } = input.statement as { index?: number; fingerprint?: string };
+      el = resolveReference({ locator: loc as never }, { sources: [] }, ctx.index);
+      if (el) staleCheck(ctx, el, loc.index, fingerprint);
+    }
     if (!el || el.kind !== "transition") throw new ToolError("Give `element` (qualified name) or `statement` (locator) of an existing transition.");
     const parts: { trigger?: string; guard?: string; effect?: string } = {};
     for (const k of ["trigger", "guard", "effect"] as const) if (typeof input[k] === "string") parts[k] = input[k] as string;

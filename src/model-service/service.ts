@@ -15,7 +15,7 @@ import {
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { placeElementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { placeElementChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
 import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
@@ -618,7 +618,7 @@ export class ModelService {
             });
             return created;
           },
-          ...(opts.placement?.diagram ? { change: () => placeElementChange(this.index, () => created, { diagram: opts.placement!.diagram! }, label) } : {}),
+          change: () => addStatementChange(this.index, () => created, opts.placement?.diagram ? placeElementChange(this.index, () => created, { diagram: opts.placement.diagram }, label) : undefined, label),
         }),
         opts.diagram ? { diagram: opts.diagram } : undefined,
         () => [owner.uri],

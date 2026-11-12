@@ -9,7 +9,7 @@ import { addElement } from "../diagram/create.js";
 import { removeItems } from "../diagram/edits.js";
 import type { DiagramDocument, DiagramEdge, DiagramNode } from "../diagram/format.js";
 import { referenceFor, referenceKey, type SourceMapper } from "../diagram/resolve.js";
-import type { ElementReference } from "../diagram/format.js";
+import type { ElementLocator, ElementReference } from "../diagram/format.js";
 
 export interface ChangeContext {
   uri: string;
@@ -101,9 +101,85 @@ export function restoreItems(doc: DiagramDocument, items: { nodes: DiagramNode[]
   return nodes.length === doc.nodes.length && edges.length === doc.edges.length ? doc : { ...doc, nodes, edges };
 }
 
+/**
+ * Identical statements are told apart by their index. When some of them are deleted, the entries of the survivors move
+ * down to their new index (the same kind, owner and ends), so they keep resolving to the statement they were drawn for.
+ */
+function reindexTwins(doc: DiagramDocument, deletedKeys: readonly string[], remember: (id: string, loc: ElementLocator) => void): DiagramDocument {
+  const groups = new Map<string, number[]>();
+  for (const k of deletedKeys) {
+    if (!k.startsWith("loc:")) continue;
+    const cut = k.lastIndexOf("\u0000");
+    const g = k.slice(0, cut);
+    groups.set(g, [...(groups.get(g) ?? []), Number(k.slice(cut + 1))]);
+  }
+  if (!groups.size) return doc;
+  let changed = false;
+  const fix = <T extends DiagramNode | DiagramEdge>(i: T): T => {
+    const l = i.locator;
+    if (!l) return i;
+    const gone = groups.get(referenceKey({ locator: { ...l, index: 0 } }).replace(/\u00000$/, ""));
+    if (!gone) return i;
+    const at = l.index ?? 0;
+    const next = at - gone.filter((d) => d < at).length;
+    if (next === at && (l.index !== undefined || next === 0)) return i;
+    changed = true;
+    remember(i.id, l);
+    return { ...i, locator: { ...l, index: next } };
+  };
+  const nodes = doc.nodes.map(fix), edges = doc.edges.map(fix);
+  return changed ? { ...doc, nodes, edges } : doc;
+}
+
+/**
+ * A statement identical to an existing one (same kind, owner and ends) turns the existing entries' locators ambiguous
+ * (they were saved without an index). In the same change, entries of the twins that follow the new statement move up, and
+ * entries without an index get their explicit one. Wraps `place` (which may be absent) so it is one undoable change.
+ */
+export function addStatementChange(index: ModelIndex, created: () => Element | undefined, place: DiagramChange | undefined, label: string): DiagramChange {
+  const was = new Map<string, ElementLocator>();
+  const done = new Set<string>();
+  return {
+    ...(place ?? {}),
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      let d = doc;
+      const el = created();
+      const ref = el ? referenceFor(el, index) : undefined;
+      const k = ref?.locator?.index;
+      if (k !== undefined && !done.has(ctx.uri)) {
+        done.add(ctx.uri);
+        const group = referenceKey({ locator: { ...ref!.locator!, index: 0 } });
+        const fix = <T extends DiagramNode | DiagramEdge>(i: T): T => {
+          const l = i.locator;
+          if (!l || referenceKey({ locator: { ...l, index: 0 } }) !== group) return i;
+          const at = l.index ?? 0;
+          if (at < k) return l.index === undefined ? (was.set(ctx.uri + "\0" + i.id, l), { ...i, locator: { ...l, index: at } }) : i;
+          was.set(ctx.uri + "\0" + i.id, l);
+          return { ...i, locator: { ...l, index: at + 1 } };
+        };
+        d = { ...d, nodes: d.nodes.map(fix), edges: d.edges.map(fix) };
+      }
+      return place && (place.target === "all" || place.target.uri === ctx.uri) ? place.apply(d, ctx) : d;
+    },
+    revert(doc, ctx) {
+      let d = place && (place.target === "all" || place.target.uri === ctx.uri) ? place.revert(doc, ctx) : doc;
+      const fix = <T extends DiagramNode | DiagramEdge>(i: T): T => {
+        const old = was.get(ctx.uri + "\0" + i.id);
+        return old ? { ...i, locator: old } : i;
+      };
+      d = { ...d, nodes: d.nodes.map(fix), edges: d.edges.map(fix) };
+      done.delete(ctx.uri);
+      return d;
+    },
+  };
+}
+
 /** Delete from Model: the entries for the deleted element and everything below it go from every diagram. */
 export function removeEntriesChange(qns: string[], label: string, keys: readonly string[] = []): DiagramChange {
   const removed = new Map<string, { nodes: DiagramNode[]; edges: DiagramEdge[] }>();
+  const was = new Map<string, ElementLocator>();
   return {
     target: "all",
     label,
@@ -117,11 +193,16 @@ export function removeEntriesChange(qns: string[], label: string, keys: readonly
         r.removed = { nodes: [...r.removed.nodes, ...extra.nodes], edges: [...r.removed.edges, ...extra.edges] };
       }
       if (r.removed.nodes.length || r.removed.edges.length) removed.set(ctx.uri, r.removed);
-      return r.doc;
+      return reindexTwins(r.doc, keys, (id, loc) => was.set(ctx.uri + "\0" + id, loc));
     },
     revert(doc, ctx) {
       const items = removed.get(ctx.uri);
-      return items ? restoreItems(doc, items) : doc;
+      const back = items ? restoreItems(doc, items) : doc;
+      const fix = <T extends DiagramNode | DiagramEdge>(i: T): T => {
+        const old = was.get(ctx.uri + "\0" + i.id);
+        return old ? { ...i, locator: old } : i;
+      };
+      return { ...back, nodes: back.nodes.map(fix), edges: back.edges.map(fix) };
     },
   };
 }

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /** Resolving diagram references to model elements and back (design D3). No `vscode` import. */
 import { cachedSynthetic, syntheticMembers, type Element, type ModelIndex } from "../model/index.js";
 import type { DiagramDocument, ElementLocator, ElementReference } from "./format.js";
@@ -107,4 +108,13 @@ export function referenceKey(r: ElementReference): string {
   if (r.ref !== undefined) return "ref:" + r.ref;
   const l = r.locator!;
   return `loc:${l.owner}\u0000${l.kind}\u0000${endsKey(l.ends)}\u0000${l.index ?? 0}`;
+}
+
+/**
+ * A short fingerprint of an unnamed statement: its source text and its ordinal among identical statements. A tool that is
+ * given it together with a locator can tell that the locator now addresses a different statement than when it was read.
+ */
+export function statementFingerprint(index: ModelIndex, element: Element, ordinal: number): string {
+  const text = index.getDocument(element.uri)?.text.slice(element.range.start.offset, element.range.end.offset) ?? "";
+  return createHash("sha1").update(`${text.replace(/\s+/g, " ").trim()}\u0000${ordinal}`).digest("hex").slice(0, 12);
 }

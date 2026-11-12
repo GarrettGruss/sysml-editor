@@ -366,8 +366,9 @@ describe("kinds", () => {
     const { paletteFor } = await import("../diagram/palette.js");
     const { CREATABLE_KINDS } = await import("./kinds.js");
     expect(ADD_KINDS.map((k) => k.kind)).toEqual([...CREATABLE_KINDS]);
+    const { RELATIONSHIP_KINDS: relationships } = await import("../agent-tools/edit-tools.js");
     for (const dk of ["general", "interconnection", "requirements", "actionFlow", "stateTransition", "sequence"] as const)
-      for (const p of paletteFor(dk)) if (!["connection", "satisfy", "verify", "derivation", "succession", "transition", "message"].includes(p.kind)) expect(CREATABLE_KINDS, p.kind).toContain(p.kind);
+      for (const p of paletteFor(dk)) expect(relationships.includes(p.kind) ? relationships : CREATABLE_KINDS, p.kind).toContain(p.kind);
   });
 });
 

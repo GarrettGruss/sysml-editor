@@ -113,11 +113,14 @@ export function planAddSuccession(index: ModelIndex, owner: Element, source: Ele
     const v = checked(index, owner, { ok: true, edits, description: `Add succession ${a} then ${b} to ${describeElement(owner)}` });
     if (!v.ok) return v;
     const now = after(index, owner, edits);
-    const found = now && analyze(now.index, now.owner).successions.some((s) => !s.implied && nodeLabel(s.source) === a && nodeLabel(s.target) === b && same(s.guard, g));
+    const found = now && analyze(now.index, now.owner).successions.some((s) => !s.implied && nodeKey(s.source) === nodeKey(source) && nodeKey(s.target) === nodeKey(target) && same(s.guard, g));
     return found ? v : fail("The succession would not be read back as written (it conflicts with what is already in the action); nothing was changed.");
   });
 }
 
+/** The identity of a node across a re-parse: the qualified name (the kind for start and done). */
+const nodeKey = (e: Element): string => (isSynthetic(e) ? e.kind : e.qualifiedName ?? e.kind);
+const state0 = (index: ModelIndex, el: Element): string => index.getDocument(el.uri)?.text ?? "";
 const nodeLabel = (e: Element): string => (e.name !== undefined ? quoteName(e.name) : e.kind);
 
 // ------------------------------------------------------------------------------ transitions
@@ -139,9 +142,9 @@ function checkParts(parts: TransitionParts): string | undefined {
 }
 
 /** Does the transition read back with these ends and parts? */
-function readsBack(index: ModelIndex, owner: Element, source: string, target: string, parts: TransitionParts, name?: string): boolean {
+function readsBack(index: ModelIndex, owner: Element, source: Element, target: Element, parts: TransitionParts, name?: string): boolean {
   return analyze(index, owner).transitions.some(
-    (t) => nodeLabel(t.source) === source && nodeLabel(t.target) === target && same(t.trigger, parts.trigger) && same(t.guard, parts.guard) && same(t.effect, parts.effect) && (name === undefined || t.statement.name === name),
+    (t) => nodeKey(t.source) === nodeKey(source) && nodeKey(t.target) === nodeKey(target) && same(t.trigger, parts.trigger) && same(t.guard, parts.guard) && same(t.effect, parts.effect) && (name === undefined || t.statement.name === name),
   );
 }
 
@@ -163,7 +166,7 @@ export function planAddTransition(index: ModelIndex, owner: Element, source: Ele
     const v = checked(index, owner, { ok: true, edits, description: `Add transition ${a} to ${b} in ${describeElement(owner)}` });
     if (!v.ok) return v;
     const now = after(index, owner, edits);
-    return now && readsBack(now.index, now.owner, a, b, parts) ? v : fail("The transition would not be read back as written (the trigger, guard or effect text is read as something else); nothing was changed.");
+    return now && readsBack(now.index, now.owner, source, target, parts) ? v : fail("The transition would not be read back as written (the trigger, guard or effect text is read as something else); nothing was changed.");
   });
 }
 
@@ -186,8 +189,12 @@ export function planSetTransition(index: ModelIndex, transition: Element, parts:
   if (typeof a !== "string") return a;
   const b = nodeName(info.target, "target");
   if (typeof b !== "string") return b;
+  // A dotted end (`first s1.sub`) is written back exactly as it was.
+  const written = parseTransition(state0(index, transition), transition);
+  const a2 = written.first !== undefined ? written.first.trim() : a;
+  const b2 = written.then !== undefined ? written.then.trim() : b;
   const now = { trigger: parts.trigger ?? info.trigger, guard: parts.guard ?? info.guard, effect: parts.effect ?? info.effect };
-  const text = transitionText(a, b, now, transition.name);
+  const text = transitionText(a2, b2, now, transition.name);
   const state = index.getDocument(transition.uri)!;
   const oldText = state.text.slice(transition.range.start.offset, transition.range.end.offset);
   if (same(oldText, text)) return fail("Nothing to change: the transition already has these values.");
@@ -195,7 +202,7 @@ export function planSetTransition(index: ModelIndex, transition: Element, parts:
   const v = checked(index, owner, { ok: true, edits, description: `Change the transition ${a} to ${b} in ${describeElement(owner)}` });
   if (!v.ok) return v;
   const scratch = after(index, owner, edits);
-  return scratch && readsBack(scratch.index, scratch.owner, a, b, now, transition.name) ? v : fail("The text would be read back as something else than a trigger, guard and effect (for example a keyword such as then or do inside it); nothing was changed.");
+  return scratch && readsBack(scratch.index, scratch.owner, info.source, info.target, now, transition.name) ? v : fail("The text would be read back as something else than a trigger, guard and effect (for example a keyword such as then or do inside it); nothing was changed.");
 }
 
 /** The parts of a transition as they are written now (for the properties panel and for tests). */
@@ -206,6 +213,8 @@ export function transitionParts(index: ModelIndex, transition: Element): Transit
 }
 
 // ------------------------------------------------------------------------------ messages
+
+const QUALIFIED = /^(?:[A-Za-z_]\w*|'[^'\r\n]*')(?:(?:::|\.)(?:[A-Za-z_]\w*|'[^'\r\n]*'))*$/;
 
 export interface MessageSpec {
   name?: string;
@@ -238,7 +247,7 @@ export function planAddMessage(index: ModelIndex, owner: Element, from: string, 
       type = r.text;
       if (r.need) needs.push(r.need);
     }
-    if (type === "" || /[;{}\n]/.test(type)) return fail("The item type is not a valid reference.");
+    if (type === "" || partProblem("item type", type) || !QUALIFIED.test(type)) return fail("The item type is not a valid reference.");
   }
   const last = inter.messages[inter.messages.length - 1];
   const decl = [last ? "then" : "", "message", ...(spec.name !== undefined ? [quoteName(spec.name)] : []), ...(type !== undefined ? ["of", type] : []), "from", quoteName(from), "to", quoteName(to) + ";"].filter(Boolean).join(" ");
@@ -256,12 +265,25 @@ export function planAddMessage(index: ModelIndex, owner: Element, from: string, 
   const edits = [...ins.edits];
   const v = checked(index, owner, { ok: true, edits, description: `Add message ${spec.name ?? ""} from ${from} to ${to} in ${describeElement(owner)}`.replace(/\s+/g, " ") });
   if (!v.ok) return v;
-  if (!last) return v;
   const now = after(index, owner, edits);
   const i2 = now ? interactionOf(now.index, now.owner) : undefined;
-  const lastNow = i2?.messages[i2.messages.length - 1];
-  const ok = !!i2 && i2.messages.length === inter.messages.length + 1 && lastNow?.fromParticipant === from && lastNow?.toParticipant === to && !i2.messages.slice(0, -1).some((m, k) => m.unordered !== inter.messages[k]!.unordered);
-  return ok ? v : fail("The new message would not be read back as the last message in time order; nothing was changed.");
+  if (!now || !i2 || i2.messages.length !== inter.messages.length + 1) return fail("The new message would not be read back as written; nothing was changed.");
+  // The new statement is the message member right after `last` (or the only one) in source order after the edit.
+  const srcMsgs = (o: Element) => o.members.filter((m) => m.kind === "message" && m.ends.length >= 2);
+  const pos = last ? srcMsgs(owner).indexOf(last.statement) + 1 : 0;
+  const stmt = srcMsgs(now.owner)[pos];
+  const mine = i2.messages.find((m) => m.statement === stmt);
+  const prevNow = last ? i2.messages.find((m) => m.statement === srcMsgs(now.owner)[pos - 1]) : undefined;
+  // Existing messages keep whether they are ordered against the others.
+  const unchanged = (): boolean => srcMsgs(owner).every((om, k) => {
+    const was = inter.messages.find((m) => m.statement === om);
+    const nowMsg = i2.messages.find((m) => m.statement === srcMsgs(now.owner)[k < pos ? k : k + 1]);
+    return !was || !nowMsg || was.unordered === nowMsg.unordered;
+  });
+  const ok = !!mine && mine.name === spec.name && mine.fromParticipant === from && mine.toParticipant === to
+    && (type === undefined ? mine.itemType === undefined : mine.itemType === type.replace(/\s+/g, ""))
+    && (!last || (!!prevNow && mine.order > prevNow.order && mine.order === i2.messages.length - 1 && unchanged()));
+  return ok ? v : fail("The new message would not be read back as written (and as the last message in time order); nothing was changed.");
 }
 
 // ------------------------------------------------------------------------------ delete
@@ -290,6 +312,28 @@ export function describeDependents(index: ModelIndex, el: Element): string[] {
   return dependentsOf(index, el).map((d) => (text(d).length > 70 ? text(d).slice(0, 67) + "..." : text(d)));
 }
 
+/**
+ * The statements after `el` whose leading `then` bound them to `el` and would bind to the node before it once `el` is gone:
+ * `then action c;` after an action, `then message m2 ...;` after a message that was not itself ordered after a message.
+ */
+function thenFollowers(index: ModelIndex, el: Element): Element[] {
+  const owner = el.owner;
+  if (!owner || !isNodeKind(el)) return [];
+  if (el.kind !== "message") {
+    return analyze(index, owner).successions.filter((s) => s.implied && s.source === el && s.statement !== el).map((s) => s.statement);
+  }
+  const text = index.getDocument(el.uri)?.text ?? "";
+  const ms = [...owner.members].sort((a, b) => a.range.start.offset - b.range.start.offset);
+  const at = ms.indexOf(el);
+  const next = ms[at + 1];
+  if (at < 0 || !next || next.kind !== "message") return [];
+  const hasThen = (m: Element) => tokenize(text).filter((k) => isCode(k) && k.end <= m.range.start.offset).pop()?.text === "then";
+  if (!hasThen(next)) return [];
+  const prevMember = ms[at - 1];
+  // The follower may keep its `then` only when el was itself ordered after a message that stays in front of it.
+  return prevMember?.kind === "message" && hasThen(el) ? [] : [next];
+}
+
 /** Delete a node (or message) and, in the same plan, the successions, transitions, flows and message orderings that reference it. */
 export function planDeleteBehavior(index: ModelIndex, el: Element): PlanResult {
   if (isSynthetic(el)) return fail(`The ${el.kind} ${el.kind === "succession" ? "" : "node "}is implied by the language (a \`then\` or the start and done nodes) and has no declaration of its own to delete.`.replace("  ", " "));
@@ -307,8 +351,19 @@ export function planDeleteBehavior(index: ModelIndex, el: Element): PlanResult {
     const text = index.getDocument(t.uri)!.text;
     const toks = tokenize(text).filter((k) => isCode(k) && k.end <= t.range.start.offset);
     const prev = toks[toks.length - 1];
-    if (t === el && prev?.text === "then" && !/\n/.test(text.slice(prev.end, t.range.start.offset))) raw.push({ ...edit, range: { start: Math.min(edit.range.start, prev.start), end: edit.range.end } });
+    if (t === el && prev?.text === "then") raw.push({ ...edit, range: { start: Math.min(edit.range.start, prev.start), end: edit.range.end } });
     else raw.push(edit);
+  }
+  // A statement written `then x ...;` right after the deleted node would silently bind to the node before it: drop its `then`.
+  const gone0 = new Set<Element>(targets);
+  for (const f of thenFollowers(index, el)) {
+    if (gone0.has(f)) continue;
+    const text = index.getDocument(f.uri)!.text;
+    const prev = tokenize(text).filter((k) => isCode(k) && k.end <= f.range.start.offset).pop();
+    if (prev?.text !== "then") continue;
+    let end = prev.end;
+    while (text[end] === " " || text[end] === "\t") end++;
+    raw.push({ uri: f.uri, range: { start: prev.start, end }, newText: "" });
   }
   // Merge edits that touch or overlap into one.
   raw.sort((a, b) => a.range.start - b.range.start);
