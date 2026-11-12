@@ -5,8 +5,8 @@
  */
 import type { Element } from "../model/types.js";
 
-export const DEFINITION_KINDS = ["package", "part def", "port def", "attribute def", "item def", "action def", "requirement def"];
-export const USAGE_KINDS = ["part", "port", "attribute", "item", "action", "requirement"];
+export const DEFINITION_KINDS = ["package", "part def", "port def", "attribute def", "item def", "action def", "requirement def", "verification def"];
+export const USAGE_KINDS = ["part", "port", "attribute", "item", "action", "requirement", "verification"];
 /** Every kind that can be added somewhere. */
 export const ALL_KINDS: readonly string[] = [...DEFINITION_KINDS, ...USAGE_KINDS];
 

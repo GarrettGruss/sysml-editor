@@ -512,7 +512,7 @@
       {
         "name": "sysml_create_element",
         "displayName": "SysML: Create Element",
-        "modelDescription": "Create a new element in the model by inserting its declaration into the owner's .sysml source, exactly as the diagram palette and the tree's Add Child do (minimal text edit, indentation copied, a body created when the owner ends in `;`). `owner` is the qualified name of the package, definition or usage to add it to (a feature a usage only inherits cannot be the owner; add to the usage itself). `kind` is one of: package, part def, port def, attribute def, item def, action def, requirement def, part, port, attribute, item, action, requirement. Optional `type` (qualified name or name of a definition of the matching kind; an import is added when needed), `multiplicity` (e.g. 0..1 or *), `shortName` and `documentation`. With `diagram`, a node for the new element is also placed on that diagram. The edit is applied directly, the file is saved, and the user can undo it in one step. Returns JSON with the new element's qualifiedName, the files changed and (with `diagram`) the placement. Refused for files with syntax errors, in an untrusted workspace and for names that already exist in the owner. Not for deleting (sysml_delete_element) or changing (sysml_set_element_properties).",
+        "modelDescription": "Create a new element in the model by inserting its declaration into the owner's .sysml source, exactly as the diagram palette and the tree's Add Child do (minimal text edit, indentation copied, a body created when the owner ends in `;`). `owner` is the qualified name of the package, definition or usage to add it to (a feature a usage only inherits cannot be the owner; add to the usage itself). `kind` is one of: package, part def, port def, attribute def, item def, action def, requirement def, verification def, part, port, attribute, item, action, requirement, verification. Optional `type` (qualified name or name of a definition of the matching kind; an import is added when needed), `multiplicity` (e.g. 0..1 or *), `shortName` and `documentation`. With `diagram`, a node for the new element is also placed on that diagram. The edit is applied directly, the file is saved, and the user can undo it in one step. Returns JSON with the new element's qualifiedName, the files changed and (with `diagram`) the placement. Refused for files with syntax errors, in an untrusted workspace and for names that already exist in the owner. Not for deleting (sysml_delete_element) or changing (sysml_set_element_properties).",
         "toolReferenceName": "sysmlCreateElement",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
@@ -538,12 +538,14 @@
                 "item def",
                 "action def",
                 "requirement def",
+                "verification def",
                 "part",
                 "port",
                 "attribute",
                 "item",
                 "action",
-                "requirement"
+                "requirement",
+                "verification"
               ],
               "description": "What to create."
             },

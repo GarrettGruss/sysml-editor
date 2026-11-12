@@ -3,7 +3,7 @@ import { deleteEdit } from "./delete.js";
 import { declarationTokens, findRuns } from "./decl.js";
 import { checkElement, describeElement } from "./guard.js";
 import { importEdits, referenceText } from "./refs.js";
-import { insertWithImports, nameClash, normalizeMultiplicity } from "./insert.js";
+import { insertWithImports, nameClash, normalizeMultiplicity, shortNameText } from "./insert.js";
 import { detectEol, isBlockComment, lineIndent, tokenize, type Tok } from "./text.js";
 import { fail, type PlanResult, type TextEdit } from "./types.js";
 import { validatePlan } from "./validate.js";
@@ -152,7 +152,7 @@ export function planSetShortName(index: ModelIndex, element: Element, shortName:
   if (shortName !== undefined && (shortName === "" || /[\r\n]/.test(shortName))) return fail("The short name must be a single line of text and not empty.");
   const uri = element.uri;
   const text = c.state.text;
-  const q = shortName === undefined ? undefined : quoteName(shortName);
+  const q = shortName === undefined ? undefined : shortNameText(element.kind.split(" "), shortName);
   if (shortName !== undefined) {
     const reason = nameClash(index, element.owner, [shortName], element);
     if (reason) return fail(reason);
