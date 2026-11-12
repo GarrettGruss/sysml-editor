@@ -2,14 +2,14 @@
 
 ## 1. Edit planner
 
-- [ ] 1.1 Implement the insert-member plan (creating a body from `;`, indentation copied from siblings); verify round-trip tests: the result re-parses and unrelated text is byte-identical
-- [ ] 1.2 Implement the delete-element plan (full range, leading documentation, trailing line); verify round-trip tests including nested bodies
-- [ ] 1.3 Implement rename (declaration plus references resolvable in the workspace, with quoted names where needed) and retype, multiplicity, and documentation edits; verify the "Rename definition" and "Change type" scenarios in unit tests
-- [ ] 1.4 Implement the connection plan (`connect a to b;` in the common owner) and the satisfy plan; verify generated text parses and endpoints resolve
-- [ ] 1.5 Implement `RenameService`, which also rewrites `.sysmld` references in the same workspace edit; verify a test with two diagrams referencing a renamed definition
-- [ ] 1.5a Implement reference writing (design D19): short name when visible, otherwise add an import, fully qualified name when the import would clash, and quoting of names; verify the four "References in generated text" scenarios
-- [ ] 1.6 Refuse edits on files with genuine syntax errors, with a message linking to the error, and allow them on valid files that contain constructs the diagrams do not show; verify both "Edits blocked on syntax errors" scenarios
-- [ ] 1.7 Run the edit plans against the 1,581-line Annex A fixture model; verify every plan leaves text outside the edit byte-identical
+- [x] 1.1 Implement the insert-member plan (creating a body from `;`, indentation copied from siblings); verify round-trip tests: the result re-parses and unrelated text is byte-identical
+- [x] 1.2 Implement the delete-element plan (full range, leading documentation, trailing line); verify round-trip tests including nested bodies
+- [x] 1.3 Implement rename (declaration plus references resolvable in the workspace, with quoted names where needed) and retype, multiplicity, and documentation edits; verify the "Rename definition" and "Change type" scenarios in unit tests
+- [x] 1.4 Implement the connection plan (`connect a to b;` in the common owner) and the satisfy plan; verify generated text parses and endpoints resolve
+- [x] 1.5 Implement `RenameService`, which also rewrites `.sysmld` references in the same workspace edit; verify a test with two diagrams referencing a renamed definition
+- [x] 1.5a Implement reference writing (design D19): short name when visible, otherwise add an import, fully qualified name when the import would clash, and quoting of names; verify the four "References in generated text" scenarios
+- [x] 1.6 Refuse edits on files with genuine syntax errors, with a message linking to the error, and allow them on valid files that contain constructs the diagrams do not show; verify both "Edits blocked on syntax errors" scenarios
+- [x] 1.7 Run the edit plans against the 1,581-line Annex A fixture model; verify every plan leaves text outside the edit byte-identical
 
 ## 2. Tree editing
 
