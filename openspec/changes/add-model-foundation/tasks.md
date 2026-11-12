@@ -2,8 +2,8 @@
 
 ## 1. Extension scaffolding
 
-- [ ] 1.1 Migrate the toolchain from Bun to Node: remove `bun.lock` and `@types/bun`, add `@types/node`, `typescript`, `esbuild`, `vitest`, set `engines.node` to `>=22`, replace the `index.ts` stub, and update README.md to Node instructions; verify `npm install` produces `package-lock.json` and no `bun`/`Bun.` references remain outside `fixtures/` and `openspec/`
-- [ ] 1.2 Convert `package.json` into a VS Code extension manifest (engines, activation events, `contributes.views` for the SysML Model view) and add `@types/vscode`, `@vscode/vsce`, `@vscode/test-electron`; verify `npm run typecheck` passes
+- [x] 1.1 Migrate the toolchain from Bun to Node: remove `bun.lock` and `@types/bun`, add `@types/node`, `typescript`, `esbuild`, `vitest`, set `engines.node` to `>=22`, replace the `index.ts` stub, and update README.md to Node instructions; verify `npm install` produces `package-lock.json` and no `bun`/`Bun.` references remain outside `fixtures/` and `openspec/`
+- [x] 1.2 Convert `package.json` into a VS Code extension manifest (engines, activation events, `contributes.views` for the SysML Model view) and add `@types/vscode`, `@vscode/vsce`, `@vscode/test-electron`; verify `npm run typecheck` passes
 - [ ] 1.3 Add the `src/extension.ts` activate/deactivate stub and esbuild scripts for the host (node/cjs, external vscode) and the MCP bridge script; verify `npm run build` emits `dist/extension.js` and the extension activates in an Extension Development Host
 - [ ] 1.4 Set up Vitest (`npm test`) for `vscode`-free modules and an integration harness with `@vscode/test-electron`; verify a smoke test of each passes
 

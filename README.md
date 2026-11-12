@@ -1,23 +1,13 @@
 # sysml-editor
 
-To install dependencies:
+A VS Code extension for SysML v2 (Node 22+, npm).
 
 ```bash
-bun install
+npm install                 # install dependencies
+npm run typecheck           # tsc --noEmit
+npm run build               # bundle dist/extension.js and dist/mcp-bridge.js
+npm test                    # Vitest unit tests (vscode-free modules)
+npm run test:integration    # @vscode/test-electron (needs a display and downloads VS Code)
 ```
 
-To run:
-
-```bash
-bun run index.ts
-```
-
-To type check:
-
-```bash
-bun check
-```
-
-Run `bun fmt` to format the code.
-
-This project was created using `bun init` in bun v1.4.4. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+To try the extension, open this folder in VS Code and press F5 (Extension Development Host).
