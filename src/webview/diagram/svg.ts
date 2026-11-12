@@ -24,6 +24,9 @@ export const DARK_PALETTE: Palette = {
   bg: "#1e1e1e", node: "#252526", line: "#cccccc", text: "#cccccc", subtext: "#9d9d9d", warn: "#cca700", edge: "#cccccc", sel: "#3794ff",
 };
 
+/** Background colour of an export in the given fixed theme. */
+export const exportBackground = (theme: "light" | "editor-dark"): string => (theme === "light" ? LIGHT_PALETTE : DARK_PALETTE).bg;
+
 export interface SvgOptions {
   /** Absent: live mode (CSS classes). Present: export mode (colours as attributes, background and margin). */
   palette?: Palette;
@@ -175,7 +178,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const obstacles = vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!);
     const pts = edgeRoute(endOf(e.source), endOf(e.target), extras.routes?.get(e.id) ?? e.points, obstacles);
     routes.set(e.id, pts);
-    const r = drawEdge(e, pts, o, measure, [s, t]);
+    const r = drawEdge(e, pts, o, measure, [s, t, ...obstacles]);
     out += r.svg;
     if (r.label) labels.set(e.id, r.label);
   }

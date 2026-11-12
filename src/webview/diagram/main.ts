@@ -5,6 +5,7 @@ import type { ViewModel } from "../../diagram/view-model.js";
 import { FONT_FAMILY, FONT_SIZE, SMALL_SIZE, type Measure, type TextStyle } from "./geometry.js";
 import { layoutDiagram, type ElkLike } from "./layout.js";
 import { SvgRenderer, type View } from "./renderer.js";
+import { exportBackground } from "./svg.js";
 
 interface VsCodeApi {
   postMessage(m: WebviewToHost): void;
@@ -126,7 +127,7 @@ async function exportPng(theme: PngTheme): Promise<string> {
   const c = canvas.getContext("2d");
   if (!c) throw new Error("PNG export failed: no canvas context");
   // The exported SVG paints its own background; this only fills any rounding gap.
-  c.fillStyle = theme === "light" ? "#ffffff" : "#1e1e1e";
+  c.fillStyle = exportBackground(theme);
   c.fillRect(0, 0, cw, ch);
   c.drawImage(img, 0, 0, cw, ch);
   const b64 = canvas.toDataURL("image/png").split(",")[1] ?? "";

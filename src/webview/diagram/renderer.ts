@@ -332,6 +332,11 @@ export class SvgRenderer implements DiagramRenderer {
         this.svg.dispatchEvent(new KeyboardEvent("keydown", { key: g.key, shiftKey: !!g.shift, ctrlKey: !!g.ctrl, metaKey: !!g.meta, bubbles: true, cancelable: true }));
         break;
       case "menu": this.invoke(g.action, g.id); break;
+      case "contextmenu": {
+        const c = this.toClient(this.pointOn(g.id));
+        this.svg.dispatchEvent(new MouseEvent("contextmenu", { ...c, button: 2, bubbles: true, cancelable: true }));
+        break;
+      }
       case "drop": {
         const dt = new DataTransfer();
         dt.setData(ELEMENT_MIME, JSON.stringify(g.names));
@@ -348,14 +353,16 @@ export class SvgRenderer implements DiagramRenderer {
     const vm = this.vm;
     const empty: Metrics = {
       nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0,
-      portsOffBorder: 0, selected: [], selectedNamed: 0, handles: 0, focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
+      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
     if (!vm) return empty;
     const abs = absoluteBoxes(vm, this.currentRel());
     const nodes = vm.nodes.flatMap((n) => {
       const b = abs.get(n.id);
       if (!b) return [];
-      return [{ id: n.id, x: b.x, y: b.y, w: b.w, h: b.h, ...(n.parent !== undefined ? { parent: n.parent } : {}), ...(n.attachedTo !== undefined ? { attachedTo: n.attachedTo } : {}) }];
+      const g = this.world.querySelector(`g[data-node="${CSS.escape(n.id)}"]`);
+      const text = g ? [...g.querySelectorAll("text")].map((t) => t.textContent ?? "").join(" | ") : "";
+      return [{ id: n.id, x: b.x, y: b.y, w: b.w, h: b.h, shape: n.shape, text, ...(n.parent !== undefined ? { parent: n.parent } : {}), ...(n.attachedTo !== undefined ? { attachedTo: n.attachedTo } : {}) }];
     });
     // Text wider than its node: measured on the real rendering.
     let overflows = 0;
@@ -366,11 +373,11 @@ export class SvgRenderer implements DiagramRenderer {
     }
     const selected = this.ia.selection;
     const named = selected.filter((id) => (this.world.querySelector(`g[data-node="${CSS.escape(id)}"]`)?.getAttribute("aria-label") ?? "").length > 0).length;
-    const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
+    const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, style: e.style, ...(e.label !== undefined ? { label: e.label } : {}), points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
     return {
       nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels),
-      selected, selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length,
+      selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length,
       focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
   }
