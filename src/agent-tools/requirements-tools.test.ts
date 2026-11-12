@@ -57,7 +57,7 @@ describe("sysml_read_requirements_document", () => {
     // untrusted text cannot forge or close a marker
     expect(t).toContain("Mass --&gt; shall be low.");
     expect(t).not.toContain("Mass --> shall");
-    expect(t.indexOf("Appendix A Glossary")).toBeGreaterThan(t.indexOf("1 Performance Requirements <!--"));
+    expect(t.indexOf("## Appendix A Glossary")).toBeGreaterThan(t.indexOf("## 1 Performance Requirements"));
   });
   it("works in an untrusted workspace and refuses unknown packages", async () => {
     const { ctx } = setup(false);
