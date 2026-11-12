@@ -7,7 +7,7 @@ import * as vscode from "vscode";
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
 interface ModelNode { id: string; uri: string }
 interface TestApi {
-  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[] } | undefined } };
+  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined } };
   provider: {
     getChildren(n?: ModelNode): ModelNode[];
     getTreeItem(n: ModelNode): vscode.TreeItem;
@@ -116,8 +116,12 @@ export async function run(): Promise<void> {
       assert.deepStrictEqual(labels(api.provider.getChildren(root)), kidsBefore);
       const item = api.provider.getTreeItem(root);
       assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "error");
-      assert.match(String(item.tooltip), /line \d+, column \d+/);
       assert.match(String(item.description), /syntax error/);
+      // The first report may be the provisional fast-path error; wait for the parse worker's details.
+      await waitFor(() => ix.getDocument(vehicleUri.toString())?.detailsPending === false, 30000, "error details from the parse worker");
+      const precise = String(api.provider.getTreeItem(rootOf("Vehicle")).tooltip);
+      assert.match(precise, /line 3, column 3: mismatched input 'part'/);
+      assert.doesNotMatch(precise, /details pending/);
       // Undo the broken text so later tests see a clean model.
       const fix = new vscode.WorkspaceEdit();
       fix.delete(vehicleUri, new vscode.Range(1, 0, 2, 0));

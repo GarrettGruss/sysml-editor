@@ -8,7 +8,7 @@ export interface LoadedLibrary {
   uris: string[];
   /** Files that could not be read, with the reason. */
   failed: { path: string; error: string }[];
-  /** Texts of the `.sysml` files read, in load order (used to warm the parser's fallback cache). */
+  /** Texts of the `.sysml` files read, in load order . */
   sysmlTexts: string[];
 }
 

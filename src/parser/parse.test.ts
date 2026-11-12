@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parse, parseStats, warmFallbackParser } from "./parse.js";
+import { parse, parseStats, tryFastParse } from "./parse.js";
 import { isSnapshotActive } from "./dfa-snapshot.js";
 
 describe("parse", () => {
@@ -77,10 +77,10 @@ describe("fallback parser", () => {
     expect(parseStats.fastPath).toBe(f0 + 1);
     expect(parseStats.fallback).toBe(b0 + 1);
   }, 120_000);
-  it("warm-up does not change results and yields between steps", async () => {
-    let yields = 0;
-    await warmFallbackParser(["package P { part def A; }\n", "package Q { part def B; }\n"], async () => { yields++; });
-    expect(yields).toBeGreaterThanOrEqual(2);
-    expect(parse(bad).errors.length).toBeGreaterThan(0);
-  }, 120_000);
+  it("the fast path alone reports failure with the bail position", () => {
+    const f = tryFastParse(bad);
+    expect(f.ok).toBe(false);
+    if (!f.ok) expect(f.error.line).toBe(3);
+    expect(tryFastParse("package P { part def A; }").ok).toBe(true);
+  });
 });

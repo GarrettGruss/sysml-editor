@@ -242,7 +242,8 @@ const validate: ToolDefinition = {
     "Reports (1) syntax errors and (2) unresolved names, limited to what can be judged reliably: the type after ':' of a usage, supertypes (:>) of definitions, " +
     "and import targets. It does NOT check redefinitions, subsetting, feature chains, expressions, or semantic rules. A file with syntax errors is not checked for unresolved names. " +
     "`file` is a workspace-relative path; without it the whole workspace is checked. Reflects unsaved editor content. " +
-    "Returns JSON: { problems: [{ file, line, column, severity, message }] } with 1-based line and column.",
+    "Returns JSON: { problems: [{ file, line, column, severity, message }] } with 1-based line and column. " +
+    "If `detailsPending` lists files, their syntax errors are still being computed: the problem shown for them is provisional (\"details pending\"); call again shortly for the precise errors.",
   inputSchema: {
     type: "object",
     properties: { file: { type: "string", description: "Workspace-relative path of one file. Default: whole workspace." } },
@@ -258,20 +259,26 @@ const validate: ToolDefinition = {
       uris = [uri];
     } else uris = workspaceUris(ctx.index);
     const problems: { file: string; line: number; column: number; severity: string; message: string }[] = [];
+    const detailsPending: string[] = [];
     for (const uri of uris) {
       const file = relPath(ctx, uri);
       const doc = ctx.index.getDocument(uri);
       if (!doc) continue;
+      if (doc.detailsPending) detailsPending.push(file);
       for (const e of doc.errors) problems.push({ file, line: e.line + 1, column: e.column + 1, severity: "error", message: e.message });
       for (const u of findUnresolvedNames(ctx.index, uri))
         problems.push({ file, line: u.line + 1, column: u.column + 1, severity: "warning", message: u.message });
     }
+    const pending = detailsPending.length
+      ? { detailsPending, pendingNote: "Syntax error details for these files are still being computed; the problems shown for them are provisional. Call sysml_validate again in a moment." }
+      : {};
     if (problems.length > PROBLEM_CAP)
       return json({
         problems: problems.slice(0, PROBLEM_CAP),
         note: `Showing ${PROBLEM_CAP} of ${problems.length} problems. Call sysml_validate with \`file\` for one file at a time to see the rest.`,
+        ...pending,
       });
-    return json({ problems });
+    return json({ problems, ...pending });
   },
 };
 
