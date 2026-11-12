@@ -126,3 +126,6 @@ textarea { resize: vertical; min-height: 2.4em; max-height: 22em; }
 .conflict-title { margin: 0 0 4px; font-weight: 600; }
 .conflict pre { margin: 2px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12em; overflow: auto; }
 .conflict button { margin-right: 6px; }
+
+/* Reordering sections by dragging must not select the entry text. */
+.toc-item { -webkit-user-select: none; user-select: none; }
