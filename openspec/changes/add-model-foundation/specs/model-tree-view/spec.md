@@ -11,6 +11,10 @@ The extension SHALL contribute a VS Code native tree view (not a webview) rooted
 - **WHEN** the workspace contains `models/vehicle/vehicle-general.sysmld` and the user switches the filter to Diagrams
 - **THEN** the tree shows `models`, then `vehicle`, then `vehicle-general.sysmld` with its diagram kind (for example "General") as description; the diagram file has no children and selecting it opens it in the diagram editor; `.sysml` files are not shown
 
+#### Scenario: Workspace without diagrams
+- **WHEN** the workspace contains no `.sysmld` files and the Diagrams view is selected
+- **THEN** the tree shows the workspace folders and their subfolders, all marked "no diagrams"
+
 #### Scenario: Multi-root workspace
 - **WHEN** the workspace has more than one workspace folder
 - **THEN** each view has one root node per workspace folder
@@ -24,11 +28,11 @@ The extension SHALL contribute a VS Code native tree view (not a webview) rooted
 - **THEN** the view shows a welcome message with an action to open a folder
 
 ### Requirement: Folders without SysML files
-In both views the tree SHALL show every workspace folder that is not excluded by `files.exclude` or `sysml.exclude`, including folders that contain no file of the kind the view shows at any depth. Such a folder SHALL be marked as empty (description "no SysML files" in the Elements view, "no diagrams" in the Diagrams view, and a dimmed icon) and SHALL have no children. Folders appear before files, each sorted by name.
+In both views the tree SHALL show every workspace folder that is not excluded by `files.exclude` or `sysml.exclude`, including folders that contain no file of the kind the view shows at any depth. Such a folder SHALL be marked as empty (description "no SysML files" in the Elements view, "no diagrams" in the Diagrams view, and a dimmed icon); expanding it SHALL show only its subfolders, which are marked the same way. Folders appear before files, each sorted by name.
 
 #### Scenario: Folder with no SysML files
 - **WHEN** the workspace contains a folder `docs/` with no `.sysml` file below it
-- **THEN** `docs` appears in the tree, marked "no SysML files", and cannot be expanded
+- **THEN** `docs` appears in the tree, marked "no SysML files", and expanding it shows only its subfolders, each marked "no SysML files"
 
 #### Scenario: Excluded folder
 - **WHEN** a folder matches `files.exclude` or `sysml.exclude` (for example `node_modules`)
