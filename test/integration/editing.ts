@@ -21,10 +21,10 @@ export function editingTests(c: Ctx): Test[] {
   const nodeOf = (m: Metrics, id: string): MNode => m.nodes.find((n) => n.id === id)!;
   const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g);
   const dirty = (name: string) => api.diagram.state(uriOf(name)).dirty;
-  const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
+  const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string, detail?: () => string) => {
     const end = performance.now() + ms;
     while (!(await cond())) {
-      if (performance.now() > end) assert.fail(`timed out waiting for: ${what}`);
+      if (performance.now() > end) assert.fail(`timed out waiting for: ${what}${detail ? ` [${detail()}]` : ""}`);
       await sleep(25);
     }
   };
@@ -695,7 +695,8 @@ export function editingTests(c: Ctx): Test[] {
           await waitFor(() => /connect a\.o to b\.i;/.test(onDisk(model)) === connected, 30000, `${step}: the connection is ${connected ? "" : "not "}in the text`);
           await clean(model);
           await waitFor(async () => JSON.stringify(await treeParts()) === JSON.stringify(expected), 30000, `${step}: the tree shows ${expected.join(",")} (has ${(await treeParts()).join(",")})`);
-          await waitFor(() => JSON.stringify(mem(diagram).nodes.map((n) => n.ref).filter((r): r is string => !!r && /^EdE2E::Sys::\w+$/.test(r)).map((r) => r.split("::")[2]!).sort()) === JSON.stringify(expected), 30000, `${step}: the open diagram has ${expected.join(",")}`);
+          const shown = () => mem(diagram).nodes.map((n) => n.ref).filter((r): r is string => !!r && /^EdE2E::Sys::\w+$/.test(r)).map((r) => r.split("::")[2]!).sort();
+          await waitFor(() => JSON.stringify(shown()) === JSON.stringify(expected), 30000, `${step}: the open diagram has ${expected.join(",")}`, () => `memory shows ${shown().join(",")}; on disk shows ${diskDiagram(diagram).nodes.map((n) => n.ref).join(",")}; dirty=${dirty(diagram)}; model has ${(api.model.index.findByQualifiedName("EdE2E::Sys")[0] as { members: { name?: string }[] } | undefined)?.members.map((m) => m.name).join(",")}`);
           await waitFor(() => mem(diagram).edges.length === (connected ? 1 : 0), 30000, `${step}: the diagram has ${connected ? 1 : 0} edges`);
           await c.eventually(async () => {
             const m = await metrics(diagram);

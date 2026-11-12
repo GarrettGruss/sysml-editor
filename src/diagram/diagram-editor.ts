@@ -58,6 +58,10 @@ export class SysmlDiagramDocument implements vscode.CustomDocument {
   pendingSelect?: string[];
   /** Resolvers of callers waiting for the webview's answer to an Auto-layout command. */
   layoutWaiters: Array<() => void> = [];
+  /** Own writes of the file in flight (state.disk already has their text); file watcher events during them are stale. */
+  writing = 0;
+  /** Set when a watcher event was skipped during an own write: the file is read once more afterwards. */
+  recheck?: () => void;
   private readonly disposables: vscode.Disposable[] = [];
   /**
    * `key` names the document's panels; it is the URI for a document open in an editor. A `renderOnly` document backs a
@@ -173,7 +177,21 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop()!));
     const onDisk = async () => {
       try {
-        const change = noteExternalChange(doc.state, (await readSettled(() => read(uri))) as string);
+        if (doc.writing > 0) {
+          // state.disk is ahead of the file while our own write is in flight: reading now would mistake the older text for an
+          // external change and reload it over what the model edit just put in memory. Look again when the write is done.
+          doc.recheck = () => void onDisk();
+          return;
+        }
+        const diskBefore = doc.state.disk;
+        const text = (await readSettled(() => read(uri))) as string;
+        if (doc.writing > 0 || doc.state.disk !== diskBefore) {
+          // An own write started or finished while reading: the text read may be older than state.disk.
+          if (doc.writing > 0) doc.recheck = () => void onDisk();
+          else void onDisk();
+          return;
+        }
+        const change = noteExternalChange(doc.state, text);
         if (change === "reload") this.rerender(doc);
         else if (change === "conflict") {
           void vscode.window.showWarningMessage(`${uri.path.split("/").pop()} changed on disk while it has unsaved changes. Saving will ask whether to overwrite it.`);
@@ -187,6 +205,21 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       dispose: () => { if (this.docs.get(uri.toString()) === doc) this.docs.delete(uri.toString()); },
     });
     return doc;
+  }
+
+  /** Writes the diagram file of an open document; watcher events meanwhile are not taken for external changes. */
+  private async writeOwn(doc: SysmlDiagramDocument, text: string): Promise<void> {
+    doc.writing++;
+    try {
+      await writeDiagramFile(doc.uri, encoder.encode(text));
+    } finally {
+      doc.writing--;
+      if (doc.writing === 0 && doc.recheck) {
+        const again = doc.recheck;
+        doc.recheck = undefined;
+        again();
+      }
+    }
   }
 
   async saveCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
@@ -210,7 +243,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const previous = s.disk;
     s.disk = s.text(); // our own write must not look like an external change
     try {
-      await writeDiagramFile(doc.uri, encoder.encode(s.text()));
+      await this.writeOwn(doc, s.text());
     } catch (e) {
       s.disk = previous;
       throw e;
@@ -384,20 +417,45 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
    * saved state, which is written at once. Returns whether the file was written.
    */
   async forceOpen(doc: SysmlDiagramDocument, change: DiagramChange, mode: "apply" | "revert"): Promise<boolean> {
-    const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+    const stat = () => vscode.workspace.fs.stat(doc.uri).then((x) => `${x.mtime}:${x.size}`, () => undefined);
     const ctx = { uri: doc.uri.toString(), sourceOf: this.opts(doc).sourceOf };
-    const r =
-      mode === "apply"
-        ? forceChange(doc.state, change, (d) => change.apply(d, ctx), disk)
-        : unforceChange(doc.state, change, (d) => change.revert(d, ctx), disk);
-    if (mode === "apply") {
-      for (const k of change.createdKeys?.() ?? []) doc.state.created.add(k);
-      for (const [k, u] of change.createdIn?.() ?? []) doc.state.createdIn.set(k, u);
+    let wrote = false;
+    for (let attempt = 0; ; attempt++) {
+      const before = await stat();
+      const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+      const prev = { disk: doc.state.disk, raw: doc.state.raw };
+      const r =
+        mode === "apply"
+          ? forceChange(doc.state, change, (d) => change.apply(d, ctx), disk)
+          : unforceChange(doc.state, change, (d) => change.revert(d, ctx), disk);
+      if (mode === "apply") {
+        for (const k of change.createdKeys?.() ?? []) doc.state.created.add(k);
+        for (const [k, u] of change.createdIn?.() ?? []) doc.state.createdIn.set(k, u);
+      }
+      doc.state.snapshot = undefined;
+      if (r.kind === "write") {
+        // The file may have changed since it was read: do not overwrite an external change unseen.
+        if ((await stat()) !== before) {
+          doc.state.disk = prev.disk;
+          doc.state.raw = prev.raw;
+          if (attempt < 2) continue; // read again and re-apply the change to the new text
+          void vscode.window.showWarningMessage(`${doc.uri.path.split("/").pop()} changed on disk while the model edit was being saved to it. The diagram file was not updated.`);
+          this.rerender(doc);
+          return false;
+        }
+        try {
+          await this.writeOwn(doc, r.text);
+        } catch (e) {
+          doc.state.disk = prev.disk; // the text never landed
+          doc.state.raw = prev.raw;
+          throw e;
+        }
+        wrote = true;
+      }
+      break;
     }
-    doc.state.snapshot = undefined;
-    if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
     this.rerender(doc);
-    return r.kind === "write";
+    return wrote;
   }
 
   /** One undo entry for a model edit made from this diagram; its undo and redo reverse and repeat text and diagram together. */
@@ -788,9 +846,18 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   private async followRename(doc: SysmlDiagramDocument, updates: NonNullable<ReturnType<typeof refresh>>["updates"]): Promise<void> {
     try {
       const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+      const prev = { disk: doc.state.disk, raw: doc.state.raw };
       const r = followRename(doc.state, updates ?? [], disk);
       if (r.kind === "reloaded") this.rerender(doc);
-      else if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
+      else if (r.kind === "write") {
+        try {
+          await this.writeOwn(doc, r.text);
+        } catch (e) {
+          doc.state.disk = prev.disk; // the text never landed
+          doc.state.raw = prev.raw;
+          throw e;
+        }
+      }
     } catch (e) {
       this.log(`diagram rename follow failed: ${e instanceof Error ? e.message : String(e)}`);
     }
