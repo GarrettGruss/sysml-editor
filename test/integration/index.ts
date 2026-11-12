@@ -64,7 +64,7 @@ export type Gesture =
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string }[];
-  overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
+  overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
   inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
@@ -127,6 +127,7 @@ export async function run(): Promise<void> {
     for (const n of m.nodes) assert.ok([n.x, n.y, n.w, n.h].every(Number.isFinite) && n.w > 0 && n.h > 0, `${file}: ${n.id} has finite geometry`);
     assert.strictEqual(m.overflows, 0, `${file}: text overflows its box`);
     assert.strictEqual(m.outsideParent, 0, `${file}: no child is drawn outside its parent`);
+    assert.strictEqual(m.nodesOverCompartments, 0, `${file}: no child covers its parent's header or compartments`);
     assert.strictEqual(m.labelsOnOwnEdge, 0, `${file}: no edge label sits on its own edge`);
     assert.strictEqual(m.labelsOverNodes, 0, `${file}: no edge label touches a node`);
     assert.strictEqual(m.labelsOverLabels, 0, `${file}: no edge labels overlap`);

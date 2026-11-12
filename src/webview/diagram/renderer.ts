@@ -5,7 +5,7 @@
  */
 import { ELEMENT_MIME, type DiagramEdit, type DiagramMetrics, type ModelIntent, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
-import { absoluteBoxes, boundsOf, countOutsideParent, countOverlaps, type Box, type Measure, type Pt } from "./geometry.js";
+import { absoluteBoxes, boundsOf, countOutsideParent, countOverCompartments, countOverlaps, type Box, type Measure, type Pt } from "./geometry.js";
 import { handleBoxes, Interaction, snap, type InteractionHost, type PointerInput, type Scene } from "./interaction.js";
 import type { LayoutResult } from "./layout.js";
 import { checkEdges } from "./metrics.js";
@@ -503,7 +503,7 @@ export class SvgRenderer implements DiagramRenderer {
   getMetrics(): Metrics {
     const vm = this.vm;
     const empty: Metrics = {
-      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
+      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
       portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
     if (!vm) return empty;
@@ -526,7 +526,7 @@ export class SvgRenderer implements DiagramRenderer {
     const named = selected.filter((id) => (this.world.querySelector(`g[data-node="${CSS.escape(id)}"]`)?.getAttribute("aria-label") ?? "").length > 0).length;
     const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, style: e.style, ...(e.label !== undefined ? { label: e.label } : {}), points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
     return {
-      nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs),
+      nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs), nodesOverCompartments: countOverCompartments(vm, abs, this.measure),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels),
       selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
       focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.tools.state(), inlineEditor: this.editor !== undefined, theme: themeOf(),

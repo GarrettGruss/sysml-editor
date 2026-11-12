@@ -118,6 +118,8 @@ export interface DiagramMetrics {
   overflows: number;
   /** Child nodes whose box is not inside their parent's box. */
   outsideParent: number;
+  /** Child nodes that intersect their parent's header or compartment area (they belong below it). */
+  nodesOverCompartments: number;
   /** Edge segments that are neither horizontal nor vertical. */
   diagonalSegments: number;
   /** Edges with a segment through the interior of one of their own end nodes (an end that contains the other is skipped). */

@@ -5,7 +5,7 @@ import { ModelIndex } from "../../model/index.js";
 import { parseDiagram } from "../../diagram/format.js";
 import { resolveDiagram } from "../../diagram/resolve.js";
 import { buildViewModel } from "../../diagram/view-model.js";
-import { absoluteBoxes, clipToBox, countOutsideParent, countOverlaps, describeBox, headPoints, wrapText, type Measure } from "./geometry.js";
+import { absoluteBoxes, clipToBox, countOutsideParent, countOverCompartments, countOverlaps, describeBox, headPoints, wrapText, type Measure } from "./geometry.js";
 import { layoutDiagram, type ElkLike } from "./layout.js";
 import { LIGHT_PALETTE, buildSvg, wrapStandalone } from "./svg.js";
 
@@ -111,5 +111,52 @@ describe("containers enclose their children", () => {
     expect(countOutsideParent(moved, absoluteBoxes(moved, l.boxes))).toBe(0);
     const l0 = await layoutDiagram(vm, elk, measure);
     expect(countOutsideParent(vm, absoluteBoxes(vm, l0.boxes))).toBe(0);
+  });
+});
+
+describe("children of a definition in a General View", () => {
+  const MODEL = `package P {
+  part def Vehicle {
+    port drive;
+    attribute mass;
+    part wheel;
+    part spare;
+  }
+}`;
+  const build = (nodes: unknown[]) => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///ws/p.sysml", MODEL);
+    const r = parseDiagram(JSON.stringify({ version: 1, kind: "general", root: "P", sources: ["p.sysml"], nodes, edges: [] }));
+    if (!r.ok) throw new Error("diagram does not parse");
+    return buildViewModel(r.doc, resolveDiagram(r.doc, ix), ix);
+  };
+
+  it("are laid out below the compartments; the container grows to fit; a stored position inside the compartment area moves down", async () => {
+    // `spare` was dropped at (20, 10): on top of the header and the compartment text.
+    const vm = build([{ id: "n1", ref: "P::Vehicle", x: 0, y: 0 }, { id: "n2", ref: "P::Vehicle::spare", parent: "n1", x: 20, y: 10 }]);
+    const l = await layoutDiagram(vm, elk, measure);
+    const abs = absoluteBoxes(vm, l.boxes);
+    const parent = vm.nodes.find((n) => n.id === "n1")!;
+    expect((parent.compartments ?? []).length).toBeGreaterThan(0);
+    const body = describeBox(parent, measure);
+    expect(body.bodyTop).toBeGreaterThan(body.headerH);
+    const child = abs.get("n2")!;
+    expect(child.y).toBeGreaterThanOrEqual(abs.get("n1")!.y + body.bodyTop);
+    expect(countOverCompartments(vm, abs, measure)).toBe(0);
+    expect(countOutsideParent(vm, abs)).toBe(0);
+    // the container is at least as tall as the compartments plus the child
+    expect(abs.get("n1")!.h).toBeGreaterThanOrEqual(child.y + child.h - abs.get("n1")!.y);
+  });
+
+  it("an automatically placed child also starts below the compartments", async () => {
+    const vm = build([{ id: "n1", ref: "P::Vehicle" }, { id: "n2", ref: "P::Vehicle::spare", parent: "n1" }]);
+    const l = await layoutDiagram(vm, elk, measure);
+    expect(countOverCompartments(vm, absoluteBoxes(vm, l.boxes), measure)).toBe(0);
+  });
+
+  it("the metric counts a child drawn over the compartments", () => {
+    const vm = build([{ id: "n1", ref: "P::Vehicle" }, { id: "n2", ref: "P::Vehicle::spare", parent: "n1" }]);
+    const abs = new Map([["n1", { x: 0, y: 0, w: 300, h: 300 }], ["n2", { x: 10, y: 30, w: 60, h: 30 }]]);
+    expect(countOverCompartments(vm, abs, measure)).toBe(1);
   });
 });
