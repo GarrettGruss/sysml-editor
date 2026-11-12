@@ -1,4 +1,6 @@
 import { antlrDocumentParser } from "./antlr-builder.js";
+import { kermlOutlineParser } from "./kerml-outline.js";
+import { isLibraryUri } from "./library-uri.js";
 import { Resolver } from "./resolve.js";
 import {
   emptyModel,
@@ -8,6 +10,12 @@ import {
   type Element,
   type ModelSyntaxError,
 } from "./types.js";
+
+/** Picks the parser by file extension: `.kerml` uses the outline indexer, anything else ANTLR. */
+export const defaultDocumentParser: DocumentParser = (uri, text) => {
+  const path = uri.split(/[?#]/, 1)[0]!.toLowerCase();
+  return path.endsWith(".kerml") ? kermlOutlineParser(uri, text) : antlrDocumentParser(uri, text);
+};
 
 export interface ModelChangeEvent {
   /** URIs whose model or error state changed (removed documents included). */
@@ -37,7 +45,7 @@ export class ModelIndex {
   private readonly listeners = new Set<(e: ModelChangeEvent) => void>();
   private readonly resolver: Resolver;
 
-  constructor(private readonly parser: DocumentParser = antlrDocumentParser) {
+  constructor(private readonly parser: DocumentParser = defaultDocumentParser) {
     this.resolver = new Resolver({
       modelOf: (uri) => this.docs.get(uri)?.model,
       rootsNamed: (name) => this.roots.get(name) ?? [],
@@ -80,6 +88,11 @@ export class ModelIndex {
       stale: e.errors.length > 0,
       everParsedCleanly: e.everParsedCleanly,
     };
+  }
+
+  /** True for standard-library documents and the elements in them (read-only content). */
+  isReadOnly(target: string | Element): boolean {
+    return isLibraryUri(typeof target === "string" ? target : target.uri);
   }
 
   uris(): string[] {
@@ -168,5 +181,8 @@ function push(m: Map<string, Element[]>, key: string, e: Element): void {
 }
 
 export * from "./types.js";
+export { kermlOutlineParser, buildKermlOutline } from "./kerml-outline.js";
+export { LIBRARY_URI_SCHEME, isLibraryUri } from "./library-uri.js";
+export { loadLibrary } from "./library.js";
 export { antlrDocumentParser, buildDocumentModel } from "./antlr-builder.js";
 export { quoteName, unquoteName, splitQualified } from "./names.js";
