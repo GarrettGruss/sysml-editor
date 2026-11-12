@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ModelTreeDragAndDrop, ModelTreeProvider, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
 import { nodeForElement, type ModelNode } from "./tree/tree-model.js";
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { VsCodeDiagramService } from "./diagram/agent-service.js";
@@ -16,7 +16,7 @@ import { registerRequirementsCommands } from "./requirements/commands.js";
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
   model: WorkspaceModel;
-  provider: ModelTreeProvider;
+  provider: Pick<ModelTreeProvider, "getParent" | "filter" | "setFilter" | "getTreeItem" | "isHanded" | "onDidChangeTreeData"> & { getChildren: ModelTreeProvider["getChildren"]; viewGetChildren: ModelTreeProvider["getChildren"] };
   view: vscode.TreeView<ModelNode>;
   agent: AgentIntegration;
   diagram: DiagramTestApi;
@@ -30,7 +30,7 @@ export interface TestApi {
 export function activate(context: vscode.ExtensionContext): TestApi {
   const log = vscode.window.createOutputChannel("SysML", { log: true });
   const model = new WorkspaceModel(context.extensionPath, (m) => log.warn(m));
-  const provider = new ModelTreeProvider(model.index);
+  const provider = new ModelTreeProvider(model.index, undefined, context.workspaceState, model.onDidChangeFolders);
   const dnd = new ModelTreeDragAndDrop(model.index);
   const view = vscode.window.createTreeView<ModelNode>(VIEW_ID, { treeDataProvider: provider, dragAndDropController: dnd, canSelectMany: true });
 
@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   void agent.apply();
   diagrams.revealInTree = (el) => {
     const node = nodeForElement(model.index, el);
-    if (node && view.selection[0]?.id !== node.id) void Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {});
+    if (node && view.selection[0]?.id !== node.id) void provider.revealNode(view, node, (m) => log.warn(m));
   };
 
   requirements.revealInTree = diagrams.revealInTree;
@@ -85,7 +85,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     agent,
     provider,
     view,
-    registerCursorSync(model.index, view),
+    registerCursorSync(model.index, view, provider, (m) => log.warn(m)),
     diagrams,
     requirements,
     files,
@@ -98,8 +98,23 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     }),
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
+    vscode.commands.registerCommand("sysml.tree.showDiagrams", () => provider.setFilter("diagrams")),
+    vscode.commands.registerCommand("sysml.tree.showElements", () => provider.setFilter("elements")),
   );
-  return { model, provider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi };
+  // Tests read the tree directly; their objects are not the ones VS Code knows, so only `viewGetChildren` records.
+  const testProvider = {
+    getChildren: (n?: ModelNode) => provider.children(n, false),
+    viewGetChildren: (n?: ModelNode) => provider.getChildren(n),
+    getParent: (n: ModelNode) => provider.getParent(n),
+    get filter() {
+      return provider.filter;
+    },
+    setFilter: (f: TreeFilter) => provider.setFilter(f),
+    getTreeItem: (n: ModelNode) => provider.getTreeItem(n),
+    isHanded: (n: ModelNode) => provider.isHanded(n),
+    onDidChangeTreeData: provider.onDidChangeTreeData,
+  };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi };
 }
 
 export function deactivate(): void {}

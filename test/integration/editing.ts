@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { viaLm, viaMcp } from "./diagram-agent.js";
 import type { Ctx } from "./diagram-interaction.js";
 import type { DiagramDoc, Failure, Gesture, Metrics, MNode, ModelNode, PickItem } from "./index.js";
+import { elementRoots } from "./tree-util.js";
 
 type Test = [name: string, fn: () => Promise<void>];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -379,8 +380,9 @@ export function editingTests(c: Ctx): Test[] {
     ["Tree: Add Child, Rename and Delete (with confirmation) edit the text and the tree", scenario("EdTree", { "tmp-edtree.sysmld": gen("EdTree") }, async ({ model }) => {
       const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
       const child = (p: ModelNode | undefined, l: string) => api.provider.getChildren(p).find((n) => label(n) === l.replace(/ .*$/, "") || label(n) === l);
-      const root = () => child(undefined, "EdTree")!;
-      await waitFor(() => !!root(), 10000, "the tree has the package");
+      let rootNode: ModelNode | undefined;
+      const root = () => rootNode!;
+      await waitFor(async () => !!(rootNode = (await elementRoots(api)).find((r) => label(r) === "EdTree")), 10000, "the tree has the package");
       const original = MODEL("EdTree");
       // Add Child: pick "Part", then a name
       script.pick = "Part"; script.input = "treechild";
@@ -413,6 +415,27 @@ export function editingTests(c: Ctx): Test[] {
       await sleep(300);
       assert.strictEqual(onDisk(model), kept);
       assert.notStrictEqual(kept, original);
+    })],
+
+    ["Elements view, reached through the folders and the file: element nodes are editable (sysmlElement context value, Add Child and Rename work)", scenario("EdFold", { "tmp-edfold.sysmld": gen("EdFold") }, async ({ model }) => {
+      {
+        const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
+        const kids = async (n?: ModelNode): Promise<ModelNode[]> => await api.provider.getChildren(n);
+        const find = async (p: ModelNode | undefined, l: string) => (await kids(p)).find((n) => label(n) === l)!;
+        const file = async () => await find((await kids())[0], model);
+        await waitFor(async () => !!(await find((await kids())[0], model)), 15000, "the file is in the Folders tree");
+        const pkg = async () => await find(await file(), "EdFold");
+        const v1 = async () => await find(await pkg(), "vehicle1");
+        assert.strictEqual(api.provider.getTreeItem(await v1()).contextValue, "sysmlElement");
+        script.pick = "Part"; script.input = "foldchild";
+        await vscode.commands.executeCommand("sysml.tree.addChild", await v1());
+        await waitFor(() => onDisk(model).includes("part foldchild;"), 15000, "Add Child wrote the declaration");
+        await clean(model);
+        script.input = "cell";
+        await vscode.commands.executeCommand("sysml.tree.rename", await find(await v1(), "battery"));
+        await waitFor(() => onDisk(model).includes("part cell;"), 15000, "renamed");
+        await clean(model);
+      }
     })],
 
     ["Syntax errors: an edit is refused with Go to error, and valid files with undisplayed constructs are edited", scenario("EdErr", { "tmp-ederr.sysmld": gen("EdErr") }, async ({ model, diagram }) => {
@@ -514,9 +537,10 @@ export function editingTests(c: Ctx): Test[] {
       const original = MODEL("EdPar");
       const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
       const child = (p: ModelNode | undefined, l: string) => api.provider.getChildren(p).find((n) => label(n) === l);
-      await waitFor(() => !!child(undefined, "EdPar"), 10000, "tree");
+      let par: ModelNode | undefined;
+      await waitFor(async () => !!(par = (await elementRoots(api)).find((r) => label(r) === "EdPar")), 10000, "tree");
       script.pick = "Port"; script.input = "px";
-      await vscode.commands.executeCommand("sysml.tree.addChild", child(child(undefined, "EdPar"), "vehicle1"));
+      await vscode.commands.executeCommand("sysml.tree.addChild", child(par, "vehicle1"));
       await waitFor(() => onDisk(model).includes("port px;"), 15000, "GUI edit");
       const gui = onDisk(model);
       writeFileSync(uriOf(model).fsPath, original);
@@ -649,8 +673,8 @@ export function editingTests(c: Ctx): Test[] {
       async ({ model, diagram }) => {
         const CANDIDATES = ["a", "b", "c", "d", "gamma", "delta"];
         const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
-        const treeParts = (): string[] => {
-          const pkg = api.provider.getChildren().find((r) => label(r) === "EdE2E");
+        const treeParts = async (): Promise<string[]> => {
+          const pkg = (await elementRoots(api)).find((r) => label(r) === "EdE2E");
           const sys = pkg && api.provider.getChildren(pkg).find((n) => label(n) === "Sys");
           return sys ? api.provider.getChildren(sys).map(label).filter((l) => CANDIDATES.includes(l)).sort() : [];
         };
@@ -670,7 +694,7 @@ export function editingTests(c: Ctx): Test[] {
           await waitFor(() => JSON.stringify(textParts(onDisk(model))) === JSON.stringify(expected), 30000, `${step}: the text on disk has parts ${expected.join(",")}`);
           await waitFor(() => /connect a\.o to b\.i;/.test(onDisk(model)) === connected, 30000, `${step}: the connection is ${connected ? "" : "not "}in the text`);
           await clean(model);
-          await waitFor(() => JSON.stringify(treeParts()) === JSON.stringify(expected), 30000, `${step}: the tree shows ${expected.join(",")} (has ${treeParts().join(",")})`);
+          await waitFor(async () => JSON.stringify(await treeParts()) === JSON.stringify(expected), 30000, `${step}: the tree shows ${expected.join(",")} (has ${(await treeParts()).join(",")})`);
           await waitFor(() => JSON.stringify(mem(diagram).nodes.map((n) => n.ref).filter((r): r is string => !!r && /^EdE2E::Sys::\w+$/.test(r)).map((r) => r.split("::")[2]!).sort()) === JSON.stringify(expected), 30000, `${step}: the open diagram has ${expected.join(",")}`);
           await waitFor(() => mem(diagram).edges.length === (connected ? 1 : 0), 30000, `${step}: the diagram has ${connected ? 1 : 0} edges`);
           await c.eventually(async () => {
@@ -690,8 +714,8 @@ export function editingTests(c: Ctx): Test[] {
         await agree(["a", "b", "c"], true, "add from the diagram");
         // 3. tree: rename c -> gamma
         script.input = "gamma";
-        const sys = () => api.provider.getChildren(api.provider.getChildren().find((r) => label(r) === "EdE2E")).find((n) => label(n) === "Sys");
-        await vscode.commands.executeCommand("sysml.tree.rename", api.provider.getChildren(sys()).find((n) => label(n) === "c"));
+        const sys = async () => api.provider.getChildren((await elementRoots(api)).find((r) => label(r) === "EdE2E")).find((n) => label(n) === "Sys");
+        await vscode.commands.executeCommand("sysml.tree.rename", api.provider.getChildren(await sys()).find((n) => label(n) === "c"));
         await agree(["a", "b", "gamma"], true, "rename from the tree");
         // 4. agent: add delta (placed on the diagram)
         const created = await viaLm("sysml_create_element", { owner: "EdE2E::Sys", kind: "part", name: "delta", diagram });
@@ -703,7 +727,7 @@ export function editingTests(c: Ctx): Test[] {
         await agree(["a", "b", "delta"], true, "delete from an agent");
         // 6. tree: delete delta (confirmation is scripted)
         script.confirm = true;
-        await vscode.commands.executeCommand("sysml.tree.delete", api.provider.getChildren(sys()).find((n) => label(n) === "delta"));
+        await vscode.commands.executeCommand("sysml.tree.delete", api.provider.getChildren(await sys()).find((n) => label(n) === "delta"));
         await agree(["a", "b"], true, "delete from the tree");
         // 7. diagram: add d, then Delete from Model on it
         script.input = "d";

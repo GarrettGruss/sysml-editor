@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { DiagramDoc, Gesture, Metrics, MNode, ModelNode, PickItem, TestApi } from "./index.js";
+import { elementRoots } from "./tree-util.js";
 
 type Test = [name: string, fn: () => Promise<void>];
 
@@ -37,7 +38,7 @@ export function interactionTests(c: Ctx): Test[] {
     }
   };
   const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
-  const rootOf = (l: string) => api.provider.getChildren().find((r) => label(r) === l)!;
+  const rootOf = async (l: string) => (await elementRoots(api)).find((r) => label(r) === l)!;
   const childOf = (parent: ModelNode, l: string) => {
     const n = api.provider.getChildren(parent).find((r) => label(r) === l);
     assert.ok(n, `tree node ${l}`);
@@ -370,7 +371,7 @@ export function interactionTests(c: Ctx): Test[] {
     ["Add to Active Diagram, Show Element… and a drop add a node as one undoable edit and change only the diagram file", withCopy("ports-general.sysmld", "tmp-add.sysmld", async () => {
       const f = "tmp-add.sysmld";
       const before = JSON.stringify(doc(f));
-      const vehicle = rootOf("Vehicle");
+      const vehicle = await rootOf("Vehicle");
       // (2) the tree action, with the node the tree view passes
       assert.strictEqual(api.diagram.activeUri(), uriOf(f).toString());
       await vscode.commands.executeCommand("sysml.addToActiveDiagram", childOf(vehicle, "Wheel"));
@@ -403,8 +404,8 @@ export function interactionTests(c: Ctx): Test[] {
     })],
 
     ["the tree puts the dragged elements on the data transfer under the diagram MIME type", async () => {
-      const wheel = childOf(rootOf("Vehicle"), "Wheel");
-      const car = childOf(rootOf("Vehicle"), "Car");
+      const wheel = childOf(await rootOf("Vehicle"), "Wheel");
+      const car = childOf(await rootOf("Vehicle"), "Car");
       const dt = new vscode.DataTransfer();
       api.dnd.handleDrag([wheel, car], dt);
       assert.deepStrictEqual(JSON.parse(String(await dt.get(ELEMENT_MIME)!.asString())), ["Vehicle::Wheel", "Vehicle::Car"]);
@@ -414,7 +415,7 @@ export function interactionTests(c: Ctx): Test[] {
     // ---- E: new diagram, show in diagram --------------------------------------------------
     ["New Diagram… on a tree element creates a valid file next to its source, never overwrites, and opens it showing the direct members", async () => {
       const created: string[] = [];
-      const car = childOf(rootOf("Vehicle"), "Car");
+      const car = childOf(await rootOf("Vehicle"), "Car");
       try {
         const asked: string[] = [];
         api.diagram.setUi({
@@ -463,7 +464,7 @@ export function interactionTests(c: Ctx): Test[] {
     }],
 
     ["Show in Diagram lists the diagrams that show the element, opens the chosen one and selects the node", async () => {
-      const battery = childOf(rootOf("Ports"), "Battery");
+      const battery = childOf(await rootOf("Ports"), "Battery");
       let offered: string[] = [];
       try {
         api.diagram.setUi({ pick: async (items: PickItem[]) => { offered = items.map((i) => i.label); return items.find((i) => i.label === "ports-general.sysmld"); } });
@@ -481,7 +482,7 @@ export function interactionTests(c: Ctx): Test[] {
     // ---- F: selection sync -----------------------------------------------------------------
     ["selecting a node in a diagram reveals and selects the tree item, unless sysml.tree.followCursor is off", async () => {
       const f = "ports-general.sysmld";
-      const battery = childOf(rootOf("Ports"), "Battery");
+      const battery = childOf(await rootOf("Ports"), "Battery");
       const calls: ModelNode[] = [];
       const view = api.view;
       const orig = view.reveal.bind(view);

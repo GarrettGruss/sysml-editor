@@ -48,7 +48,14 @@ export function normalizeRelPath(p: string): string {
  * path itself or any of its parent folders matches a pattern (like VS Code's folder exclusion).
  */
 export function makeExcludeFilter(patterns: readonly string[]): (relPath: string) => boolean {
-  const res = patterns.filter((p) => p.trim()).map((p) => globToRegExp(normalizeRelPath(p.trim())));
+  const res: RegExp[] = [];
+  for (const p of patterns) {
+    if (!p.trim()) continue;
+    const n = normalizeRelPath(p.trim());
+    res.push(globToRegExp(n));
+    // `dir/**` also hides the folder `dir` itself (as a folder base), without probing a made-up child name.
+    if (n.endsWith("/**") && n.length > 3) res.push(globToRegExp(n.slice(0, -3)));
+  }
   return (relPath) => {
     if (res.length === 0) return false;
     const parts = normalizeRelPath(relPath).split("/");

@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import type { DiagramDoc, Metrics, PickItem, TestApi } from "./index.js";
 import type { Ctx } from "./diagram-interaction.js";
+import { elementRoots } from "./tree-util.js";
 
 type Test = [name: string, fn: () => Promise<void>];
 
@@ -75,7 +76,7 @@ export function agentTests(c: Ctx): Test[] {
     assert.ok(n, `tree node ${l}`);
     return n;
   };
-  const rootOf = (l: string) => api.provider.getChildren().find((r) => String(api.provider.getTreeItem(r).label) === l)!;
+  const rootOf = async (l: string) => (await elementRoots(api)).find((r) => String(api.provider.getTreeItem(r).label) === l)!;
   /** An agent's call, wrapped so that a leftover open editor or temp file does not leak into the next test. */
   const withTmp = (fixture: string, tmp: string, fn: () => Promise<void>) => async () => {
     copy(fixture, tmp);
@@ -353,7 +354,7 @@ export function agentTests(c: Ctx): Test[] {
           pick: async (items: PickItem[]) => items.find((i) => i.label === "General View"),
           input: async (o) => o.value,
         });
-        const wheel = childOf(rootOf("Vehicle"), "Wheel");
+        const wheel = childOf(await rootOf("Vehicle"), "Wheel");
         const created = (await vscode.commands.executeCommand("sysml.newDiagram", wheel)) as vscode.Uri;
         assert.strictEqual(path.basename(created.fsPath), file);
         const uri = uriOf(file);

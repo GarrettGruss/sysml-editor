@@ -35,6 +35,9 @@ export class WorkspaceModel implements vscode.Disposable {
   private readonly subs: vscode.Disposable[] = [];
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly tracker = new ScanTracker();
+  private readonly folderEmitter = new vscode.EventEmitter<string>();
+  /** A folder (or other non-`.sysml` path) was created or deleted; carries the key of its parent folder. */
+  readonly onDidChangeFolders = this.folderEmitter.event;
   private filterKey = "";
   private filter: (rel: string) => boolean = () => false;
   private disposed = false;
@@ -50,6 +53,7 @@ export class WorkspaceModel implements vscode.Disposable {
       log(`parse worker not found at ${workerPath}; syntax errors are computed on the main thread`);
     }
     this.index = new ModelIndex(undefined, { details: this.worker });
+    this.subs.push(this.index.onDidChange(() => (this.sortedUris = undefined)));
     this.subs.push(
       vscode.workspace.onDidOpenTextDocument((d) => this.openDoc(d)),
       vscode.workspace.onDidChangeTextDocument((e) => this.schedule(e.document)),
@@ -62,7 +66,56 @@ export class WorkspaceModel implements vscode.Disposable {
       watcher.onDidChange((u) => void this.fromDisk(u)),
       watcher.onDidDelete((u) => this.remove(u)),
     );
+    const all = vscode.workspace.createFileSystemWatcher("**/*", false, true, false);
+    this.subs.push(
+      all,
+      this.folderEmitter,
+      all.onDidCreate((u) => this.pathChanged(u, false)),
+      all.onDidDelete((u) => this.pathChanged(u, true)),
+    );
     this.ready = this.start(extensionPath);
+  }
+
+  /** Folder events: a deleted folder takes its indexed files with it (the `.sysml` watcher may not report them one by one). */
+  private pathChanged(uri: vscode.Uri, deleted: boolean): void {
+    if (isSysmlUri(uri) || uri.scheme !== "file") return;
+    const key = uriKey(uri);
+    if (deleted) {
+      const prefix = key + "/";
+      if (this.hasUriWithPrefix(prefix)) {
+        const open = new Set(vscode.workspace.textDocuments.filter((d) => !d.isClosed).map((d) => uriKey(d.uri)));
+        for (const u of this.index.uris()) if (u.startsWith(prefix) && !open.has(u)) this.index.removeDocument(u);
+      }
+    } else {
+      void this.loadCreatedFolder(uri);
+    }
+    this.folderEmitter.fire(key.slice(0, key.lastIndexOf("/")));
+  }
+
+  private sortedUris: string[] | undefined;
+
+  /** True when some indexed URI starts with `prefix`; binary search over a sorted list rebuilt after model changes. */
+  private hasUriWithPrefix(prefix: string): boolean {
+    const list = (this.sortedUris ??= this.index.uris().sort());
+    let lo = 0;
+    let hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid]! < prefix) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo < list.length && list[lo]!.startsWith(prefix);
+  }
+
+  /** A moved or renamed folder may be reported as one created directory only: load the `.sysml` files inside it. */
+  private async loadCreatedFolder(uri: vscode.Uri): Promise<void> {
+    try {
+      if (((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) === 0) return;
+      const found = await vscode.workspace.findFiles(new vscode.RelativePattern(uri, GLOB));
+      for (const f of found) if (!this.disposed) await this.fromDisk(f);
+    } catch {
+      // vanished again, or not readable
+    }
   }
 
   private async start(extensionPath: string): Promise<void> {

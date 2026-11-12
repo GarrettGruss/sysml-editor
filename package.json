@@ -42,7 +42,7 @@
       {
         "view": "sysmlModel",
         "contents": "No SysML files were found in this workspace.\n[New SysML File](command:sysml.newFile)",
-        "when": "sysml.workspaceEmpty"
+        "when": "sysml.workspaceEmpty && sysml.treeFilter != 'diagrams'"
       }
     ],
     "commands": [
@@ -112,6 +112,18 @@
         "command": "sysml.copyDocumentAnnotations",
         "title": "Copy Document Annotations Library to Workspace",
         "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.showDiagrams",
+        "title": "Show Diagrams",
+        "category": "SysML",
+        "icon": "$(type-hierarchy)"
+      },
+      {
+        "command": "sysml.tree.showElements",
+        "title": "Show Elements",
+        "category": "SysML",
+        "icon": "$(symbol-class)"
       }
     ],
     "menus": {
@@ -155,6 +167,11 @@
           "command": "sysml.openRequirementsEditor",
           "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
           "group": "requirements@1"
+        },
+        {
+          "command": "sysml.newFile",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/",
+          "group": "edit@1"
         }
       ],
       "commandPalette": [
@@ -200,6 +217,18 @@
           "command": "sysml.openRequirementsEditor",
           "when": "resourceExtname == .sysml",
           "group": "navigation@9"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "sysml.tree.showDiagrams",
+          "when": "view == sysmlModel && sysml.treeFilter != diagrams",
+          "group": "navigation"
+        },
+        {
+          "command": "sysml.tree.showElements",
+          "when": "view == sysmlModel && sysml.treeFilter == diagrams",
+          "group": "navigation"
         }
       ]
     },

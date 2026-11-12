@@ -42,3 +42,11 @@
 - [x] 5.1 End-to-end test: open the fixture workspace, browse the tree, edit text, and read the model through an agent tool; verify all three agree (test written and compiles; waiting on CI)
 - [x] 5.2 Performance check: a 5,000-line generated model propagates text edits to the tree within 1 s, and activation time with the standard library is recorded
 - [x] 5.3 Package with `vsce package` and verify the `.vsix` installs, activates, and starts its MCP server (verified locally: `npm run package` builds a 1.7 MB .vsix and `npm run check:vsix` passes; install and activation step added to CI and waiting on it)
+
+## 6. Folder layout of the tree
+
+- [x] 6.1 Folders layout (default): workspace folder, folder, file, then elements; a title-bar action switches to the Packages layout and the choice is remembered per workspace; verify with unit tests over a fake folder listing
+- [x] 6.2 Show every non-excluded folder, marking those with no `.sysml` file below them "no SysML files" with no children; folders before files, sorted by name; verify exclusions follow `files.exclude` and `sysml.exclude`
+- [x] 6.3 Keep tree actions, Go to Definition, follow-cursor reveal and incremental refresh working in both layouts, including folder create and delete; verify with integration tests and a text dump of the Folders layout in `out/test-artifacts/tree-folders.txt` (the harness captures no tree images; integration tests written and compile, waiting on CI)
+- [x] 6.4 Replace the Folders/Packages toggle with an Elements/Diagrams filter (Packages layout removed): the Diagrams view shows `.sysmld` files as leaves with their kind, opening on selection, folders without diagrams marked "no diagrams"; drop the separate Diagrams list from the view; verify with unit and integration tests
+

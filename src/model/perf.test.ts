@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ModelIndex } from "./index.js";
 import { loadLibrary } from "./library.js";
-import { affectedNodes, childNodes, rootNodes } from "../tree/tree-model.js";
+import { childNodes, fileChildren, fileNode } from "../tree/tree-model.js";
 
 /** A valid, varied SysML model of at least `lines` lines: nested packages, definitions, usages, attributes, connections. */
 export function generateModel(lines: number): { text: string; editLines: number[] } {
@@ -55,7 +55,6 @@ describe("performance: 5,000-line model", () => {
     expect(index.getDocument(uri)!.everParsedCleanly).toBe(true);
 
     let current = text.split("\n");
-    let rootIds = rootNodes(index).map((n) => n.id);
     const times: number[] = [];
     const picks = Array.from({ length: 20 }, (_, i) => editLines[Math.floor((i * (editLines.length - 1)) / 19)]!);
     // Edit from the bottom up so earlier line numbers stay valid.
@@ -65,10 +64,7 @@ describe("performance: 5,000-line model", () => {
       const next = current.join("\n");
       const t0 = performance.now();
       index.setDocument(uri, next);
-      const r = affectedNodes(index, rootIds, [uri]);
-      const roots = rootNodes(index);
-      rootIds = roots.map((n) => n.id);
-      const root = roots.find((n) => r.ids.includes(n.id) || r.full)!;
+      const root = fileChildren(index, fileNode(uri))[0]!;
       const kids = childNodes(index, root);
       const sub = childNodes(index, kids[0]!);
       times.push(performance.now() - t0);
