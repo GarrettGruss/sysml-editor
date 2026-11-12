@@ -45,6 +45,8 @@ for (const n of [
   "extension/dist/extension.js",
   "extension/dist/mcp-bridge.js",
   "extension/dist/parse-worker.js",
+  "extension/dist/webview/diagram.js",
+  "extension/dist/webview/diagram.css",
   "extension/dist/sysml.library/LICENSE",
   "extension/media/sysml.svg",
   "extension/vendor/sysml-v2-grammar/LICENSE",

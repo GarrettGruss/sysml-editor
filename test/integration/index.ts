@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -20,7 +21,18 @@ interface TestApi {
     mcpEndpoint(): { url: string; port: number; token: string } | undefined;
     testCallToolOverMcp(name: string, input: object): Promise<{ text: string; isError: boolean }>;
   };
+  diagram: {
+    open(uri: vscode.Uri): Promise<void>;
+    metrics(uri: vscode.Uri): Promise<Metrics>;
+    png(uri: vscode.Uri): Promise<string>;
+    save(uri: vscode.Uri): Promise<void>;
+    edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
+    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: { nodes: { id: string; x?: number; y?: number; w?: number; h?: number }[] } };
+    errors(): string[];
+  };
 }
+interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string }
+interface Metrics { nodes: MNode[]; edges: { id: string; source: string; target: string }[]; overlaps: number; overflows: number; outsideParent: number }
 
 type Test = [name: string, fn: () => Promise<void>];
 
@@ -61,6 +73,196 @@ export async function run(): Promise<void> {
   };
   const folder = vscode.workspace.workspaceFolders![0]!.uri;
   const vehicleUri = vscode.Uri.joinPath(folder, "vehicle.sysml");
+
+  const artifactDir = process.env.SYSML_TEST_ARTIFACTS ?? path.join(process.env.SYSML_EXPECT_EXTENSION_PATH ?? os.tmpdir(), "out", "test-artifacts");
+  const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const diagramUri = (name: string) => vscode.Uri.joinPath(folder, name);
+  const bytesOf = (name: string) => readFileSync(diagramUri(name).fsPath);
+  const byId = (m: Metrics) => new Map(m.nodes.map((n) => [n.id, n] as const));
+  const sorted = (xs: string[]) => [...xs].sort();
+
+  async function renders(file: string, ids: string[], edges: string[]): Promise<Metrics> {
+    const uri = diagramUri(file);
+    await api.diagram.open(uri);
+    const m = await api.diagram.metrics(uri);
+    assert.deepStrictEqual(sorted(m.nodes.map((n) => n.id)), sorted(ids), `${file}: node ids`);
+    assert.deepStrictEqual(sorted(m.edges.map((e) => e.id)), sorted(edges), `${file}: edge ids`);
+    assert.deepStrictEqual(api.diagram.errors(), [], "no webview errors");
+    for (const n of m.nodes) assert.ok([n.x, n.y, n.w, n.h].every(Number.isFinite) && n.w > 0 && n.h > 0, `${file}: ${n.id} has finite geometry`);
+    assert.strictEqual(m.overflows, 0, `${file}: text overflows its box`);
+    assert.strictEqual(m.outsideParent, 0, `${file}: no child is drawn outside its parent`);
+    const png = Buffer.from(await api.diagram.png(uri), "base64");
+    assert.deepStrictEqual([...png.subarray(0, 8)], PNG_SIGNATURE, `${file}: PNG signature`);
+    assert.ok(png.length > 2048, `${file}: PNG is ${png.length} bytes`);
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(path.join(artifactDir, `diagram-${file.replace(/\.sysmld$/, "")}.png`), png);
+    return m;
+  }
+
+  /** Distance from the centre of a box to the outline of a rectangle. */
+  const distToBorder = (b: MNode, o: MNode) => {
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    const dx = Math.max(o.x - cx, 0, cx - (o.x + o.w));
+    const dy = Math.max(o.y - cy, 0, cy - (o.y + o.h));
+    if (dx > 0 || dy > 0) return Math.hypot(dx, dy);
+    return Math.min(cx - o.x, o.x + o.w - cx, cy - o.y, o.y + o.h - cy);
+  };
+
+  /** Dirty state of the tab showing a diagram, as VS Code reports it. */
+  const tabDirty = (uri: vscode.Uri): boolean | undefined => {
+    for (const g of vscode.window.tabGroups.all)
+      for (const t of g.tabs) if (t.input instanceof vscode.TabInputCustom && t.input.uri.toString() === uri.toString()) return t.isDirty;
+    return undefined;
+  };
+  const eventually = async (fn: () => Promise<void>, what: string, ms = 15000): Promise<void> => {
+    const end = Date.now() + ms;
+    for (;;) {
+      try {
+        return await fn();
+      } catch (e) {
+        if (Date.now() > end) throw new Error(`timed out waiting for: ${what}: ${e instanceof Error ? e.message : String(e)}`);
+        await sleep(100);
+      }
+    }
+  };
+
+  const diagramTests = (): Test[] => [
+    ["a General View with stored positions renders in the custom editor and keeps its positions exactly", async () => {
+      const m = await renders("ports-general.sysmld", ["n1", "n2", "n3", "n4", "n5"], ["d:composition:n4:n5", "d:typing:n5:n2"]);
+      const n = byId(m);
+      assert.deepStrictEqual([n.get("n1")!.x, n.get("n1")!.y], [520, 40]);
+      assert.deepStrictEqual([n.get("n2")!.x, n.get("n2")!.y], [40, 260]);
+      assert.deepStrictEqual([n.get("n3")!.x, n.get("n3")!.y], [300, 260]);
+      assert.deepStrictEqual([n.get("n4")!.x, n.get("n4")!.y], [40, 40]);
+      assert.ok(n.get("n4")!.w >= 220 && n.get("n4")!.h >= 150, "stored size is a minimum");
+      assert.strictEqual(m.overlaps, 0);
+      assert.strictEqual(api.diagram.state(diagramUri("ports-general.sysmld")).dirty, false, "nothing to lay out, so not dirty");
+    }],
+    ["opening and saving an untouched canonical diagram leaves the file byte-identical", async () => {
+      const before = bytesOf("ports-general.sysmld");
+      await api.diagram.open(diagramUri("ports-general.sysmld"));
+      await api.diagram.save(diagramUri("ports-general.sysmld"));
+      assert.ok(before.equals(bytesOf("ports-general.sysmld")));
+    }],
+    ["a General View without positions is laid out in memory: not dirty, positions available, file untouched until an explicit save", async () => {
+      const file = "ports-general-auto.sysmld";
+      const uri = diagramUri(file);
+      const before = bytesOf(file);
+      const m = await renders(file, ["n1", "n2", "n3", "n4", "n5"], ["d:composition:n4:n5", "d:typing:n5:n2"]);
+      assert.strictEqual(m.overlaps, 0, "no sibling overlaps");
+      await waitFor(() => api.diagram.state(uri).doc!.nodes.every((n) => n.x !== undefined && n.y !== undefined && n.w !== undefined), 5000, "positions held in memory");
+      const st = api.diagram.state(uri);
+      assert.strictEqual(st.errorPage, false);
+      assert.strictEqual(st.dirty, false, "automatic layout is not an unsaved change");
+      assert.strictEqual(tabDirty(uri), false, "the tab is not dirty");
+      assert.ok(before.equals(bytesOf(file)), "the file on disk is unchanged");
+      await api.diagram.save(uri);
+      const saved = JSON.parse(readFileSync(uri.fsPath, "utf8")) as { nodes: { x?: number; y?: number }[] };
+      assert.ok(saved.nodes.every((n) => typeof n.x === "number" && typeof n.y === "number"), "an explicit save writes the positions");
+      writeFileSync(uri.fsPath, before);
+    }],
+    ["an Interconnection View nests parts, puts ports on their owner's border and connects ports", async () => {
+      const m = await renders("drivetrain-interconnection.sysmld", ["n0", "n1", "n2", "n3", "n4", "n5"], ["e1"]);
+      const n = byId(m);
+      assert.strictEqual(m.overlaps, 0);
+      for (const c of m.nodes.filter((x) => x.parent !== undefined)) {
+        const p = n.get(c.parent!)!;
+        assert.ok(c.x >= p.x && c.y >= p.y && c.x + c.w <= p.x + p.w && c.y + c.h <= p.y + p.h, `${c.id} lies inside ${p.id}`);
+      }
+      const ports = m.nodes.filter((x) => x.attachedTo !== undefined);
+      assert.deepStrictEqual(sorted(ports.map((p) => p.id)), ["n3", "n4", "n5"]);
+      for (const p of ports) assert.ok(distToBorder(p, n.get(p.attachedTo!)!) <= 2, `port ${p.id} is on the border of ${p.attachedTo}`);
+      for (const e of m.edges) assert.ok(n.has(e.source) && n.has(e.target), `edge ${e.id} endpoints are on the diagram`);
+      assert.deepStrictEqual(m.edges.map((e) => [e.source, e.target]), [["n3", "n4"]], "the connection joins the two port nodes");
+    }],
+    ["a .sysmld with invalid JSON shows the error page and the file is unchanged", async () => {
+      const uri = diagramUri("invalid.sysmld");
+      const before = bytesOf("invalid.sysmld");
+      await api.diagram.open(uri);
+      const st = api.diagram.state(uri);
+      assert.strictEqual(st.errorPage, true);
+      assert.ok(st.problems.length > 0);
+      await assert.rejects(api.diagram.save(uri), /cannot be saved/, "saving a file that did not parse fails visibly");
+      assert.ok(before.equals(bytesOf("invalid.sysmld")), "file content is never lost");
+    }],
+    ["save, undo, redo and revert through VS Code's own commands keep the dirty state and the file truthful", async () => {
+      const file = "tmp-edit.sysmld";
+      copyFileSync(diagramUri("ports-general.sysmld").fsPath, diagramUri(file).fsPath);
+      const uri = diagramUri(file);
+      const x = () => api.diagram.state(uri).doc!.nodes.find((n) => n.id === "n1")!.x;
+      const onDisk = () => (JSON.parse(readFileSync(uri.fsPath, "utf8")) as { nodes: { id: string; x: number }[] }).nodes.find((n) => n.id === "n1")!.x;
+      try {
+        await api.diagram.open(uri);
+        assert.strictEqual(x(), 520);
+        api.diagram.edit(uri, [{ id: "n1", x: 600, y: 60 }]);
+        await waitFor(() => tabDirty(uri) === true, 5000, "the edit dirties the tab");
+        assert.strictEqual(onDisk(), 520, "nothing is written before save");
+        await vscode.commands.executeCommand("workbench.action.files.save");
+        await waitFor(() => tabDirty(uri) === false, 5000, "save cleans the tab");
+        assert.strictEqual(onDisk(), 600, "save wrote the move");
+        await vscode.commands.executeCommand("undo");
+        await waitFor(() => tabDirty(uri) === true, 5000, "undo after save dirties the tab");
+        assert.strictEqual(x(), 520);
+        assert.strictEqual(onDisk(), 600);
+        await vscode.commands.executeCommand("redo");
+        await waitFor(() => tabDirty(uri) === false, 5000, "redo returns to the saved state");
+        assert.strictEqual(x(), 600);
+        await vscode.commands.executeCommand("undo");
+        await waitFor(() => tabDirty(uri) === true, 5000, "dirty again");
+        await vscode.commands.executeCommand("workbench.action.files.revert");
+        await waitFor(() => tabDirty(uri) === false, 5000, "revert cleans the tab");
+        // The tab can turn clean before the provider has finished re-reading the file.
+        await waitFor(() => x() === 600, 5000, "revert shows the file on disk");
+        await vscode.commands.executeCommand("undo");
+        await sleep(300);
+        assert.strictEqual(x(), 600, "undo after revert does nothing");
+        assert.strictEqual(api.diagram.state(uri).dirty, false);
+        assert.strictEqual(onDisk(), 600);
+      } finally {
+        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        rmSync(uri.fsPath, { force: true });
+      }
+    }],
+    ["an external change to a clean diagram reloads it", async () => {
+      const file = "tmp-external.sysmld";
+      copyFileSync(diagramUri("ports-general.sysmld").fsPath, diagramUri(file).fsPath);
+      const uri = diagramUri(file);
+      try {
+        await api.diagram.open(uri);
+        const doc = JSON.parse(readFileSync(uri.fsPath, "utf8")) as { nodes: { id: string; x: number }[] };
+        doc.nodes.find((n) => n.id === "n1")!.x = 700;
+        writeFileSync(uri.fsPath, JSON.stringify(doc, null, 2) + "\n");
+        await waitFor(() => api.diagram.state(uri).doc?.nodes.find((n) => n.id === "n1")?.x === 700, 15000, "reloaded from disk");
+        assert.strictEqual(api.diagram.state(uri).dirty, false);
+        await eventually(async () => assert.strictEqual(byId(await api.diagram.metrics(uri)).get("n1")!.x, 700), "the webview shows the new position");
+      } finally {
+        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        rmSync(uri.fsPath, { force: true });
+      }
+    }],
+    ["an invalid file fixed on disk shows the diagram, and a valid file made invalid shows the problem and cannot be saved", async () => {
+      const file = "tmp-switch.sysmld";
+      const uri = diagramUri(file);
+      const valid = readFileSync(diagramUri("ports-general.sysmld").fsPath);
+      writeFileSync(uri.fsPath, readFileSync(diagramUri("invalid.sysmld").fsPath));
+      try {
+        await api.diagram.open(uri);
+        assert.strictEqual(api.diagram.state(uri).errorPage, true);
+        writeFileSync(uri.fsPath, valid);
+        await waitFor(() => api.diagram.state(uri).errorPage === false, 15000, "diagram state after the fix");
+        await eventually(async () => assert.strictEqual((await api.diagram.metrics(uri)).nodes.length, 5), "the diagram page replaced the error page");
+        writeFileSync(uri.fsPath, "{ not json");
+        await waitFor(() => api.diagram.state(uri).errorPage === true, 15000, "error state after breaking it");
+        assert.ok(api.diagram.state(uri).problems.length > 0);
+        await assert.rejects(api.diagram.save(uri), /cannot be saved/);
+        assert.strictEqual(readFileSync(uri.fsPath, "utf8"), "{ not json", "the file is not overwritten");
+      } finally {
+        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+        rmSync(uri.fsPath, { force: true });
+      }
+    }],
+  ];
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
@@ -326,6 +528,7 @@ export async function run(): Promise<void> {
         await set(undefined);
       }
     }],
+    ...diagramTests(),
   ];
 
   const failures: string[] = [];

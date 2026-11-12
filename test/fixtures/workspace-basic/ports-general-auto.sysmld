@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "kind": "general",
+  "root": "Ports",
+  "sources": [
+    "ports.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Ports::Power"
+    },
+    {
+      "id": "n2",
+      "ref": "Ports::Battery"
+    },
+    {
+      "id": "n3",
+      "ref": "Ports::Motor"
+    },
+    {
+      "id": "n4",
+      "ref": "Ports::Drivetrain"
+    },
+    {
+      "id": "n5",
+      "ref": "Ports::Drivetrain::battery"
+    }
+  ],
+  "edges": []
+}

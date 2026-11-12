@@ -21,3 +21,10 @@ if (existsSync(`${release}/sysml.library`)) {
 } else {
   console.warn(`${release} is missing (submodule not initialised): standard library not bundled`);
 }
+
+// The diagram webview: a browser bundle (design D7), loaded under a strict CSP, so no eval and no remote code.
+await build({
+  bundle: true, platform: "browser", format: "iife", target: "es2022", minify: true,
+  entryPoints: ["src/webview/diagram/main.ts"], outfile: "dist/webview/diagram.js",
+});
+cpSync("src/webview/diagram/diagram.css", "dist/webview/diagram.css");

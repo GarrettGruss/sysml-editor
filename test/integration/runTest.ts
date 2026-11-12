@@ -14,6 +14,7 @@ async function main(): Promise<void> {
   const root = path.resolve(__dirname, "../../..");
   const version = process.env.VSCODE_VERSION || undefined;
   const workspace = path.join(root, "test/fixtures/workspace-basic");
+  const artifacts = process.env.SYSML_TEST_ARTIFACTS ? path.resolve(process.env.SYSML_TEST_ARTIFACTS) : path.join(root, "out/test-artifacts");
   const common = ["--disable-workspace-trust", "--no-sandbox", "--disable-gpu"];
   const vsix = process.env.SYSML_VSIX ? path.resolve(process.env.SYSML_VSIX) : undefined;
 
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
       extensionDevelopmentPath: root,
       extensionTestsPath: path.resolve(__dirname, "index"),
       launchArgs: [workspace, "--disable-extensions", ...common],
-      extensionTestsEnv: { SYSML_EXPECT_EXTENSION_PATH: root },
+      extensionTestsEnv: { SYSML_EXPECT_EXTENSION_PATH: root, SYSML_TEST_ARTIFACTS: artifacts },
     });
     return;
   }
@@ -48,7 +49,7 @@ async function main(): Promise<void> {
   await runTests({
     vscodeExecutablePath,
     extensionDevelopmentPath: stub,
-    extensionTestsEnv: { SYSML_EXPECT_EXTENSIONS_DIR: extensionsDir },
+    extensionTestsEnv: { SYSML_EXPECT_EXTENSIONS_DIR: extensionsDir, SYSML_TEST_ARTIFACTS: artifacts },
     extensionTestsPath: path.resolve(__dirname, "index"),
     launchArgs: [workspace, "--extensions-dir", extensionsDir, "--user-data-dir", userDataDir, ...common],
   });

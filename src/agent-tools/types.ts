@@ -28,6 +28,13 @@ export interface JsonSchema {
   maximum?: number;
   default?: unknown;
   items?: JsonSchema;
+  minItems?: number;
+  minLength?: number;
+  /** Exactly one of the alternatives must match. */
+  oneOf?: JsonSchema[];
+  /** Local reference of the form `#/definitions/<name>`. */
+  $ref?: string;
+  definitions?: Record<string, JsonSchema>;
 }
 
 export interface ToolDefinition {

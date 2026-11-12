@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GarrettGruss/sysml-editor/schemas/sysmld.schema.json",
+  "title": "SysML diagram file (.sysmld), version 1",
+  "description": "Presentation state of a SysML v2 diagram. Model elements are referenced by qualified name (ref) or, when unnamed, by a structural locator. Positions and sizes are optional: nodes without them are laid out automatically. Also required but not expressible here: ids are unique across nodes and edges, and parent, source and target name existing nodes.",
+  "type": "object",
+  "required": ["version", "kind", "root", "sources", "nodes", "edges"],
+  "properties": {
+    "version": { "type": "integer", "enum": [1] },
+    "kind": { "type": "string", "enum": ["general", "interconnection", "requirements"] },
+    "root": { "type": "string", "minLength": 1, "description": "Qualified name of the root element." },
+    "sources": { "type": "array", "items": { "type": "string" }, "description": "Workspace-relative paths of the .sysml files the diagram draws from." },
+    "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },
+    "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } },
+    "style": { "type": "object" }
+  },
+  "definitions": {
+    "locator": {
+      "type": "object",
+      "required": ["owner", "kind", "ends"],
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "ends": { "type": "array", "items": { "type": "string" } },
+        "index": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id"],
+      "oneOf": [{ "type": "object", "required": ["ref"] }, { "type": "object", "required": ["locator"] }],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string", "minLength": 1 },
+        "locator": { "$ref": "#/definitions/locator" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "w": { "type": "number", "minimum": 0 },
+        "h": { "type": "number", "minimum": 0 },
+        "collapsed": { "type": "boolean" },
+        "parent": { "type": "string" },
+        "style": { "type": "object" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "source", "target"],
+      "oneOf": [{ "type": "object", "required": ["ref"] }, { "type": "object", "required": ["locator"] }],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string", "minLength": 1 },
+        "locator": { "$ref": "#/definitions/locator" },
+        "source": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "points": {
+          "type": "array",
+          "items": { "type": "object", "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
+        },
+        "style": { "type": "object" }
+      }
+    }
+  }
+}

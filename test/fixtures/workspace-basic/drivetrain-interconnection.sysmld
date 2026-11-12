@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "kind": "interconnection",
+  "root": "Ports::Drivetrain",
+  "sources": [
+    "ports.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n0",
+      "ref": "Ports::Drivetrain"
+    },
+    {
+      "id": "n1",
+      "ref": "Ports::Drivetrain::battery",
+      "parent": "n0"
+    },
+    {
+      "id": "n2",
+      "ref": "Ports::Drivetrain::motor",
+      "parent": "n0"
+    },
+    {
+      "id": "n3",
+      "ref": "Ports::Battery::output",
+      "parent": "n1"
+    },
+    {
+      "id": "n4",
+      "ref": "Ports::Motor::input",
+      "parent": "n2"
+    },
+    {
+      "id": "n5",
+      "ref": "Ports::Drivetrain::supply",
+      "parent": "n0"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "locator": {
+        "owner": "Ports::Drivetrain",
+        "kind": "connect",
+        "ends": [
+          "battery.output",
+          "motor.input"
+        ]
+      },
+      "source": "n3",
+      "target": "n4"
+    }
+  ]
+}

@@ -24,6 +24,13 @@ jobs:
       - run: npm run package
       - run: npm run check:vsix
       - run: xvfb-run -a npm run test:integration
+      - name: Upload diagram PNGs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagram-pngs
+          path: out/test-artifacts
+          if-no-files-found: warn
       - name: Integration tests on minimum VS Code
         run: VSCODE_VERSION="$(node -p "require('./package.json').engines.vscode.replace(/^[^0-9]*/, '')")" xvfb-run -a npm run test:integration
       - name: Integration tests against the installed .vsix
