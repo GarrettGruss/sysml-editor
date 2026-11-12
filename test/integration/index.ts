@@ -212,7 +212,8 @@ export async function run(): Promise<void> {
         await waitFor(() => tabDirty(uri) === true, 5000, "dirty again");
         await vscode.commands.executeCommand("workbench.action.files.revert");
         await waitFor(() => tabDirty(uri) === false, 5000, "revert cleans the tab");
-        assert.strictEqual(x(), 600, "revert shows the file on disk");
+        // The tab can turn clean before the provider has finished re-reading the file.
+        await waitFor(() => x() === 600, 5000, "revert shows the file on disk");
         await vscode.commands.executeCommand("undo");
         await sleep(300);
         assert.strictEqual(x(), 600, "undo after revert does nothing");
