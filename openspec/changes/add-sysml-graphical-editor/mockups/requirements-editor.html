@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Requirements Table Editor</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div class="mock-note"><b>Requirements editor</b> (spec: requirements-editor). Table scoped to a package, with an inline cell edit, relationship counts (unsatisfied requirements are highlighted), and a detail pane for managing satisfy, verify, and derive relationships. <a href="index.html">All mockups</a></div>
+<div class="wb no-side">
+  <div class="activity"><span>📄</span><span>🔍</span><span class="on">◇</span><span>⎇</span></div>
+  <div class="editor">
+    <div class="tabs"><div class="tab on">Requirements: VehicleRequirements</div></div>
+    <div class="toolbar">
+      <span class="btn primary">Table</span><a class="btn" href="requirements-document.html" style="text-decoration:none">Document</a>
+      <span class="desc">Scope</span><select class="btn"><option>VehicleRequirements (incl. nested)</option></select>
+      <input class="btn" placeholder="Filter…" style="width:180px">
+      <span class="sp"></span>
+      <button class="btn primary">＋ Add Requirement</button><button class="btn">Delete</button><button class="btn">Reveal in Tree</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 320px;flex:1;min-height:0">
+      <div style="overflow:auto">
+        <table class="grid">
+          <thead><tr><th style="width:70px">Id</th><th style="width:150px">Name</th><th>Text</th><th>Owner</th><th>Satisfy</th><th>Verify</th></tr></thead>
+          <tbody>
+            <tr class="sel"><td>R1</td><td>massLimit</td><td class="edit">Vehicle mass shall not exceed 2000 kg|</td><td class="desc">VehicleRequirements</td><td><span class="badge">1</span></td><td><span class="badge">1</span></td></tr>
+            <tr><td>R1.1</td><td>chassisMass</td><td>Chassis mass ≤ 600 kg.</td><td class="desc">massLimit</td><td><span class="badge">1</span></td><td><span class="badge zero">0</span></td></tr>
+            <tr><td>R2</td><td>rangeReq</td><td>Vehicle range shall be at least 500 km on a full charge.</td><td class="desc">VehicleRequirements</td><td><span class="badge zero">0</span></td><td><span class="badge zero">0</span></td></tr>
+            <tr><td>R3</td><td>accel</td><td>0–100 km/h in under 8 s.</td><td class="desc">Performance</td><td><span class="badge">2</span></td><td><span class="badge">1</span></td></tr>
+            <tr><td><input class="btn" value="R4" style="width:50px"></td><td><input class="btn" placeholder="name" style="width:120px"></td><td class="desc">new row: press Enter to insert <code>requirement &lt;'R4'&gt; …;</code></td><td></td><td></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="props">
+        <h3>&lt;R1&gt; massLimit</h3>
+        <div class="field"><label>Kind</label><input value="requirement (usage)" disabled></div>
+        <div class="field"><label>Documentation</label><textarea>Vehicle mass shall not exceed 2000 kg</textarea></div>
+        <h3>Satisfied by</h3>
+        <div class="pal-item"><span class="ic part">p</span>VehicleModel::vehicle <span class="sp" style="flex:1"></span>✕</div>
+        <div class="pal-item desc">＋ Add satisfy…</div>
+        <h3>Verified by</h3>
+        <div class="pal-item"><span class="ic act">V</span>weighVehicle <span style="flex:1"></span>✕</div>
+        <div class="pal-item desc">＋ Add verify…</div>
+        <h3>Derived</h3>
+        <div class="pal-item"><span class="ic req">R</span>&lt;R1.1&gt; chassisMass <span style="flex:1"></span>✕</div>
+        <div class="pal-item desc">＋ Add derive…</div>
+        <h3>Appears in</h3>
+        <div class="pal-item">▦ requirements.sysmld</div>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

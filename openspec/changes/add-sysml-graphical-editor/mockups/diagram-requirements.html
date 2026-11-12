@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Requirements View Editor</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div class="mock-note"><b>Diagram editor: Requirements View</b> (spec: diagram-editor). Requirements with id, name, and text; satisfy, verify, and derive relationships; and an element being dragged in from the model tree (this adds it to the diagram only and does not change the model). <a href="index.html">All mockups</a></div>
+<div class="wb">
+  <div class="activity"><span>📄</span><span>🔍</span><span class="on">◇</span><span>⎇</span></div>
+  <div class="sidebar">
+    <h2><span>SysML Model</span></h2>
+    <ul class="tree">
+      <li><div class="row"><span class="tw">▾</span><span class="ic pkg">P</span>VehicleModel</div>
+        <ul class="tree" style="padding-left:12px">
+          <li><div class="row sel"><span class="tw"></span><span class="ic part">p</span>vehicle<span class="desc">: Vehicle</span></div></li>
+          <li><div class="row"><span class="tw"></span><span class="ic act">A</span>weighVehicle<span class="desc">verification</span></div></li>
+        </ul></li>
+      <li><div class="row"><span class="tw">▾</span><span class="ic pkg">P</span>VehicleRequirements</div>
+        <ul class="tree" style="padding-left:12px">
+          <li><div class="row"><span class="tw"></span><span class="ic req">R</span>&lt;R1&gt; massLimit</div></li>
+          <li><div class="row"><span class="tw"></span><span class="ic req">R</span>&lt;R1.1&gt; chassisMass</div></li>
+          <li><div class="row"><span class="tw"></span><span class="ic req">R</span>&lt;R2&gt; rangeReq</div></li>
+        </ul></li>
+    </ul>
+  </div>
+  <div class="editor">
+    <div class="tabs"><div class="tab on">requirements.sysmld</div></div>
+    <div class="toolbar"><span class="chip">Requirements View</span><span class="desc">root: VehicleRequirements</span><span class="sp"></span><button class="btn">Auto-layout</button><button class="btn">Fit</button></div>
+    <div class="canvas-wrap" style="grid-template-columns:170px 1fr">
+      <div class="palette">
+        <h3>Elements</h3>
+        <div class="pal-item"><span class="ic req">R</span>Requirement Def</div>
+        <div class="pal-item"><span class="ic req">R</span>Requirement</div>
+        <div class="pal-item"><span class="ic act">V</span>Verification Case</div>
+        <h3>Relationships</h3>
+        <div class="pal-item">«satisfy»</div>
+        <div class="pal-item">«verify»</div>
+        <div class="pal-item">«derive»</div>
+        <div class="pal-item">◆— Subrequirement</div>
+      </div>
+      <div class="canvas">
+        <svg viewBox="0 0 760 470" preserveAspectRatio="xMinYMin meet">
+          <defs><marker id="arr" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path d="M0,0 L10,5 L0,10" fill="none" stroke="var(--edge)"/></marker>
+          <marker id="dia2" viewBox="0 0 12 8" refX="0" refY="4" markerWidth="12" markerHeight="8" orient="auto"><path d="M0,4 L6,0 L12,4 L6,8 z" fill="var(--edge)"/></marker></defs>
+          <!-- R1 -->
+          <rect class="n-def" x="250" y="20" width="250" height="110" rx="2"/>
+          <rect class="n-head" x="251" y="21" width="248" height="38"/>
+          <text class="kw" x="375" y="36" text-anchor="middle">«requirement»</text>
+          <text class="nm" x="375" y="53" text-anchor="middle">&lt;R1&gt; massLimit</text>
+          <line x1="250" y1="59" x2="500" y2="59" stroke="var(--node-border)"/>
+          <text class="cmp-h" x="375" y="73" text-anchor="middle">doc</text>
+          <text class="cmp" x="262" y="91">Vehicle mass shall not exceed</text>
+          <text class="cmp" x="262" y="107">2000 kg.</text>
+          <!-- R1.1 -->
+          <rect class="n-def" x="250" y="230" width="250" height="90" rx="2"/>
+          <rect class="n-head" x="251" y="231" width="248" height="38"/>
+          <text class="kw" x="375" y="246" text-anchor="middle">«requirement»</text>
+          <text class="nm" x="375" y="263" text-anchor="middle">&lt;R1.1&gt; chassisMass</text>
+          <text class="cmp" x="262" y="295">Chassis mass ≤ 600 kg.</text>
+          <path class="e-dash" d="M375,230 L375,130" marker-end="url(#arr)"/>
+          <text class="lbl" x="382" y="185">«derive»</text>
+          <!-- vehicle (satisfy) -->
+          <rect class="n-box" x="20" y="40" width="150" height="56" rx="8"/>
+          <text class="kw" x="95" y="62" text-anchor="middle">«part»</text>
+          <text class="nm" x="95" y="80" text-anchor="middle">vehicle</text>
+          <path class="e-dash" d="M170,68 L250,68" marker-end="url(#arr)"/>
+          <text class="lbl" x="178" y="60">«satisfy»</text>
+          <!-- verification -->
+          <rect class="n-box" x="580" y="40" width="160" height="56" rx="8"/>
+          <text class="kw" x="660" y="62" text-anchor="middle">«verification»</text>
+          <text class="nm" x="660" y="80" text-anchor="middle">weighVehicle</text>
+          <path class="e-dash" d="M580,68 L500,68" marker-end="url(#arr)"/>
+          <text class="lbl" x="512" y="60">«verify»</text>
+          <!-- R2 without satisfy -->
+          <rect class="n-def" x="560" y="230" width="180" height="70" rx="2"/>
+          <text class="kw" x="650" y="250" text-anchor="middle">«requirement»</text>
+          <text class="nm" x="650" y="268" text-anchor="middle">&lt;R2&gt; rangeReq</text>
+          <text class="lbl" x="650" y="288" text-anchor="middle" style="fill:var(--warn)">not satisfied</text>
+          <!-- drag ghost from tree -->
+          <g opacity=".55"><rect class="n-box" x="40" y="370" width="150" height="56" rx="8" stroke-dasharray="4 3"/>
+          <text class="nm" x="115" y="402" text-anchor="middle">vehicle</text></g>
+          <text class="lbl" x="200" y="402">↖ dropping from tree: adds to diagram only</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model Tree View</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div class="mock-note"><b>Model tree view</b> (spec: model-tree-view). Native VS Code TreeView, so styling comes from the theme. Shows kind icons, type descriptions, a file with parse errors, the context menu, and selection synced from the text editor. <a href="index.html">All mockups</a></div>
+<div class="wb">
+  <div class="activity"><span>📄</span><span>🔍</span><span class="on">◇</span><span>⎇</span></div>
+  <div class="sidebar" style="position:relative">
+    <h2><span>SysML Model</span><span class="desc">＋ ⟳ ⊟</span></h2>
+    <ul class="tree">
+      <li><div class="row"><span class="tw">▾</span><span class="ic pkg">P</span>VehicleModel<span class="desc">vehicle.sysml</span></div>
+        <ul class="tree" style="padding-left:12px">
+          <li><div class="row"><span class="tw">▾</span><span class="ic pdef">D</span>Vehicle<span class="desc">part def</span></div>
+            <ul class="tree" style="padding-left:12px">
+              <li><div class="row sel"><span class="tw"></span><span class="ic part">p</span>engine<span class="desc">: Engine</span></div></li>
+              <li><div class="row"><span class="tw"></span><span class="ic part">p</span>transmission<span class="desc">: Transmission</span></div></li>
+              <li><div class="row"><span class="tw"></span><span class="ic part">p</span>wheels<span class="desc">: Wheel [4]</span></div></li>
+              <li><div class="row"><span class="tw"></span><span class="ic attr">a</span>mass<span class="desc">: MassValue</span></div></li>
+              <li><div class="row"><span class="tw"></span><span class="ic conn">c</span>&lt;unnamed&gt;<span class="desc">connect engine.drive → transmission.input</span></div></li>
+            </ul></li>
+          <li><div class="row"><span class="tw">▸</span><span class="ic pdef">D</span>Engine<span class="desc">part def</span></div></li>
+          <li><div class="row"><span class="tw">▸</span><span class="ic pdef">D</span>Transmission<span class="desc">part def</span></div></li>
+          <li><div class="row"><span class="tw"></span><span class="ic pdef">D</span>Wheel<span class="desc">part def</span></div></li>
+          <li><div class="row"><span class="tw">▸</span><span class="ic port">⊡</span>DrivePort<span class="desc">port def</span></div></li>
+        </ul></li>
+      <li><div class="row"><span class="tw">▾</span><span class="ic pkg">P</span>VehicleRequirements<span class="desc">requirements.sysml</span></div>
+        <ul class="tree" style="padding-left:12px">
+          <li><div class="row"><span class="tw"></span><span class="ic req">R</span>&lt;R1&gt; massLimit<span class="desc">requirement</span></div></li>
+          <li><div class="row"><span class="tw"></span><span class="ic req">R</span>&lt;R2&gt; rangeReq<span class="desc">requirement</span></div></li>
+        </ul></li>
+      <li><div class="row"><span class="tw">▸</span><span class="ic pkg">P</span>Behaviors<span class="desc err">⚠ 1 syntax error · showing last good parse</span></div></li>
+    </ul>
+    <div class="section">Diagrams</div>
+    <ul class="tree">
+      <li><div class="row"><span class="tw"></span>▦ vehicle-general.sysmld<span class="desc">General</span></div></li>
+      <li><div class="row"><span class="tw"></span>▦ vehicle-ibd.sysmld<span class="desc">Interconnection</span></div></li>
+      <li><div class="row"><span class="tw"></span>▦ requirements.sysmld<span class="desc">Requirements</span></div></li>
+    </ul>
+    <div class="menu" style="left:150px;top:96px">
+      <div><span>Go to Definition</span><span class="k">F12</span></div>
+      <div><span>Show in Diagram…</span></div>
+      <div class="hl"><span>Add to Active Diagram</span></div>
+      <div><span>New Diagram…</span></div>
+      <hr>
+      <div><span>Add Child ▸</span></div>
+      <div><span>Rename…</span><span class="k">F2</span></div>
+      <div><span>Delete from Model</span><span class="k">⌫</span></div>
+    </div>
+  </div>
+  <div class="editor">
+    <div class="tabs"><div class="tab on">vehicle.sysml</div><div class="tab">vehicle-general.sysmld</div></div>
+<pre class="code" style="flex:1;border:0">package VehicleModel {
+    part def Vehicle {
+        <span style="background:var(--sel)">part engine : Engine;</span>        <span class="desc">// cursor here → tree selects "engine"</span>
+        part transmission : Transmission;
+        part wheels : Wheel[4];
+        attribute mass : MassValue;
+        connect engine.drive to transmission.input;
+    }
+    part def Engine { port drive : DrivePort; }
+    part def Transmission { port input : ~DrivePort; }
+    part def Wheel;
+    port def DrivePort;
+}</pre>
+  </div>
+</div>
+<div style="padding:16px;max-width:300px">
+  <div class="section" style="border:0;padding-left:0">Empty workspace (welcome view)</div>
+  <div class="sidebar" style="padding:12px;border:1px solid var(--border)">
+    <p class="desc" style="margin-top:0">No SysML files found in this workspace.</p>
+    <button class="btn primary" style="width:100%">Create SysML File</button>
+  </div>
+</div>
+</body></html>
