@@ -129,15 +129,19 @@ export function foldersTests(c: Ctx): Test[] {
       assert.strictEqual(ed.document.getText(ed.selection), "Car");
 
       const calls: ModelNode[] = [];
+      const reveals: Thenable<void>[] = [];
       const view = api.view;
       const orig = view.reveal.bind(view);
-      (view as { reveal: typeof view.reveal }).reveal = (n, o) => { calls.push(n); return orig(n, o); };
+      (view as { reveal: typeof view.reveal }).reveal = (n, o) => { calls.push(n); const r = orig(n, o); reveals.push(r); return r; };
       try {
         await vscode.commands.executeCommand("sysmlModel.focus");
         await waitFor(() => view.visible, 3000, "view visible");
         const line = ed.document.getText().split("\n").findIndex((l) => l.includes("part engine"));
         ed.selection = new vscode.Selection(line, 11, line, 11);
         await waitFor(() => calls.some((n) => n.id === engine.id), 3000, "reveal of engine through file and folders");
+        await Promise.all(reveals);
+        await waitFor(() => view.selection[0]?.id === engine.id, 3000, "engine is selected in the view");
+        assert.strictEqual(view.selection[0]!.id, engine.id);
       } finally {
         (view as { reveal: typeof view.reveal }).reveal = orig;
       }
@@ -152,6 +156,7 @@ export function foldersTests(c: Ctx): Test[] {
         const tmp = await find(root, "tmp-tree");
         const ids = (e: unknown) => (Array.isArray(e) ? e : [e]).map((n) => (n as ModelNode | undefined)?.id);
 
+        await sleep(600); // let setup's own batched events (150 ms) drain
         fired.length = 0;
         await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir("fresh")));
         await waitFor(() => fired.some((e) => ids(e).includes(tmp.id)), 15000, "the parent folder is refreshed after a folder is created");

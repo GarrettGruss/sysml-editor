@@ -28,12 +28,11 @@ export function workspaceFolderEnv(): FolderEnv {
     child: (folderUri, name) => uriKey(vscode.Uri.joinPath(vscode.Uri.parse(folderUri), name)),
     excluded(rel) {
       const sysml = vscode.workspace.getConfiguration("sysml").get<string[]>("exclude", ["**/node_modules/**"]);
-      const search = vscode.workspace.getConfiguration("search").get<Record<string, unknown>>("exclude");
       const files = vscode.workspace.getConfiguration("files").get<Record<string, unknown>>("exclude");
-      const k = JSON.stringify([sysml, search, files]);
+      const k = JSON.stringify([sysml, files]);
       if (k !== key) {
         key = k;
-        filter = makeExcludeFilter([...sysml, ...patternsFromObject(search), ...patternsFromObject(files)]);
+        filter = makeExcludeFilter([...sysml, ...patternsFromObject(files)]);
       }
       return filter(rel);
     },
@@ -87,7 +86,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       index.onDidChange((e) => this.onModelChange(e.uris)),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.emitter.fire(undefined)),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (["sysml.exclude", "search.exclude", "files.exclude"].some((k) => e.affectsConfiguration(k))) this.emitter.fire(undefined);
+        if (["sysml.exclude", "files.exclude"].some((k) => e.affectsConfiguration(k))) this.emitter.fire(undefined);
       }),
     );
     if (folderChanges) this.subs.push(folderChanges((parent) => this.onFolderChange(parent)));
@@ -105,12 +104,17 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     this.emitter.fire(undefined);
   }
 
+  /** Folder nodes handed out by getChildren, so changes in folders nobody sees are ignored. */
+  private rendered = new Set<string>();
   private pendingFolders = new Set<string>();
   private folderTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** A path was created or deleted below `parent` (a folder URI key): refresh that node only, batched. */
   private onFolderChange(parent: string): void {
     if (this.layoutValue !== "folders") return;
+    if (!this.rendered.has(parent)) return;
+    const root = this.env.roots.find((r) => parent === r.uri || parent.startsWith(r.uri + "/"));
+    if (!root || this.env.excluded(parent.slice(root.uri.length + 1))) return;
     this.pendingFolders.add(parent);
     clearTimeout(this.folderTimer);
     this.folderTimer = setTimeout(() => {
@@ -120,7 +124,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       const nodes: ModelNode[] = [];
       for (const p of parents) {
         const root = roots.find((r) => p === r.uri || p.startsWith(r.uri + "/"));
-        if (!root || this.env.excluded(p.slice(root.uri.length + 1) + "/_")) continue;
+        if (!root || this.env.excluded(p.slice(root.uri.length + 1))) continue;
         nodes.push({ id: p, uri: p, kind: "folder" });
       }
       if (nodes.length) this.emitter.fire(nodes);
@@ -149,8 +153,17 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   getChildren(node?: ModelNode): ModelNode[] | Promise<ModelNode[]> {
     if (this.layoutValue === "folders") {
-      if (!node) return folderRoots(this.index, this.env);
-      if (isFolderNode(node)) return folderChildren(this.index, this.env, node);
+      if (!node) {
+        const roots = folderRoots(this.index, this.env);
+        for (const r of roots) this.rendered.add(r.id);
+        return roots;
+      }
+      if (isFolderNode(node)) {
+        return folderChildren(this.index, this.env, node).then((kids) => {
+          for (const k of kids) if (isFolderNode(k)) this.rendered.add(k.id);
+          return kids;
+        });
+      }
       if (isFileNode(node)) return fileChildren(this.index, node);
       return childNodes(this.index, node);
     }

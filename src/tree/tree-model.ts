@@ -284,8 +284,26 @@ export function fileNode(uri: string): ModelNode {
 
 /** True when an indexed workspace `.sysml` file lives at any depth below the folder. */
 export function hasSysmlBelow(index: ModelIndex, folderUri: string): boolean {
-  const prefix = folderUri + "/";
-  return workspaceUris(index).some((u) => u.startsWith(prefix));
+  return ancestorFolders(index).has(folderUri);
+}
+
+const ancestorCache = new WeakMap<ModelIndex, Set<string> | undefined>();
+
+/** Every folder URI above an indexed workspace `.sysml` file; rebuilt after the model changes. */
+function ancestorFolders(index: ModelIndex): Set<string> {
+  let set = ancestorCache.get(index);
+  if (set) return set;
+  if (!ancestorCache.has(index)) index.onDidChange(() => ancestorCache.set(index, undefined));
+  set = new Set<string>();
+  for (const u of workspaceUris(index)) {
+    for (let i = u.lastIndexOf("/"); i > 0; i = u.lastIndexOf("/", i - 1)) {
+      const a = u.slice(0, i);
+      if (set.has(a)) break;
+      set.add(a);
+    }
+  }
+  ancestorCache.set(index, set);
+  return set;
 }
 
 function rootOf(env: FolderEnv, uri: string): { name: string; uri: string } | undefined {
@@ -331,8 +349,7 @@ export async function folderChildren(index: ModelIndex, env: FolderEnv, node: Mo
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   const shown = entries.filter((e) => {
     const rel = relPath(root.uri, env.child(node.uri, e.name));
-    // `dir/**` patterns match what is inside a folder, not the folder itself: probe with a child path too.
-    return !(env.excluded(rel) || (e.isDir && env.excluded(rel + "/_")));
+    return !env.excluded(rel) && !(e.isDir && env.roots.some((r) => r.uri === env.child(node.uri, e.name)));
   });
   const folders = shown.filter((e) => e.isDir).sort(byName).map((e) => folderNode(env.child(node.uri, e.name)));
   const indexed = new Set(workspaceUris(index));
@@ -359,10 +376,10 @@ export function folderInfo(index: ModelIndex, env: FolderEnv, node: ModelNode): 
 /** Parent in the Folders layout: element -> file -> folders -> workspace folder. */
 export function folderParent(env: FolderEnv, node: ModelNode): ModelNode | undefined {
   if (isFolderNode(node)) {
-    if (env.roots.some((r) => r.uri === node.uri)) return undefined;
+    if (env.roots.some((r) => r.uri === node.uri) || !rootOf(env, node.uri)) return undefined;
     return folderNode(node.uri.slice(0, node.uri.lastIndexOf("/")));
   }
-  if (isFileNode(node)) return folderNode(node.uri.slice(0, node.uri.lastIndexOf("/")));
+  if (isFileNode(node)) return rootOf(env, node.uri) ? folderNode(node.uri.slice(0, node.uri.lastIndexOf("/"))) : undefined;
   return parentNode(node) ?? fileNode(node.uri);
 }
 

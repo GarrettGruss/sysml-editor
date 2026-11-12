@@ -227,6 +227,18 @@ describe("Folders layout", () => {
     expect(folderInfo(j, env, folderNode("file:///w/Alpha")).empty).toBe(true);
   });
 
+  it("does not hide folders for a `**/_*` pattern, but hides a `dir/**` folder itself", async () => {
+    const e2: FolderEnv = { ...env, excluded: makeExcludeFilter(["**/_*", "zeta/**"]) };
+    expect(names(await folderChildren(ix(), e2, folderNode("file:///w")))).toEqual(["Alpha", "docs", "node_modules", "a.sysml", "hidden.sysml", "top.sysml"]);
+  });
+
+  it("returns no parent outside the workspace roots and lists a nested root only once", async () => {
+    expect(folderParent(env, fileNode("file:///lib/x.sysml"))).toBeUndefined();
+    expect(folderParent(env, folderNode("file:///lib"))).toBeUndefined();
+    const nested: FolderEnv = { ...env, roots: [...env.roots, { name: "in", uri: "file:///w/Alpha" }] };
+    expect(names(await folderChildren(ix(), nested, folderNode("file:///w")))).not.toContain("Alpha");
+  });
+
   it("walks down to the elements and keeps the element ids of the Packages layout", async () => {
     const i = ix();
     const sub = (await folderChildren(i, env, folderNode("file:///w/Alpha")))[0]!;

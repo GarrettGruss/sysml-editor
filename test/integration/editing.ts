@@ -415,6 +415,30 @@ export function editingTests(c: Ctx): Test[] {
       assert.notStrictEqual(kept, original);
     })],
 
+    ["Folders layout: element nodes are editable (sysmlElement context value, Add Child and Rename work)", scenario("EdFold", { "tmp-edfold.sysmld": gen("EdFold") }, async ({ model }) => {
+      await api.provider.setLayout("folders");
+      try {
+        const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
+        const kids = async (n?: ModelNode): Promise<ModelNode[]> => await api.provider.getChildren(n);
+        const find = async (p: ModelNode | undefined, l: string) => (await kids(p)).find((n) => label(n) === l)!;
+        const file = async () => await find((await kids())[0], model);
+        await waitFor(async () => !!(await find((await kids())[0], model)), 15000, "the file is in the Folders tree");
+        const pkg = async () => await find(await file(), "EdFold");
+        const v1 = async () => await find(await pkg(), "vehicle1");
+        assert.strictEqual(api.provider.getTreeItem(await v1()).contextValue, "sysmlElement");
+        script.pick = "Part"; script.input = "foldchild";
+        await vscode.commands.executeCommand("sysml.tree.addChild", await v1());
+        await waitFor(() => onDisk(model).includes("part foldchild;"), 15000, "Add Child wrote the declaration");
+        await clean(model);
+        script.input = "cell";
+        await vscode.commands.executeCommand("sysml.tree.rename", await find(await v1(), "battery"));
+        await waitFor(() => onDisk(model).includes("part cell;"), 15000, "renamed");
+        await clean(model);
+      } finally {
+        await api.provider.setLayout("packages");
+      }
+    })],
+
     ["Syntax errors: an edit is refused with Go to error, and valid files with undisplayed constructs are edited", scenario("EdErr", { "tmp-ederr.sysmld": gen("EdErr") }, async ({ model, diagram }) => {
       const good = "package EdErrB {\n  part def A {\n    part x;\n  }\n}\n";
       const valid = "package EdOk {\n  part def A;\n  state def S;\n  calc def K { in x; }\n}\n";
