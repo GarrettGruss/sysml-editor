@@ -236,6 +236,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-derived-from-remove]" });
       await waitFor(() => (onDisk(file).match(/#derivation connection/g) ?? []).length === 1, 90000, "the derivation is removed");
       await eventually(async () => assert.deepStrictEqual((await detail()).derivedFrom, []), "and the view has refreshed (the next click uses its keys)");
+      await parses(file);
       console.log(`  detail before the verify removal: ${JSON.stringify((await m()).table.detail)}`);
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-verify-remove]" });
       await waitFor(() => !/verify [^;]*brakeDistance/.test(onDisk(file)), 120000, "the verify is removed").catch(async (e) => {
@@ -244,6 +245,7 @@ export function requirementsTests(c: Ctx): Test[] {
         throw e;
       });
       await eventually(async () => assert.strictEqual(row(await m(), "R4").cells.verify, "0"), "and the view has refreshed");
+      await parses(file);
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-satisfy-remove]" });
       await waitFor(() => !/brakeDistance by engine/.test(onDisk(file)), 120000, "the satisfy is removed");
       await clean(file);
