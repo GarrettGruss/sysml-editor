@@ -1,5 +1,6 @@
 import * as assert from "node:assert";
 import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -20,7 +21,17 @@ interface TestApi {
     mcpEndpoint(): { url: string; port: number; token: string } | undefined;
     testCallToolOverMcp(name: string, input: object): Promise<{ text: string; isError: boolean }>;
   };
+  diagram: {
+    open(uri: vscode.Uri): Promise<void>;
+    metrics(uri: vscode.Uri): Promise<Metrics>;
+    png(uri: vscode.Uri): Promise<string>;
+    save(uri: vscode.Uri): Promise<void>;
+    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: { nodes: { id: string; x?: number; y?: number; w?: number; h?: number }[] } };
+    errors(): string[];
+  };
 }
+interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string }
+interface Metrics { nodes: MNode[]; edges: { id: string; source: string; target: string }[]; overlaps: number; overflows: number }
 
 type Test = [name: string, fn: () => Promise<void>];
 
@@ -61,6 +72,95 @@ export async function run(): Promise<void> {
   };
   const folder = vscode.workspace.workspaceFolders![0]!.uri;
   const vehicleUri = vscode.Uri.joinPath(folder, "vehicle.sysml");
+
+  const artifactDir = process.env.SYSML_TEST_ARTIFACTS ?? path.join(process.env.SYSML_EXPECT_EXTENSION_PATH ?? os.tmpdir(), "out", "test-artifacts");
+  const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  const diagramUri = (name: string) => vscode.Uri.joinPath(folder, name);
+  const bytesOf = (name: string) => readFileSync(diagramUri(name).fsPath);
+  const byId = (m: Metrics) => new Map(m.nodes.map((n) => [n.id, n] as const));
+  const sorted = (xs: string[]) => [...xs].sort();
+
+  async function renders(file: string, ids: string[], edges: string[]): Promise<Metrics> {
+    const uri = diagramUri(file);
+    await api.diagram.open(uri);
+    const m = await api.diagram.metrics(uri);
+    assert.deepStrictEqual(sorted(m.nodes.map((n) => n.id)), sorted(ids), `${file}: node ids`);
+    assert.deepStrictEqual(sorted(m.edges.map((e) => e.id)), sorted(edges), `${file}: edge ids`);
+    assert.deepStrictEqual(api.diagram.errors(), [], "no webview errors");
+    for (const n of m.nodes) assert.ok([n.x, n.y, n.w, n.h].every(Number.isFinite) && n.w > 0 && n.h > 0, `${file}: ${n.id} has finite geometry`);
+    assert.strictEqual(m.overflows, 0, `${file}: text overflows its box`);
+    const png = Buffer.from(await api.diagram.png(uri), "base64");
+    assert.deepStrictEqual([...png.subarray(0, 8)], PNG_SIGNATURE, `${file}: PNG signature`);
+    assert.ok(png.length > 2048, `${file}: PNG is ${png.length} bytes`);
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(path.join(artifactDir, `diagram-${file.replace(/\.sysmld$/, "")}.png`), png);
+    return m;
+  }
+
+  /** Distance from the centre of a box to the outline of a rectangle. */
+  const distToBorder = (b: MNode, o: MNode) => {
+    const cx = b.x + b.w / 2;
+    const cy = b.y + b.h / 2;
+    const dx = Math.max(o.x - cx, 0, cx - (o.x + o.w));
+    const dy = Math.max(o.y - cy, 0, cy - (o.y + o.h));
+    if (dx > 0 || dy > 0) return Math.hypot(dx, dy);
+    return Math.min(cx - o.x, o.x + o.w - cx, cy - o.y, o.y + o.h - cy);
+  };
+
+  const diagramTests = (): Test[] => [
+    ["a General View with stored positions renders in the custom editor and keeps its positions exactly", async () => {
+      const m = await renders("ports-general.sysmld", ["n1", "n2", "n3", "n4", "n5"], ["d:composition:n4:n5", "d:typing:n5:n2"]);
+      const n = byId(m);
+      assert.deepStrictEqual([n.get("n1")!.x, n.get("n1")!.y], [520, 40]);
+      assert.deepStrictEqual([n.get("n2")!.x, n.get("n2")!.y], [40, 260]);
+      assert.deepStrictEqual([n.get("n3")!.x, n.get("n3")!.y], [300, 260]);
+      assert.deepStrictEqual([n.get("n4")!.x, n.get("n4")!.y], [40, 40]);
+      assert.ok(n.get("n4")!.w >= 220 && n.get("n4")!.h >= 150, "stored size is a minimum");
+      assert.strictEqual(m.overlaps, 0);
+      assert.strictEqual(api.diagram.state(diagramUri("ports-general.sysmld")).dirty, false, "nothing to lay out, so not dirty");
+    }],
+    ["opening and saving an untouched canonical diagram leaves the file byte-identical", async () => {
+      const before = bytesOf("ports-general.sysmld");
+      await api.diagram.open(diagramUri("ports-general.sysmld"));
+      await api.diagram.save(diagramUri("ports-general.sysmld"));
+      assert.ok(before.equals(bytesOf("ports-general.sysmld")));
+    }],
+    ["a General View without positions gets positions, with no overlaps, and becomes dirty", async () => {
+      const file = "ports-general-auto.sysmld";
+      const before = bytesOf(file);
+      const m = await renders(file, ["n1", "n2", "n3", "n4", "n5"], ["d:composition:n4:n5", "d:typing:n5:n2"]);
+      assert.strictEqual(m.overlaps, 0, "no sibling overlaps");
+      const st = api.diagram.state(diagramUri(file));
+      await waitFor(() => api.diagram.state(diagramUri(file)).dirty, 3000, "layout makes the document dirty");
+      for (const n of api.diagram.state(diagramUri(file)).doc!.nodes) assert.ok(n.x !== undefined && n.y !== undefined && n.w !== undefined, `${n.id} stored a position in memory`);
+      assert.strictEqual(st.errorPage, false);
+      assert.ok(before.equals(bytesOf(file)), "the file on disk is only written by Save");
+    }],
+    ["an Interconnection View nests parts, puts ports on their owner's border and connects ports", async () => {
+      const m = await renders("drivetrain-interconnection.sysmld", ["n0", "n1", "n2", "n3", "n4", "n5"], ["e1"]);
+      const n = byId(m);
+      assert.strictEqual(m.overlaps, 0);
+      for (const c of m.nodes.filter((x) => x.parent !== undefined)) {
+        const p = n.get(c.parent!)!;
+        assert.ok(c.x >= p.x && c.y >= p.y && c.x + c.w <= p.x + p.w && c.y + c.h <= p.y + p.h, `${c.id} lies inside ${p.id}`);
+      }
+      const ports = m.nodes.filter((x) => x.attachedTo !== undefined);
+      assert.deepStrictEqual(sorted(ports.map((p) => p.id)), ["n3", "n4", "n5"]);
+      for (const p of ports) assert.ok(distToBorder(p, n.get(p.attachedTo!)!) <= 2, `port ${p.id} is on the border of ${p.attachedTo}`);
+      for (const e of m.edges) assert.ok(n.has(e.source) && n.has(e.target), `edge ${e.id} endpoints are on the diagram`);
+      assert.deepStrictEqual(m.edges.map((e) => [e.source, e.target]), [["n3", "n4"]], "the connection joins the two port nodes");
+    }],
+    ["a .sysmld with invalid JSON shows the error page and the file is unchanged", async () => {
+      const uri = diagramUri("invalid.sysmld");
+      const before = bytesOf("invalid.sysmld");
+      await api.diagram.open(uri);
+      const st = api.diagram.state(uri);
+      assert.strictEqual(st.errorPage, true);
+      assert.ok(st.problems.length > 0);
+      await api.diagram.save(uri);
+      assert.ok(before.equals(bytesOf("invalid.sysmld")), "file content is never lost");
+    }],
+  ];
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
@@ -326,6 +426,7 @@ export async function run(): Promise<void> {
         await set(undefined);
       }
     }],
+    ...diagramTests(),
   ];
 
   const failures: string[] = [];
