@@ -347,5 +347,5 @@ export { loadLibraryChunked } from "./library.js";
 export { buildDocumentModel, documentFromParse, mapSyntaxErrors } from "./antlr-builder.js";
 export { antlrDocumentParser, DETAILS_PENDING_MESSAGE } from "./antlr-parser.js";
 export { serializeModel, deserializeModel, type SerializedModel } from "./serialize.js";
-export { quoteName, unquoteName, splitQualified } from "./names.js";
+export { quoteName, unquoteName, splitQualified, processDocComment } from "./names.js";
 export { inheritedMembers, inheritedFrom, inheritedVia, isInheritedIn, supertypesOf, locate, type InheritedMember, type Located } from "./inherited.js";
