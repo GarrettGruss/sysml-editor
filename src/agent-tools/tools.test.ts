@@ -41,7 +41,7 @@ describe("tool definitions", () => {
     expect(toolDefinitions.map((t) => t.name)).toEqual([
       "sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate",
       "sysml_list_diagrams", "sysml_read_diagram", "sysml_create_diagram", "sysml_add_to_diagram", "sysml_remove_from_diagram", "sysml_layout_diagram",
-      "sysml_create_element", "sysml_delete_element", "sysml_rename_element", "sysml_set_element_properties", "sysml_create_relationship",
+      "sysml_create_element", "sysml_delete_element", "sysml_rename_element", "sysml_set_element_properties", "sysml_create_relationship", "sysml_set_transition",
       "sysml_read_requirements_document", "sysml_create_requirement",
     ]);
     for (const t of toolDefinitions) {

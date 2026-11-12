@@ -5,7 +5,7 @@
  */
 
 export const DIAGRAM_VERSION = 1;
-export const DIAGRAM_KINDS = ["general", "interconnection", "requirements"] as const;
+export const DIAGRAM_KINDS = ["general", "interconnection", "requirements", "actionFlow", "stateTransition", "sequence"] as const;
 export type DiagramKind = (typeof DIAGRAM_KINDS)[number];
 
 export interface ElementLocator {

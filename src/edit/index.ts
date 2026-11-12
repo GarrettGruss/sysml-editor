@@ -12,3 +12,4 @@ export * from "./requirements.js";
 export { planConnect, planSatisfy } from "./connect.js";
 export { writeReference, referenceText, enclosingPackage, type WrittenReference } from "./refs.js";
 export { checkDocument, checkElement } from "./guard.js";
+export * from "./behavior.js";

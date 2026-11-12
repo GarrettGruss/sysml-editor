@@ -17,7 +17,7 @@ export function requirementsTests(c: Ctx): Test[] {
   const onDisk = (name: string) => readFileSync(uriOf(name).fsPath, "utf8");
   const textDoc = (name: string) => vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uriOf(name).fsPath);
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
-    // Monotonic time: the clock of this machine can jump by an hour (WSL), which Date.now() would count as a timeout.
+    // Monotonic time: the clock of this machine can jump by an hour (WSL), and Date.now() is what would count that jump as a timeout.
     const t0 = performance.now();
     const end = t0 + ms;
     while (!(await cond())) {
@@ -77,7 +77,7 @@ export function requirementsTests(c: Ctx): Test[] {
     for (const [n, t] of Object.entries(opts.extra ?? {})) writeFileSync(uriOf(n).fsPath, t);
     installUi();
     await warmWorker();
-    const t0 = Date.now();
+    const t0 = performance.now();
     const scope: ReqScope = { kind: "package", qualifiedName: pkg };
     try {
       await vscode.workspace.openTextDocument(uriOf(file));
@@ -88,12 +88,12 @@ export function requirementsTests(c: Ctx): Test[] {
           break;
         } catch (e) {
           if (attempt === 5) throw e;
-          console.log(`  ${pkg}: not in the model after ${Date.now() - t0} ms (pending: ${JSON.stringify(api.model.index.pendingDetails())}); writing the file again`);
+          console.log(`  ${pkg}: not in the model after ${performance.now() - t0} ms (pending: ${JSON.stringify(api.model.index.pendingDetails())}); writing the file again`);
           writeFileSync(uriOf(file).fsPath, before);
         }
       }
       await waitFor(() => !api.model.index.getDocument(uriOf(file).toString())?.detailsPending, 280000, "details settled");
-      console.log(`  ${pkg}: model ready after ${Date.now() - t0} ms`);
+      console.log(`  ${pkg}: model ready after ${performance.now() - t0} ms`);
       await api.requirements.open(scope, opts.view ?? "table");
       const m = () => api.requirements.metrics(scope);
       await fn({ file, scope, qn: (s) => `${pkg}::${s}`, m, before });
@@ -121,23 +121,23 @@ export function requirementsTests(c: Ctx): Test[] {
   let warmed: Promise<void> | undefined;
   const warmWorker = (): Promise<void> => (warmed ??= (async () => {
     const file = "tmp-reqwarm.sysml";
-    const t0 = Date.now();
+    const t0 = performance.now();
     try {
       for (let i = 0; i < 400; i++) {
         const text = `package ReqWarm${i} {\n  requirement <'R1'> a { doc /* ${i} */ }\n  part def T;\n}\n`;
         writeFileSync(uriOf(file).fsPath, text);
-        const started = Date.now();
+        const started = performance.now();
         try {
           await waitFor(() => api.model.index.findByQualifiedName(`ReqWarm${i}::T`).length > 0, 90000, "the warm-up file is in the model");
         } catch {
           continue;
         }
-        if (Date.now() - started < 1500 && i > 0) break;
+        if (performance.now() - started < 1500 && i > 0) break;
       }
     } finally {
       rmSync(uriOf(file).fsPath, { force: true });
     }
-    console.log(`  parse worker ready for the requirements tests after ${Date.now() - t0} ms`);
+    console.log(`  parse worker ready for the requirements tests after ${performance.now() - t0} ms`);
   })());
   const eventually = c.eventually;
   const gesture = (scope: ReqScope, g: Parameters<typeof api.requirements.gesture>[1]) => api.requirements.gesture(scope, g);

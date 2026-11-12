@@ -24,7 +24,7 @@ export interface BoxPatch {
 export interface MetricsNode extends NodeBox {
   parent?: string;
   attachedTo?: string;
-  /** `data-shape` of the drawn node: definition, usage, package, requirement, port or unresolved. */
+  /** `data-shape` of the drawn node: definition, usage, package, requirement, port, unresolved, action, state, start, done, fork, decision, usecase or lifeline. */
   shape?: string;
   /** All text drawn in the node, joined with " | ". */
   text?: string;
@@ -56,12 +56,16 @@ export interface PropertyChanges {
 export type ModelIntent =
   /** Create an element of `kind` in the element of node `ownerId` (the diagram's root when absent), placed at (x, y) relative to that node. */
   | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number }
-  /** `relation`: a requirement relationship from the Requirements View palette (satisfy, verify, derivation); absent: a connection. */
-  | { kind: "connect"; sourceId: string; targetId: string; relation?: "satisfy" | "verify" | "derivation" }
+  /** `relation`: a relationship tool of the palette (satisfy, verify, derivation, succession, transition, message); absent: a connection. */
+  | { kind: "connect"; sourceId: string; targetId: string; relation?: ConnectRelation }
+  /** Trigger, guard and effect of the transition edge `id`, as text (a missing field is left as it is). */
+  | { kind: "setTransition"; id: string; changes: { trigger?: string; guard?: string; effect?: string } }
   | { kind: "deleteFromModel"; ids: string[] }
   | { kind: "rename"; id: string; name: string }
   | { kind: "setProperties"; id: string; changes: PropertyChanges }
   | { kind: "goToDefinition"; id: string };
+
+export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message";
 
 export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
 
@@ -79,11 +83,15 @@ export type TestGesture =
   /** Choose a palette item, then click a node (or the canvas, with `id` absent) at a point relative to that node. */
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
   /** Connection tool: click the source, then the target. */
-  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" }
+  | { kind: "connect"; source: string; target: string; relation?: ConnectRelation }
+  /** Click an edge (a succession, transition or message) to select it. */
+  | { kind: "selectEdge"; id: string }
+  /** Press on a message and drag it vertically: nothing may change (messages are placed by time order). */
+  | { kind: "dragEdge"; id: string; dy: number }
   /** Double-click a node label: opens the inline editor; `text` types into it and Enter commits (or Escape cancels). */
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   /** Edit a field of the properties panel as the user would: sets the value and fires `change`. */
-  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation"; value: string }
+  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
   | { kind: "flush" };
 
 export type HostToWebview =
@@ -108,6 +116,9 @@ export interface MetricsEdge {
   /** Notation style (`satisfy`, `derivation`, ...) and the drawn label. */
   style?: string;
   label?: string;
+  /** Messages: position in time order, and the marker for an order the model leaves open. */
+  order?: number;
+  unordered?: boolean;
 }
 
 export interface DiagramMetrics {

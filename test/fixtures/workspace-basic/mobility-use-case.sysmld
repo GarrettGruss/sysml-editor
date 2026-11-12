@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "kind": "general",
+  "root": "Mobility::'Provide Transportation'",
+  "sources": [
+    "usecases.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Mobility::'Provide Transportation'"
+    },
+    {
+      "id": "n2",
+      "ref": "Mobility::'Provide Transportation'::vehicle"
+    },
+    {
+      "id": "n3",
+      "ref": "Mobility::'Provide Transportation'::driver"
+    },
+    {
+      "id": "n4",
+      "ref": "Mobility::'Provide Transportation'::'enter vehicle'"
+    }
+  ],
+  "edges": []
+}

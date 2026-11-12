@@ -359,6 +359,7 @@ export { kermlOutlineParser, buildKermlOutline } from "./kerml-outline.js";
 export { LIBRARY_URI_SCHEME, isLibraryUri } from "./library-uri.js";
 export { loadLibrary } from "./library.js";
 export { loadLibraryChunked } from "./library.js";
+export * from "./behavior.js";
 export { buildDocumentModel, documentFromParse, mapSyntaxErrors } from "./antlr-builder.js";
 export { antlrDocumentParser, DETAILS_PENDING_MESSAGE } from "./antlr-parser.js";
 export { serializeModel, deserializeModel, type SerializedModel } from "./serialize.js";

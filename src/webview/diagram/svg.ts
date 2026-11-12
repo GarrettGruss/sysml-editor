@@ -81,7 +81,9 @@ function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: 
     g += `<rect width="${f(b.w)}" height="${f(b.h)}"${dash}${paint(o, fill, stroke)}/>`;
     return g + "</g>";
   }
-  const rx = n.shape === "usage" ? ' rx="10"' : n.shape === "requirement" ? ' rx="3"' : "";
+  const shapeG = drawSpecial(n, b, c, o, fill, stroke, dash);
+  if (shapeG !== undefined) return g + shapeG + "</g>";
+  const rx = n.shape === "usage" || n.shape === "action" ? ' rx="10"' : n.shape === "state" ? ' rx="16"' : n.shape === "requirement" ? ' rx="3"' : "";
   if (n.shape === "package") {
     g += `<rect y="16" width="${f(b.w)}" height="${f(b.h - 16)}"${paint(o, fill, stroke)}/>`;
     g += `<rect width="${f(Math.min(b.w * 0.4, 70))}" height="16"${paint(o, fill, stroke)}/>`;
@@ -96,34 +98,66 @@ function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: 
 }
 const PAD_LEFT = 10;
 
+type Content = ReturnType<typeof describeBox>;
+
+/** Pseudostates, control nodes, ovals and lifelines; undefined for the box-shaped notations. */
+function drawSpecial(n: VmNode, b: Box, c: Content, o: SvgOptions, fill: Role, stroke: Role, dash: string): string | undefined {
+  const cx = b.w / 2, cy = b.h / 2;
+  switch (n.shape) {
+    case "start": return `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(Math.min(cx, cy))}"${paint(o, "edge", "edge")}/>`;
+    case "done": {
+      const r = Math.min(cx, cy);
+      return `<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r)}"${paint(o, "bg", "edge")}/><circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r - 5)}"${paint(o, "edge", "edge")}/>`;
+    }
+    case "fork": return `<rect width="${f(b.w)}" height="${f(b.h)}"${paint(o, "edge", "edge")}/>`;
+    case "decision": return `<polygon points="${f(cx)},0 ${f(b.w)},${f(cy)} ${f(cx)},${f(b.h)} 0,${f(cy)}"${paint(o, fill, stroke)}/>`;
+    case "usecase": {
+      let g = `<ellipse cx="${f(cx)}" cy="${f(cy)}" rx="${f(cx)}" ry="${f(cy)}"${dash}${paint(o, fill, stroke)}/>`;
+      for (const r of c.rows) g += text(o, cx, r.y, r.text, r.style, r.kind === "keyword" ? "subtext" : "text", "middle");
+      return g;
+    }
+    case "lifeline": {
+      const head = c.headerH;
+      let g = `<rect width="${f(b.w)}" height="${f(head)}"${dash}${paint(o, fill, stroke)}/>`;
+      g += `<line x1="${f(cx)}" y1="${f(head)}" x2="${f(cx)}" y2="${f(b.h)}" stroke-dasharray="6 4"${paint(o, "none", stroke)}/>`;
+      for (const r of c.rows) g += text(o, cx, r.y, r.text, r.style, r.kind === "keyword" ? "subtext" : "text", "middle");
+      return g;
+    }
+    default: return undefined;
+  }
+}
+
 function drawPortLabel(n: VmNode, b: Box, owner: Box, o: SvgOptions): string {
   const left = b.x + b.w / 2 < owner.x + owner.w / 2;
   const x = left ? b.x + b.w + 4 : b.x - 4;
   return text(o, x, b.y + b.h / 2 + 3, n.label, "small", "text", left ? "start" : "end");
 }
 
-const DASHED = new Set(["typing", "satisfy", "verify", "derivation"]);
+const DASHED = new Set(["typing", "satisfy", "verify", "derivation", "flow", "include"]);
 
-function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined): string {
+function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, selected = false): string {
   const first = pts[0]!;
   const second = pts[1] ?? first;
   const last = pts[pts.length - 1]!;
   const before = pts[pts.length - 2] ?? first;
   const dashed = DASHED.has(e.style) || !e.resolved;
   const roleLine: Role = e.resolved ? "edge" : "warn";
-  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"><polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
+  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"${e.order !== undefined ? ` data-order="${e.order}"` : ""}${e.unordered ? ' data-unordered="true"' : ""}${selected ? ' data-selected="true"' : ""}><polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
   const poly = (ps: Pt[], fill: Role | "none") => `<polygon points="${ps.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${paint(o, fill, roleLine)}/>`;
   switch (e.style) {
     case "composition": g += poly(diamondPoints(first, second, 16, 5), "edge"); break;
     case "specialization": g += poly(headPoints(last, before, 14, 7), "bg"); break;
-    case "typing": case "satisfy": case "verify": case "derivation": {
+    case "message": g += poly(headPoints(last, before, 10, 4), "edge"); break;
+    case "typing": case "satisfy": case "verify": case "derivation": case "succession": case "transition": case "flow": case "include": {
       const [t, a, b] = headPoints(last, before, 10, 5);
       g += `<polyline points="${f(a.x)},${f(a.y)} ${f(t.x)},${f(t.y)} ${f(b.x)},${f(b.y)}"${paint(o, "none", roleLine)}/>`;
       break;
     }
     default: break;
   }
-  if (e.label && label) g += text(o, label.x + label.w / 2, label.y + 10, e.label, "small", e.resolved ? "subtext" : "warn", "middle");
+  // A wide invisible line makes a thin edge easy to hit and select.
+  if (selected) g += `<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="4" stroke-opacity="0.35"${paint(o, "none", "sel")}/>`;
+  if (e.label && label) g += text(o, label.x + label.w / 2, label.y + 10, (e.unordered ? "\u2248 " : "") + e.label, "small", e.resolved ? "subtext" : "warn", "middle");
   return g + "</g>";
 }
 
@@ -165,7 +199,22 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
   for (const e of vm.edges) {
     const s = abs.get(e.source);
     const t = abs.get(e.target);
-    if (!s || !t || e.source === e.target) continue;
+    if (e.fixed) {
+      // A message: the route comes from time order (sequence layout) and is neither stored nor routed around nodes.
+      const fixedPts = extras.routes?.get(e.id);
+      if (!s || !t || !fixedPts) continue;
+      routes.set(e.id, fixedPts.map((p) => ({ x: p.x, y: p.y })));
+      drawn.push({ e, pts: fixedPts.map((p) => ({ x: p.x, y: p.y })), ends: [s, t] });
+      continue;
+    }
+    if (!s || !t) continue;
+    if (e.source === e.target) {
+      // A transition from a state to itself: a loop outside the right border.
+      const loop: Pt[] = [{ x: s.x + s.w, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.7 }, { x: s.x + s.w, y: s.y + s.h * 0.7 }];
+      routes.set(e.id, loop);
+      drawn.push({ e, pts: loop, ends: [s, t] });
+      continue;
+    }
     const related = (id: string) => {
       // The end itself, what it sits in and what sits in it: a route may cross those.
       const set = new Set<string>();
@@ -185,10 +234,17 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
   const containers = order.filter((n) => parents.has(n.id)).map((n) => abs.get(n.id)!);
   for (const d of drawn) {
     if (!d.e.label) continue;
+    if (d.e.fixed) {
+      // Above the arrow, between its ends; a self-message's label sits to the right of its loop.
+      const p = d.pts, lw = measure((d.e.unordered ? "\u2248 " : "") + d.e.label, "small") + 4;
+      const self = d.e.source === d.e.target;
+      labels.set(d.e.id, self ? { x: p[1]!.x + 4, y: p[1]!.y + 3, w: lw, h: 13 } : { x: (p[0]!.x + p[p.length - 1]!.x) / 2 - lw / 2, y: p[0]!.y - 15, w: lw, h: 13 });
+      continue;
+    }
     const others = drawn.filter((x) => x !== d).map((x) => x.pts);
     labels.set(d.e.id, placeLabel(d.pts, measure(d.e.label, "small") + 4, 13, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
   }
-  for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id));
+  for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id), selected.has(d.e.id));
   for (const n of order) {
     if (n.shape !== "port") continue;
     const b = abs.get(n.id)!;
@@ -196,7 +252,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const owner = n.attachedTo !== undefined && byId.has(n.attachedTo) ? abs.get(n.attachedTo) : undefined;
     if (owner) out += drawPortLabel(n, b, owner, o);
   }
-  return { content: out, bounds: boundsOf(abs.values(), 0), routes, labels };
+  return { content: out, bounds: boundsOf([...abs.values(), ...labels.values()], 0), routes, labels };
 }
 
 /** Selection outlines and resize handles (single selected non-port node), and the rubber band. */

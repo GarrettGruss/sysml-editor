@@ -4,12 +4,12 @@
  */
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { isInheritedIn, isLibraryUri, type Element } from "../model/index.js";
+import { isInheritedIn, isLibraryUri, isSynthetic, participantName, type Element } from "../model/index.js";
 import type { ModelActions } from "../model-service/interactive.js";
 import { showFailure } from "../model-service/vscode-host.js";
 import type { OpFailure, OpResult } from "../model-service/service.js";
 import { commonOwner, type Target } from "../model-service/service.js";
-import { typeCandidates } from "../model-service/support.js";
+import { nameProblem, typeCandidates } from "../model-service/support.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import { readSettled } from "./read-settled.js";
 import { writeDiagramFile } from "./write-uri.js";
@@ -445,11 +445,13 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   /** The element a node shows, and the node's container element when it only inherits the feature from there. */
   targetOf(doc: SysmlDiagramDocument, id: string): Target | undefined {
     const d = doc.state.doc;
-    const node = d?.nodes.find((n) => n.id === id);
+    const edge = d?.edges.find((e) => e.id === id);
+    const node = d?.nodes.find((n) => n.id === id) ?? edge;
     if (!d || !node) return undefined;
     const index = this.model.index;
     const element = resolveReference(node, d, index, this.opts(doc));
     if (!element) return undefined;
+    if (edge) return { element };
     // Any container up the node ancestry that inherits the feature (or a feature it lies beneath) is its context.
     for (const anc of this.ancestry(doc, id).slice(1)) {
       const ancNode = d.nodes.find((n) => n.id === anc);
@@ -502,6 +504,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         const a = this.targetOf(doc, intent.sourceId);
         const b = this.targetOf(doc, intent.targetId);
         if (!a || !b) return this.notice(doc, "Both ends of a connection must be resolved elements.");
+        if (intent.relation === "succession" || intent.relation === "transition" || intent.relation === "message") return this.drawBehaviorEdge(doc, actions, intent.relation, a, b, origin);
         if (intent.relation) {
           const r = await this.drawRequirementRelation(actions, intent.relation, a.element, b.element, origin);
           const shown = await actions.report(r, `Added ${intent.relation}`);
@@ -536,7 +539,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         for (const id of intent.ids) {
           const t = this.targetOf(doc, id);
           if (!t) continue;
-          const r = await actions.delete(t, { origin });
+          // An edge (succession, transition, message) is an unnamed statement: always ask, naming its text.
+          const r = await actions.delete(t, { origin, ...(d.edges.some((e) => e.id === id) ? { alwaysConfirm: true } : {}) });
           if (r && !r.ok) this.notice(doc, r.reason);
         }
         return;
@@ -556,6 +560,18 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         else this.rerender(doc);
         return;
       }
+      case "setTransition": {
+        const e = d.edges.find((x) => x.id === intent.id);
+        const el = e ? resolveReference(e, d, this.model.index, this.opts(doc)) : undefined;
+        if (!el) return this.notice(doc, "The transition could not be found; it may be unresolved.");
+        const changes = intent.changes && typeof intent.changes === "object" ? intent.changes : {};
+        const parts: { trigger?: string; guard?: string; effect?: string } = {};
+        for (const k of ["trigger", "guard", "effect"] as const) if (typeof changes[k] === "string") parts[k] = changes[k];
+        const r = await actions.report(await actions.service.setTransition(el, parts, origin), "Changed transition");
+        if (!r.ok) this.notice(doc, r.reason);
+        else this.rerender(doc);
+        return;
+      }
       case "goToDefinition": {
         const t = this.targetOf(doc, intent.id);
         if (!t) return;
@@ -565,6 +581,44 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         return;
       }
     }
+  }
+
+  /**
+   * A succession, transition or message drawn between two nodes. The statement goes into the element that owns both
+   * (the root for a message); the same `ModelService` operations serve the agent tools.
+   */
+  private async drawBehaviorEdge(doc: SysmlDiagramDocument, actions: ModelActions, relation: "succession" | "transition" | "message", a: Target, b: Target, origin: { diagram: string }): Promise<void> {
+    const d = doc.state.doc;
+    if (!d) return;
+    const index = this.model.index;
+    for (const t of [a, b]) {
+      const refusal = actions.service.refuseIfInherited(t, "connected");
+      if (refusal) {
+        void actions.report(refusal, "");
+        return this.notice(doc, refusal.reason);
+      }
+    }
+    const known = new Set(d.edges.map((e) => e.id));
+    let r: OpResult;
+    if (relation === "message") {
+      const owner = resolveReference({ ref: d.root }, d, index, this.opts(doc));
+      const from = participantName(a.element) ?? a.element.name;
+      const to = participantName(b.element) ?? b.element.name;
+      if (!owner || !from || !to) return this.notice(doc, "A message goes between two named lifelines of a resolved interaction.");
+      const typed = await this.ui.input({ title: "New message", prompt: `Name of the message from ${from} to ${to} (optional; leave empty for none)`, validateInput: (v) => (v.trim() === "" ? undefined : nameProblem(v, owner, undefined, index)) });
+      if (typed === undefined) return;
+      r = await actions.service.addMessage(owner, from, to, typed.trim() === "" ? {} : { name: typed.trim() }, { ...origin, placement: { diagram: origin.diagram } });
+    } else {
+      const owner = isSynthetic(a.element) ? a.element.owner : isSynthetic(b.element) ? b.element.owner : a.element.owner === b.element.owner ? a.element.owner : commonOwner(a.element, b.element);
+      if (!owner) return this.notice(doc, "These two elements have no common owner on this diagram, so there is nowhere to put the statement.");
+      r = relation === "succession"
+        ? await actions.service.addSuccession(owner, a.element, b.element, { ...origin, placement: { diagram: origin.diagram } })
+        : await actions.service.addTransition(owner, a.element, b.element, {}, { ...origin, placement: { diagram: origin.diagram } });
+    }
+    const shown = await actions.report(r, `Added ${relation}`);
+    if (!shown.ok) return this.notice(doc, shown.reason);
+    const fresh = (doc.state.doc?.edges ?? []).filter((e) => !known.has(e.id)).map((e) => e.id);
+    if (fresh.length) this.selectIds(doc, [fresh[fresh.length - 1]!]);
   }
 
   /** "Delete from Model…" on the selected nodes (the command and the context menu). */

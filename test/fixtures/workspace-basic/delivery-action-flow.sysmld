@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "kind": "actionFlow",
+  "root": "Delivery::deliverOrder",
+  "sources": [
+    "actions.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Delivery::deliverOrder"
+    },
+    {
+      "id": "n2",
+      "ref": "Delivery::deliverOrder::pack",
+      "parent": "n1"
+    },
+    {
+      "id": "n3",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "decide",
+        "ends": []
+      },
+      "parent": "n1"
+    },
+    {
+      "id": "n4",
+      "ref": "Delivery::deliverOrder::retry",
+      "parent": "n1"
+    },
+    {
+      "id": "n5",
+      "ref": "Delivery::deliverOrder::ship",
+      "parent": "n1"
+    },
+    {
+      "id": "n6",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "start",
+        "ends": []
+      },
+      "parent": "n1"
+    },
+    {
+      "id": "n7",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "done",
+        "ends": []
+      },
+      "parent": "n1"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "succession",
+        "ends": [
+          "start",
+          "pack"
+        ]
+      },
+      "source": "n6",
+      "target": "n2"
+    },
+    {
+      "id": "e2",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "succession",
+        "ends": [
+          "pack",
+          "decide"
+        ]
+      },
+      "source": "n2",
+      "target": "n3"
+    },
+    {
+      "id": "e3",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "succession",
+        "ends": [
+          "retry"
+        ]
+      },
+      "source": "n3",
+      "target": "n4"
+    },
+    {
+      "id": "e4",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "succession",
+        "ends": [
+          "ship"
+        ]
+      },
+      "source": "n3",
+      "target": "n5"
+    },
+    {
+      "id": "e5",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "succession",
+        "ends": [
+          "pack"
+        ]
+      },
+      "source": "n4",
+      "target": "n2"
+    },
+    {
+      "id": "e6",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "succession",
+        "ends": [
+          "done"
+        ]
+      },
+      "source": "n5",
+      "target": "n7"
+    },
+    {
+      "id": "e7",
+      "locator": {
+        "owner": "Delivery::deliverOrder",
+        "kind": "flow",
+        "ends": [
+          "pack.parcel",
+          "ship.parcel"
+        ]
+      },
+      "source": "n2",
+      "target": "n5"
+    }
+  ]
+}

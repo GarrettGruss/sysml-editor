@@ -364,10 +364,11 @@ describe("kinds", () => {
   test("the tree list, the palette and the agent enum are all drawn from one list", async () => {
     const { ADD_KINDS } = await import("./support.js");
     const { paletteFor } = await import("../diagram/palette.js");
-    const { ALL_KINDS } = await import("./kinds.js");
-    expect(ADD_KINDS.map((k) => k.kind)).toEqual([...ALL_KINDS]);
-    for (const dk of ["general", "interconnection", "requirements"] as const)
-      for (const p of paletteFor(dk)) if (!["connection", "satisfy", "verify", "derivation"].includes(p.kind)) expect(ALL_KINDS, p.kind).toContain(p.kind);
+    const { CREATABLE_KINDS } = await import("./kinds.js");
+    expect(ADD_KINDS.map((k) => k.kind)).toEqual([...CREATABLE_KINDS]);
+    const { RELATIONSHIP_KINDS: relationships } = await import("../agent-tools/edit-tools.js");
+    for (const dk of ["general", "interconnection", "requirements", "actionFlow", "stateTransition", "sequence"] as const)
+      for (const p of paletteFor(dk)) expect(relationships.includes(p.kind) ? relationships : CREATABLE_KINDS, p.kind).toContain(p.kind);
   });
 });
 

@@ -30,6 +30,8 @@ export function distToBorder(b: Box, o: Box): number {
 export function checkEdges(vm: ViewModel, abs: ReadonlyMap<string, Box>, routes: ReadonlyMap<string, readonly Pt[]>, labels: ReadonlyMap<string, Box>): EdgeChecks {
   let diagonalSegments = 0, edgesThroughEndNodes = 0, labelsOverEndNodes = 0, labelsOnOwnEdge = 0, portsOffBorder = 0, labelsOverNodes = 0, labelsOverLabels = 0, edgeOverlaps = 0;
   const parents = new Set(vm.nodes.map((n) => n.parent).filter((x): x is string => x !== undefined));
+  // A lifeline is a column: a message starts and ends on its centre line, and its label lies across the dashed lines in between.
+  const column = new Set(vm.nodes.filter((n) => n.shape === "lifeline").map((n) => n.id));
   const placed: Box[] = [];
   const done: (readonly Pt[])[] = [];
   for (const e of vm.edges) {
@@ -38,13 +40,14 @@ export function checkEdges(vm: ViewModel, abs: ReadonlyMap<string, Box>, routes:
     if (!pts || !s || !t) continue;
     for (let i = 1; i < pts.length; i++) if (!isOrthogonal([pts[i - 1]!, pts[i]!])) diagonalSegments++;
     // An end that contains the other (an edge to an enclosing node) necessarily runs through it.
-    if (!contains(s, t) && !contains(t, s) && (routeThroughBox(pts, s) || routeThroughBox(pts, t))) edgesThroughEndNodes++;
+    const onColumns = column.has(e.source) || column.has(e.target);
+    if (!onColumns && !contains(s, t) && !contains(t, s) && (routeThroughBox(pts, s) || routeThroughBox(pts, t))) edgesThroughEndNodes++;
     const l = labels.get(e.id);
-    if (l && (rectsOverlap(l, s) || rectsOverlap(l, t))) labelsOverEndNodes++;
+    if (l && !onColumns && (rectsOverlap(l, s) || rectsOverlap(l, t))) labelsOverEndNodes++;
     if (l && labelOnRoute(l, pts)) labelsOnOwnEdge++;
     if (l) {
       const g = (b: Box): Box => ({ x: b.x - 2, y: b.y - 2, w: b.w + 4, h: b.h + 4 });
-      if (vm.nodes.some((n) => { const b = abs.get(n.id); return b !== undefined && rectsOverlap(l, g(b)) && !(parents.has(n.id) && contains(b, l)); })) labelsOverNodes++;
+      if (vm.nodes.some((n) => { const b = abs.get(n.id); return b !== undefined && !column.has(n.id) && rectsOverlap(l, g(b)) && !(parents.has(n.id) && contains(b, l)); })) labelsOverNodes++;
       labelsOverLabels += placed.filter((o) => rectsOverlap(l, o)).length;
       placed.push(l);
     }

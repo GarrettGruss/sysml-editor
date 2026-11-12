@@ -30,9 +30,9 @@ export function interactionTests(c: Ctx): Test[] {
   const nodeOf = (m: Metrics, id: string): MNode => m.nodes.find((n) => n.id === id)!;
   const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g);
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
-    const end = Date.now() + ms;
+    const end = performance.now() + ms;
     while (!(await cond())) {
-      if (Date.now() > end) assert.fail(`timed out waiting for: ${what}`);
+      if (performance.now() > end) assert.fail(`timed out waiting for: ${what}`);
       await sleep(25);
     }
   };

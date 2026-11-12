@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 /** Resolving diagram references to model elements and back (design D3). No `vscode` import. */
-import type { Element, ModelIndex } from "../model/index.js";
+import { cachedSynthetic, syntheticMembers, type Element, type ModelIndex } from "../model/index.js";
 import type { DiagramDocument, ElementLocator, ElementReference } from "./format.js";
 
 export type SourceMapper = (uri: string) => string;
@@ -43,8 +44,9 @@ function preferSources(cands: readonly Element[], sources: readonly string[], so
  * Elements a locator can match under an owner: its members, looking through unnamed members
  * (which cannot be an owner in a locator, so their children count as owned by the nearest named one).
  */
-export function ownedCandidates(owner: Element): Element[] {
-  const out: Element[] = [];
+export function ownedCandidates(owner: Element, index?: ModelIndex): Element[] {
+  // `start`, `done` and the successions implied by `then` are not in the parse tree (see model/behavior.ts).
+  const out: Element[] = [...(index ? syntheticMembers(index, owner) : cachedSynthetic(owner))];
   const walk = (e: Element) => {
     for (const m of e.members) {
       out.push(m);
@@ -73,7 +75,7 @@ export function resolveReference(
   if (!loc) return undefined;
   const key = endsKey(loc.ends);
   for (const owner of preferSources(index.findByQualifiedName(loc.owner), doc.sources, sourceOf)) {
-    const matches = ownedCandidates(owner).filter((c) => c.qualifiedName === undefined && c.kind === loc.kind && endsKey(c.ends) === key);
+    const matches = ownedCandidates(owner, index).filter((c) => c.qualifiedName === undefined && c.kind === loc.kind && endsKey(c.ends) === key);
     if (matches.length) {
       if (loc.index === undefined) return matches.length === 1 ? matches[0] : undefined; // ambiguous without an index
       return matches[loc.index];
@@ -90,12 +92,12 @@ export function resolveDiagram(doc: DiagramDocument, index: ModelIndex, opts: Re
 }
 
 /** The reference for an element: `ref` when named, a locator otherwise (undefined if there is no named owner). */
-export function referenceFor(element: Element): ElementReference | undefined {
+export function referenceFor(element: Element, index?: ModelIndex): ElementReference | undefined {
   if (element.qualifiedName !== undefined) return { ref: element.qualifiedName };
   const owner = namedOwner(element);
   if (!owner || owner.qualifiedName === undefined) return undefined;
   const key = endsKey(element.ends);
-  const twins = ownedCandidates(owner).filter((c) => c.qualifiedName === undefined && c.kind === element.kind && endsKey(c.ends) === key);
+  const twins = ownedCandidates(owner, index).filter((c) => c.qualifiedName === undefined && c.kind === element.kind && endsKey(c.ends) === key);
   const locator: ElementLocator = { owner: owner.qualifiedName, kind: element.kind, ends: [...element.ends] };
   if (twins.length > 1) locator.index = twins.indexOf(element);
   return { locator };
@@ -106,4 +108,13 @@ export function referenceKey(r: ElementReference): string {
   if (r.ref !== undefined) return "ref:" + r.ref;
   const l = r.locator!;
   return `loc:${l.owner}\u0000${l.kind}\u0000${endsKey(l.ends)}\u0000${l.index ?? 0}`;
+}
+
+/**
+ * A short fingerprint of an unnamed statement: its source text and its ordinal among identical statements. A tool that is
+ * given it together with a locator can tell that the locator now addresses a different statement than when it was read.
+ */
+export function statementFingerprint(index: ModelIndex, element: Element, ordinal: number): string {
+  const text = index.getDocument(element.uri)?.text.slice(element.range.start.offset, element.range.end.offset) ?? "";
+  return createHash("sha1").update(`${text.replace(/\s+/g, " ").trim()}\u0000${ordinal}`).digest("hex").slice(0, 12);
 }

@@ -4,16 +4,18 @@
  * runs from the satisfying element to the requirement, a derivation edge from the derived
  * requirement to the original one.
  */
-import type { Element, ModelIndex } from "../model/index.js";
+import { behaviorEnds, interactionOf, type Element, type ModelIndex } from "../model/index.js";
 
 /** One end of a relationship: a name as written (resolved from `scope`), or the nearest shown owner of `scope`. */
 export interface RelationEnd {
   scope: Element;
   text?: string;
+  /** An end that is already an element (behaviour statements: the source of `then x;` is the previous node). */
+  element?: Element;
 }
 
 export interface Relation {
-  kind: "derivation" | "satisfy" | "verify" | "other";
+  kind: "derivation" | "satisfy" | "verify" | "succession" | "transition" | "flow" | "message" | "other";
   source: RelationEnd;
   target: RelationEnd;
 }
@@ -40,6 +42,20 @@ export function relationOf(e: Element, index: ModelIndex): Relation | undefined 
   const d = derivation(index, e);
   if (d) return d;
   const scope = e.owner ?? e;
+  if (e.kind === "succession" || e.kind === "transition" || e.kind === "flow") {
+    const b = behaviorEnds(index, e);
+    if (b) return { kind: e.kind, source: { scope, element: b.source }, target: { scope, element: b.target } };
+    if (e.kind !== "flow") return undefined;
+  }
+  if (e.kind === "message" && e.ends.length >= 2) {
+    // A message runs between the participants (lifelines) named at its ends, which may be unnamed redefinitions (`ref part :>> driver`).
+    const i = e.owner ? interactionOf(index, e.owner) : undefined;
+    const m = i?.messages.find((x) => x.statement === e);
+    const from = i?.participants.find((p) => p.name === m?.fromParticipant)?.element;
+    const to = i?.participants.find((p) => p.name === m?.toParticipant)?.element;
+    if (from && to) return { kind: "message", source: { scope, element: from }, target: { scope, element: to } };
+    return { kind: "message", source: { scope, text: e.ends[0]! }, target: { scope, text: e.ends[e.ends.length - 1]! } };
+  }
   if (e.ends.length >= 2) {
     const first = { scope, text: e.ends[0]! };
     const last = { scope, text: e.ends[e.ends.length - 1]! };
@@ -55,6 +71,7 @@ export const isRelationship = (e: Element, index: ModelIndex): boolean => relati
 
 /** Resolve one end to the element it names, or (without text) to the nearest owner for which `has` is true. */
 export function endElement(index: ModelIndex, end: RelationEnd, has: (e: Element) => boolean): Element | undefined {
+  if (end.element) return has(end.element) ? end.element : undefined;
   if (end.text === undefined) {
     for (let o: Element | undefined = end.scope; o; o = o.owner) if (has(o)) return o;
     return undefined;

@@ -55,9 +55,9 @@ export function agentTests(c: Ctx): Test[] {
     await vscode.commands.executeCommand("workbench.action.closeAllEditors");
   };
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
-    const end = Date.now() + ms;
+    const end = performance.now() + ms;
     while (!(await cond())) {
-      if (Date.now() > end) assert.fail(`timed out waiting for: ${what}`);
+      if (performance.now() > end) assert.fail(`timed out waiting for: ${what}`);
       await sleep(25);
     }
   };

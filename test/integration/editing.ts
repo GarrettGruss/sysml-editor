@@ -21,9 +21,9 @@ export function editingTests(c: Ctx): Test[] {
   const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g);
   const dirty = (name: string) => api.diagram.state(uriOf(name)).dirty;
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
-    const end = Date.now() + ms;
+    const end = performance.now() + ms;
     while (!(await cond())) {
-      if (Date.now() > end) assert.fail(`timed out waiting for: ${what}`);
+      if (performance.now() > end) assert.fail(`timed out waiting for: ${what}`);
       await sleep(25);
     }
   };
@@ -94,11 +94,11 @@ export function editingTests(c: Ctx): Test[] {
     script.input = undefined; script.pick = undefined; script.confirm = undefined;
     try {
       await vscode.workspace.openTextDocument(uriOf(model));
-      const started = Date.now();
+      const started = performance.now();
       try {
         await waitFor(() => api.model.index.findByQualifiedName(`${pkg}::${opts.probe ?? "Vehicle"}`).length > 0, 300000, `${pkg} is in the model`);
       } catch (e) {
-        console.log(`  waited ${Date.now() - started} ms`);
+        console.log(`  waited ${performance.now() - started} ms`);
         const st = api.model.index.getDocument(vscode.Uri.file(uriOf(model).fsPath).toString());
         console.log(`  diagnostics: index state of ${model}: ${JSON.stringify(st ? { errors: st.errors, pending: st.detailsPending } : null)}; pending=${JSON.stringify(api.model.index.pendingDetails())}`);
         throw e;

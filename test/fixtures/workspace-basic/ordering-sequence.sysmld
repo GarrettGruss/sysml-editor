@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "sequence",
+  "root": "Ordering::OrderInteraction",
+  "sources": [
+    "interaction.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Ordering::OrderInteraction"
+    },
+    {
+      "id": "n2",
+      "ref": "Ordering::OrderInteraction::customer"
+    },
+    {
+      "id": "n3",
+      "ref": "Ordering::OrderInteraction::shop"
+    },
+    {
+      "id": "n4",
+      "ref": "Ordering::OrderInteraction::warehouse"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "ref": "Ordering::OrderInteraction::placeOrder",
+      "source": "n2",
+      "target": "n3"
+    },
+    {
+      "id": "e2",
+      "ref": "Ordering::OrderInteraction::pickGoods",
+      "source": "n3",
+      "target": "n4"
+    },
+    {
+      "id": "e3",
+      "ref": "Ordering::OrderInteraction::sendReceipt",
+      "source": "n3",
+      "target": "n2"
+    }
+  ]
+}

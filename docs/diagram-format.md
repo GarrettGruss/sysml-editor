@@ -30,7 +30,7 @@ JSON paths such as `$.nodes[2].parent`. A unit test keeps schema and parser in a
 
 ## Fields
 
-- `version`: always `1`. `kind`: `general`, `interconnection` or `requirements`.
+- `version`: always `1`. `kind`: `general`, `interconnection`, `requirements`, `actionFlow`, `stateTransition` or `sequence` (the last three match `ActionFlowView`, `StateTransitionView` and `SequenceView` of the standard view definitions; use cases have no view of their own and are drawn in the `general` kind).
 - `root`: qualified name of the root element. `sources`: workspace-relative paths of the `.sysml` files
   the diagram draws from; when a qualified name is declared in several files, the declaration in a
   listed source wins.
@@ -130,3 +130,24 @@ A locator that matches several identical siblings (same owner, kind and ends) re
 carries an `index`; without one it stays unresolved rather than guessing the first match. A stored
 `index` binds by position among those identical siblings, so it can shift if an identical sibling is
 inserted before it.
+
+## Behaviour views
+
+`actionFlow`, `stateTransition` and `sequence` diagrams use the same file layout as the other kinds. A root that does not fit the kind is refused when the diagram is created, with the reason:
+
+| `kind` | Root | Nodes | Edges |
+| --- | --- | --- | --- |
+| `actionFlow` | an `action` or `action def` | the actions and control nodes (`fork`, `join`, `decide`, `merge`) it owns, nested inside it by `parent`, and its `start` and `done` nodes | successions (with their guards), parameter flows |
+| `stateTransition` | a `state` or `state def` | the states it owns (nested states nest by `parent`), the initial pseudostate (`start`) | transitions (trigger, guard and effect), and the `first start then s;` succession |
+| `sequence` | an occurrence, part or interaction that owns `message` usages | one lifeline per participant (a part), no `parent` | one edge per message |
+
+`start` and `done` nodes and the successions that are written as part of a node declaration (`then action b;`, `then fork;`, `entry; then s;`) are not elements in the parse tree. They are referenced by locators like any unnamed element: `{ "owner": "Pkg::deliverOrder", "kind": "start", "ends": [] }` and `{ "owner": "Pkg::deliverOrder", "kind": "succession", "ends": ["start", "pack"] }`. Transitions and successions written as separate statements are referenced by the locator of the statement (`ends` has the source and target texts as written; the shorthand `accept T then b;` has only the target), or by `ref` when they have a name (`transition off_to_on first off ...`). Messages with a name use `ref`; unnamed ones use a locator with the participants as `ends`.
+
+Trigger, guard and effect are never stored in the diagram file. They are read from the SysML text (as source text) every time the diagram is drawn.
+
+### Sequence views: what is stored and what is computed
+
+- **Stored** (in the node of each lifeline): `x`, the column position, which decides the **order of the lifelines** from left to right, and `w`, its width. Dragging a lifeline sideways reorders the columns; resizing changes `w`. Both are ordinary layout edits, kept in memory until the diagram is saved. No other geometry is ever written for a lifeline: `y` and `h` are not stored.
+- **Computed** (never stored): the **vertical position of every message**, from the time order in the model, and the route of every message arrow. A message edge has no `points`. A diagram that shows messages out of time order would misrepresent the model, so dragging a message does nothing and the message stays at its place in time order.
+- The root of a sequence diagram keeps a node (every kind lists its root) that is not drawn.
+- **Time order** comes from the model: `first m1 then m2;` between messages, `then message ...;` after another message, and `then event m.sourceEvent;` chains inside the participants. Where the model gives no order between two messages they are drawn in source order and marked with `≈` in front of the label (the JSON description of `sysml_read_diagram` has `unordered: true`).

@@ -3,7 +3,7 @@ import { isLibraryUri, type Element } from "../model/index.js";
 import { addElements, createDiagram } from "../diagram/create.js";
 import { describeDiagram } from "../diagram/describe.js";
 import { removeItems } from "../diagram/edits.js";
-import type { DiagramKind } from "../diagram/format.js";
+import { DIAGRAM_KINDS, type DiagramKind } from "../diagram/format.js";
 import { resolveDiagram } from "../diagram/resolve.js";
 import { buildViewModel } from "../diagram/view-model.js";
 import { ToolError, type DiagramService, type DiagramWriteResult, type ToolContext, type ToolDefinition } from "./types.js";
@@ -12,7 +12,7 @@ export const DIAGRAM_FILE_CAP = 500;
 export const DIAGRAM_ELEMENT_CAP = 200;
 export const DIAGRAM_ID_CAP = 200;
 const EXTENSION = ".sysmld";
-const KINDS: DiagramKind[] = ["general", "interconnection", "requirements"];
+const KINDS: DiagramKind[] = [...DIAGRAM_KINDS];
 
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
 
@@ -76,7 +76,7 @@ const pathProp = { type: "string" as const, minLength: 1, description: "Workspac
 const listDiagrams: ToolDefinition = {
   name: "sysml_list_diagrams",
   description:
-    "List the diagram files (.sysmld) of the workspace. A diagram is a view of the SysML model (general view, interconnection view or requirements view) " +
+    "List the diagram files (.sysmld) of the workspace. A diagram is a view of the SysML model (general, interconnection, requirements, action flow, state transition or sequence view) " +
     "that stores which elements are shown and where, never the model itself. Returns JSON: { diagrams: [{ path, kind, root, nodeCount, parses, open }] } with paths relative to the workspace root; " +
     "`parses: false` marks a file that is not a valid diagram (it then has `problems` instead of kind, root and nodeCount). `open` is true when the diagram is open in an editor, " +
     "in which case its in-memory content is listed. Use sysml_read_diagram to see one diagram's content.",
@@ -135,7 +135,9 @@ const createDiagramTool: ToolDefinition = {
   description:
     "Create a new diagram file for a model element and return its path and description. `root` is the qualified name of the element shown as the diagram's root " +
     "(for example Vehicle::Car); the diagram is pre-populated with the root and its direct members (for a requirements view, the requirements and what the relationships tie them to). " +
-    "`kind` is general (definitions and usages with specialization, composition and typing), interconnection (parts nested in a part, with ports and connections) or requirements. " +
+    "`kind` is general (definitions and usages with specialization, composition and typing; use cases with their actors and includes), interconnection (parts nested in a part, with ports and connections), requirements, " +
+    "actionFlow (root: an action or action def; its actions, start/done, fork/join/decide/merge nodes, successions with guards and flows), stateTransition (root: a state or state def; its states, entry/do/exit actions and transitions with trigger, guard and effect) " +
+    "or sequence (root: an occurrence, part or interaction that owns `message` usages; lifelines and the messages between them in time order). A root that does not fit the kind is refused with the reason. " +
     "`elements` optionally restricts the members shown to those qualified names. `path` is workspace-relative and must end in .sysmld; by default the file is created beside the root's source file under the element's name, " +
     "and an existing file is never overwritten (a numbered name is used, or an explicit existing path is rejected). The new diagram has no stored positions; the editor lays it out when it is opened. " +
     "Changes the diagram file only, never the model. Not available in an untrusted workspace.",
@@ -143,7 +145,7 @@ const createDiagramTool: ToolDefinition = {
     type: "object",
     properties: {
       root: { type: "string", minLength: 1, description: "Qualified name of the root element, e.g. Vehicle::Car." },
-      kind: { type: "string", enum: KINDS, description: "general, interconnection or requirements." },
+      kind: { type: "string", enum: KINDS, description: "general, interconnection, requirements, actionFlow, stateTransition or sequence." },
       elements: { type: "array", items: { type: "string", minLength: 1 }, description: `Qualified names of the members to show (at most ${DIAGRAM_ELEMENT_CAP}). Default: all visible direct members.` },
       path: { type: "string", description: "Workspace-relative path of the new .sysmld file. Default: beside the root's source file." },
     },
