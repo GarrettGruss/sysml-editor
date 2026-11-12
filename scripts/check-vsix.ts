@@ -49,6 +49,8 @@ for (const n of [
   "extension/dist/webview/diagram.css",
   "extension/dist/webview/requirements.js",
   "extension/dist/webview/requirements.css",
+  "extension/dist/webview/search.js",
+  "extension/dist/webview/search.css",
   "extension/dist/sysml.library/DocumentAnnotations.sysml",
   "extension/dist/sysml.library/LICENSE",
   "extension/media/sysml.svg",

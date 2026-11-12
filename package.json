@@ -33,6 +33,12 @@
     "views": {
       "sysml": [
         {
+          "type": "webview",
+          "id": "sysmlSearch",
+          "name": "Search",
+          "initialSize": 1
+        },
+        {
           "id": "sysmlModel",
           "name": "SysML Model"
         }
@@ -41,8 +47,8 @@
     "viewsWelcome": [
       {
         "view": "sysmlModel",
-        "contents": "No SysML files were found in this workspace.\n[New SysML File](command:sysml.newFile)",
-        "when": "sysml.workspaceEmpty && sysml.treeFilter != 'diagrams'"
+        "contents": "No folder is open.\n[Open Folder](command:workbench.action.files.openFolder)",
+        "when": "workspaceFolderCount == 0"
       }
     ],
     "commands": [
@@ -54,7 +60,8 @@
       {
         "command": "sysml.newFile",
         "title": "New SysML File",
-        "category": "SysML"
+        "category": "SysML",
+        "icon": "$(new-file)"
       },
       {
         "command": "sysml.newDiagram",
@@ -220,6 +227,11 @@
         }
       ],
       "view/title": [
+        {
+          "command": "sysml.newFile",
+          "when": "view == sysmlModel && sysml.treeFilter != diagrams",
+          "group": "navigation@1"
+        },
         {
           "command": "sysml.tree.showDiagrams",
           "when": "view == sysmlModel && sysml.treeFilter != diagrams",

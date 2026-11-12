@@ -12,6 +12,7 @@ import { ParseWorkerClient } from "./parse-worker-client.js";
 import { makeIndexFilter } from "./exclude.js";
 import { ScanTracker } from "./scan-tracker.js";
 import { uriKey } from "./uri-key.js";
+import type { FolderChange } from "../tree/tree-model.js";
 
 const DEBOUNCE_MS = 200;
 const GLOB = "**/*.sysml";
@@ -35,7 +36,7 @@ export class WorkspaceModel implements vscode.Disposable {
   private readonly subs: vscode.Disposable[] = [];
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly tracker = new ScanTracker();
-  private readonly folderEmitter = new vscode.EventEmitter<string>();
+  private readonly folderEmitter = new vscode.EventEmitter<FolderChange>();
   /** A folder (or other non-`.sysml` path) was created or deleted; carries the key of its parent folder. */
   readonly onDidChangeFolders = this.folderEmitter.event;
   private filterKey = "";
@@ -89,7 +90,7 @@ export class WorkspaceModel implements vscode.Disposable {
     } else {
       void this.loadCreatedFolder(uri);
     }
-    this.folderEmitter.fire(key.slice(0, key.lastIndexOf("/")));
+    this.folderEmitter.fire({ parent: key.slice(0, key.lastIndexOf("/")), path: key, deleted });
   }
 
   private sortedUris: string[] | undefined;

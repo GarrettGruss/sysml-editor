@@ -3,6 +3,7 @@ import { makeExcludeFilter } from "../workspace/exclude.js";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import {
   affectedDiagramNodes, affectedFolderNodes, diagramRoots, diagramChildren, diagramFolderInfo, diagramKindLabel, diagramNode, folderChain, isExcludedPath, visibleDiagrams, hasDiagramBelow, childNodes, fileChildren, folderChildren, folderInfo, folderParent, folderRoots, hasSysmlBelow, fileNode, folderNode, type FolderEnv, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
+  buildDiagramFilter, buildElementFilter, keepElementNodes, keepFolderNodes, matchesQuery,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -191,9 +192,9 @@ describe("Elements view", () => {
   }
   const names = (ns: ModelNode[]) => ns.map((n) => n.id.split("/").pop());
 
-  it("has one root per workspace folder, and none while there are no files", () => {
+  it("has one root per workspace folder, also with no files (none only when no folder is open)", () => {
     expect(folderRoots(ix(), env).map((n) => n.id)).toEqual(["file:///w", "file:///v"]);
-    expect(folderRoots(new ModelIndex(), env)).toEqual([]);
+    expect(folderRoots(new ModelIndex(), env).map((n) => n.id)).toEqual(["file:///w", "file:///v"]);
   });
 
   it("lists folders before files, sorted by name, without excluded entries or non-SysML files", async () => {
@@ -346,5 +347,44 @@ describe("diagramRoots", () => {
   it("returns the workspace roots only when a diagram exists", () => {
     expect(diagramRoots(env, new Set())).toEqual([]);
     expect(diagramRoots(env, new Set(["file:///w/a.sysmld"])).map((n) => n.uri)).toEqual(["file:///w"]);
+  });
+});
+
+describe("search filtering", () => {
+  it("matches case-insensitively on a trimmed query and never on an empty one", () => {
+    expect(matchesQuery("Engine", " ENG ")).toBe(true);
+    expect(matchesQuery("Wheel", "eng")).toBe(false);
+    expect(matchesQuery(undefined, "eng")).toBe(false);
+    expect(matchesQuery("Engine", "  ")).toBe(false);
+  });
+
+  it("keeps matching elements (name or short name) and their owners across files", () => {
+    const ix = setup();
+    ix.setDocument("file:///w/sub/b.sysml", "package B { part def <e1> Motor; part def Wheel; }");
+    const f = buildElementFilter(ix, "engine");
+    const p = rootNodes(ix).find((n) => n.uri === A)!;
+    expect([...f.files]).toEqual([A]);
+    expect(f.folders.has("file:///w")).toBe(true);
+    expect(f.expanded.has(p.id)).toBe(true);
+    const shown = keepElementNodes(childNodes(ix, p), f).map((n) => info(ix, n).label);
+    expect(shown).toEqual(["Engine", "engine"]);
+    // a nested match keeps its owner chain
+    const g = buildElementFilter(ix, "deep");
+    const inner = keepElementNodes(childNodes(ix, p), g);
+    expect(inner.map((n) => info(ix, n).label)).toEqual(["Inner"]);
+    expect(keepElementNodes(childNodes(ix, inner[0]!), g).map((n) => info(ix, n).label)).toEqual(["Deep"]);
+    // short names match, in the other file
+    const s = buildElementFilter(ix, "E1");
+    expect([...s.files]).toEqual(["file:///w/sub/b.sysml"]);
+    expect(s.folders.has("file:///w/sub")).toBe(true);
+    expect(buildElementFilter(ix, "zzz").files.size).toBe(0);
+  });
+
+  it("filters diagram files by name and keeps the folders above", () => {
+    const f = buildDiagramFilter(["file:///w/a/State One.sysmld", "file:///w/b/ports.sysmld"], "state");
+    expect([...f.files]).toEqual(["file:///w/a/State One.sysmld"]);
+    expect(f.folders.has("file:///w") && f.folders.has("file:///w/a") && !f.folders.has("file:///w/b")).toBe(true);
+    const kept = keepFolderNodes([folderNode("file:///w/a"), folderNode("file:///w/b"), diagramNode("file:///w/a/State One.sysmld")], f);
+    expect(kept.map((n) => n.uri)).toEqual(["file:///w/a", "file:///w/a/State One.sysmld"]);
   });
 });
