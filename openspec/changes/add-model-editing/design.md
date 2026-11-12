@@ -33,6 +33,22 @@ Model state is saved at once; layout and style stay in memory until the user sav
 
 Trade-off: saving a `.sysml` file after a diagram edit also saves anything the user had typed in it and not yet saved. Accepted in exchange for the editors and the text never disagreeing.
 
+**Findings of the spike (task 3.1), observed in VS Code 1.146 by the integration test "Undo investigation (design D6)":**
+
+- VS Code keeps one undo stack per resource. A `WorkspaceEdit` on a text document goes on that document's text stack; a `CustomDocumentEditEvent` goes on the custom document's stack. Nothing links them, and the `undo` command acts on the stack of the active editor only. There is no cross-resource atomic undo to rely on.
+- A custom-editor edit event always marks the tab as modified (VS Code ties "dirty" to the stack position and the extension cannot report an edit as already saved). After a model edit made from a diagram the tab therefore shows the modified dot even though the `.sysml` and `.sysmld` files on disk already hold everything; saving it rewrites the same content (plus any pending layout). The internal `DiagramState.dirty` flag (layout actually unsaved) stays separate and is what decides whether pending layout exists.
+- `undo` with the diagram active runs our entry's `undo` callback, which may be asynchronous. It applied the inverse text edits as a new `WorkspaceEdit` and the diagram revert in one step: the text buffer and the file on disk were back, and the node was gone.
+- That inverse edit is itself a new entry on the text stack. A following `undo` in the text editor undoes the inverse (the element reappears in the buffer, unsaved) and a second one undoes the original edit. This is VS Code's normal behaviour for any edit and is accepted; the diagram does not re-create the node in that case because the text editor's undo is not a diagram action.
+- `undo` in the text editor after a diagram-made edit removes the element from the buffer at once (unsaved); the diagram follows through the model change (see below), and a later `undo` in the diagram finds the text already reverted.
+
+**Decided behaviour (built):**
+
+1. A model edit made from a diagram (or by an agent with `diagram` pointing at an open diagram) pushes ONE entry on the diagram's stack. Its `undo` computes the inverse text edits from the plan (`src/model-service/undo.ts`), validates them against the current text (every touched document must be exactly as the edit left it), applies them as one `WorkspaceEdit`, saves, and then reverts the forced diagram changes (memory and the saved state on disk). If the text no longer matches, a warning is shown, the text revert is skipped and the diagram part is still undone. If the text was already reverted (for example by Undo in the text editor), no warning and no text edit; the diagram part is undone. `redo` repeats the same steps forwards with the same validation.
+2. Forced diagram changes are kept in `DiagramState.forced` and re-applied after an undo or redo of an earlier layout edit, so such an undo cannot lose the new node.
+3. Undo in the TEXT editor: the element disappears from the text; the diagram entry that this session created for it (`DiagramState.created`, a set of reference keys) is found unresolved at the next refresh and removed from memory and from the file on disk. Placeholders stay only for entries that were not created in this session.
+4. Edits made without an origin diagram (tree, agent without `diagram`) are one `WorkspaceEdit` and therefore one text-editor undo step; no diagram entry is pushed. The diagram files they force are updated on disk and in memory without making open diagrams dirty.
+5. Staleness between planning and applying: every plan carries the texts it was computed from (`base`); the host applies the edits only if every document still has exactly that text, otherwise the operation re-syncs, re-plans once, and fails with a message if the text changed again.
+
 ### D18: Inherited features are read-only from a usage
 A feature shown inside a usage but declared in its definition (or a supertype) is marked inherited in the view model. Delete, rename, and retype on it are refused in `ModelService`, so the rule holds for the GUI and for agents alike, and the error carries the declaring element for "Go to Definition". Adding inside a usage inserts into that usage's own body. Redefining an inherited feature in the usage (`:>>`) is not offered in this change.
 

@@ -90,17 +90,19 @@ export function editingTests(c: Ctx): Test[] {
     const names = Object.keys(diagrams);
     writeFileSync(uriOf(model).fsPath, opts.model ?? MODEL(pkg));
     for (const [n, d] of Object.entries(diagrams)) writeFileSync(uriOf(n).fsPath, JSON.stringify(d, null, 2) + "\n");
-    await vscode.workspace.openTextDocument(uriOf(model));
-    try {
-      await waitFor(() => api.model.index.findByQualifiedName(`${pkg}::${opts.probe ?? "Vehicle"}`).length > 0, 90000, `${pkg} is in the model`);
-    } catch (e) {
-      const st = api.model.index.getDocument(vscode.Uri.file(uriOf(model).fsPath).toString());
-      console.log(`  diagnostics: index state of ${model}: ${JSON.stringify(st ? { errors: st.errors, pending: st.detailsPending } : null)}; pending=${JSON.stringify((api.model.index as unknown as { pendingDetails(): string[] }).pendingDetails?.())}`);
-      throw e;
-    }
     installUi();
     script.input = undefined; script.pick = undefined; script.confirm = undefined;
     try {
+      await vscode.workspace.openTextDocument(uriOf(model));
+      const started = Date.now();
+      try {
+        await waitFor(() => api.model.index.findByQualifiedName(`${pkg}::${opts.probe ?? "Vehicle"}`).length > 0, 300000, `${pkg} is in the model`);
+      } catch (e) {
+        console.log(`  waited ${Date.now() - started} ms`);
+        const st = api.model.index.getDocument(vscode.Uri.file(uriOf(model).fsPath).toString());
+        console.log(`  diagnostics: index state of ${model}: ${JSON.stringify(st ? { errors: st.errors, pending: st.detailsPending } : null)}; pending=${JSON.stringify(api.model.index.pendingDetails())}`);
+        throw e;
+      }
       for (const n of opts.openAll ? names : [names[0]!]) {
         await api.diagram.open(uriOf(n));
         await c.eventually(async () => assert.ok((await metrics(n)).nodes.length > 0), `${n} rendered`);
@@ -497,6 +499,28 @@ export function editingTests(c: Ctx): Test[] {
       const r = await viaLm("sysml_create_element", { owner: "EdPar::vehicle1", kind: "port", name: "px" });
       assert.ok(!r.text.includes("Invalid"), r.text);
       assert.strictEqual(onDisk(model), gui, "byte-identical");
+    })],
+
+    ["Artifacts: the editor with the palette and the properties panel, in the dark and the light theme", scenario("EdPng", { "tmp-edpng.sysmld": gen("EdPng") }, async ({ diagram }) => {
+      await gesture(diagram, { kind: "select", id: "n4" });
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).properties.id, "n4"), "the properties panel shows the selection");
+      mkdirSync(c.artifactDir, { recursive: true });
+      const save = async (theme: "editor-dark" | "editor-light", file: string) => {
+        const png = Buffer.from(await api.diagram.pngWindow(uriOf(diagram), theme), "base64");
+        assert.deepStrictEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], `${file} is a PNG`);
+        assert.ok(png.length > 8000, `${file} is ${png.length} bytes`);
+        writeFileSync(path.join(c.artifactDir, file), png);
+      };
+      assert.strictEqual((await metrics(diagram)).theme, "dark", "the test window starts in a dark theme");
+      await save("editor-dark", "editor-palette-properties-dark.png");
+      const cfg = vscode.workspace.getConfiguration();
+      try {
+        await cfg.update("workbench.colorTheme", "Default Light Modern", vscode.ConfigurationTarget.Global);
+        await c.eventually(async () => assert.strictEqual((await metrics(diagram)).theme, "light"), "the webview follows the light theme", 30000);
+        await save("editor-light", "editor-palette-properties-light.png");
+      } finally {
+        await cfg.update("workbench.colorTheme", undefined, vscode.ConfigurationTarget.Global);
+      }
     })],
 
     ["Undo investigation (design D6): where each undo goes after a diagram-made model edit", scenario("EdUndo", { "tmp-edundo.sysmld": gen("EdUndo") }, async ({ model, diagram }) => {

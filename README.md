@@ -20,7 +20,17 @@ The SysML activity bar icon opens the **SysML Model** view: a native tree of the
 - Command **Go to Definition** (tree item click or context menu) opens the file with the element's name selected.
 - In a workspace without `.sysml` files the view offers **New SysML File** (`sysml.newFile`).
 - Setting `sysml.tree.followCursor` (default `true`) reveals and selects the tree node for the declaration under the text cursor while the view is visible. It also makes the tree follow the node selected in a diagram (see below).
-- Context menu on an element: **New Diagram…**, **Show in Diagram** and **Add to Active Diagram** (see below).
+- Context menu on an element: **New Diagram…**, **Show in Diagram** and **Add to Active Diagram** (see below), and the editing commands in the next section.
+
+### Editing from the tree
+
+The context menu of an element edits the model; every edit changes the `.sysml` text with a minimal edit (formatting, comments and order of the rest are kept) and **saves the file at once**.
+
+- **Add Child…** asks for the kind (package, part def, part, port def, port, attribute def, attribute, item def, item, action def, action, requirement def, requirement; only the kinds that fit under the element are offered), then for a name (checked against the owner's members). Names that need it are quoted. A body is created when the owner is a declaration ending in `;`.
+- **Rename…** (also **F2** in the tree) prefills the name and updates the declaration, every reference that resolves in the workspace and the `.sysmld` files that refer to the element. If some mentions of the old name could not be judged, a warning says how many.
+- **Delete…** always asks for confirmation and states how many elements the element owns and how many references elsewhere it has; it removes the whole declaration (body, owned members, its documentation comment) and the element's entries from every diagram. References elsewhere are left as they are and no longer resolve.
+- A file with a syntax error is not edited: the message links to the error ("Go to error"). A valid file with constructs the tools do not show (state machines, calculations) can be edited.
+- One **Undo** in the text editor reverses an edit made from the tree.
 
 Test fixtures in `fixtures/` are git submodules: run `git submodule update --init` after cloning (tests that need them are skipped otherwise).
 
@@ -28,7 +38,7 @@ To try the extension, open this folder in VS Code and press F5 (Extension Develo
 
 ## Diagram editor
 
-A `.sysmld` file opens in a graphical editor: a General View, an Interconnection View or a Requirements View of the model. A diagram is only a view: **nothing in the diagram editor edits SysML text**. It stores which elements are shown and where, in the `.sysmld` file (format: [docs/diagram-format.md](docs/diagram-format.md)); names, types, compartments and relationships are read from the model and follow it within a second of a text edit. A member added to an element in the model appears in the owner's compartment (General View) but is not added as a new node; add it yourself.
+A `.sysmld` file opens in a graphical editor: a General View, an Interconnection View or a Requirements View of the model. A diagram stores which elements are shown and where, in the `.sysmld` file (format: [docs/diagram-format.md](docs/diagram-format.md)); names, types, compartments and relationships are read from the model and follow it within a second of a text edit. A member added to an element in the model appears in the owner's compartment (General View) but is not added as a new node; add it yourself. Layout and style actions never change SysML text; the model-editing actions described under **Editing the model from a diagram** do, and they save the `.sysml` file at once.
 
 **Commands** (Command Palette, tree and toolbar)
 
@@ -53,6 +63,21 @@ Positions and sizes snap to an 8 px grid. A drag or resize is one edit when you 
 
 **Theme**: colours come from VS Code theme variables, so light, dark and high-contrast themes work; in high contrast, borders use the contrast border colour. The PNG export used for tests and agents keeps a fixed light theme.
 
+### Editing the model from a diagram
+
+The SysML text is the source of truth and the diagram is always kept in step with it.
+
+- **Palette** (left of the canvas): lists the kinds valid for the diagram (General: part def, port def, attribute def, item def, action def and the matching usages; Interconnection: part, port, attribute and Connection; Requirements: requirement def and requirement). Click an item, then click the container (or the canvas for the diagram's root) to create the element there. You are asked for a name; the declaration is inserted into the container's body and the node is placed where you clicked, as one edit. Escape cancels the tool.
+- **Connection**: choose Connection in the palette, click the source (port or part), then the target. `connect a.x to b.y;` is added to the nearest element that contains both ends (refused if there is none on the diagram) and the edge appears.
+- **Inline rename**: double-click a node's label or press **F2** on a selected node; Enter renames (declaration, references and diagram files), Escape cancels.
+- **Properties panel** (right): for a single selected node, shows kind and qualified name (read-only) and edits name, short name, type (with completion from definitions of the matching kind), multiplicity and documentation; each field commits when you leave it or press Enter. Fields are disabled, with an explanation, for inherited features, standard library elements and unresolved nodes.
+- **Delete from Model…** (node context menu or command `SysML: Delete from Model…`) deletes the SysML element and what it owns from the source and removes it from every open diagram and every diagram file that shows it; it asks first when the element owns members or is referenced elsewhere. **Delete (the key) and Remove from Diagram only remove the node from the diagram and never change the model.**
+- **Undo** from the diagram reverses both the text change and the diagram change. The tab shows as modified after such an edit (VS Code ties undo to that marker) although the files are already saved.
+
+**What is saved when.** A model edit (from the tree, a diagram or an agent) is written to the `.sysml` file and saved immediately, so the text and the graphical editors never disagree; saving also saves whatever else you had typed and not saved in that file. What the edit forces on diagram files (a node for the element just created, renamed references, entries removed on delete) is written to each `.sysmld` on top of its last *saved* state, also at once. Layout and style (moves, resizes, auto-layout) stay in memory until you save the diagram: a model edit never saves pending layout, and if you close without saving, the text and the diagram both show the edit but the unsaved layout is gone. Undo in the text editor removes the element and the diagram entry that was created for it (no unresolved placeholder).
+
+**Inherited features.** A usage inherits the features of its definition and supertypes. In a General View a usage lists them (in italics) in a compartment; in an Interconnection View of a usage, inherited parts and ports that are on the diagram are drawn **dashed on a muted fill** (they are not added automatically). Inherited features cannot be deleted, renamed or retyped from the usage by a person or an agent: the message names the definition and offers **Go to Definition**. Adding a feature inside a usage adds it to that usage only; the definition and other usages are unchanged. Redefining an inherited feature is not offered.
+
 ## AI agents
 
-Agents can read and validate the open SysML model through Language Model Tools and MCP; see [docs/agents.md](docs/agents.md).
+Agents can read and validate the open SysML model, edit diagrams and edit the model (create, delete, rename, change properties, connect and satisfy) through Language Model Tools and MCP; model edits go through the same operations as the tree and the diagrams, are saved at once, are one undo step and are refused in untrusted workspaces. See [docs/agents.md](docs/agents.md).

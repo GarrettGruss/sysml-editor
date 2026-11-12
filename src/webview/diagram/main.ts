@@ -149,8 +149,9 @@ function windowSvg(theme: PngTheme): { svg: string; width: number; height: numbe
   const dh = Number(m?.[2] ?? 600);
   const left = 150;
   const right = 270;
-  const k = Math.min(1, (W - left - right - 20) / dw, (H - 20) / dh);
-  const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="10" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
+  const top = 64;
+  const k = Math.min(1, (W - left - right - 20) / dw, (H - top - 10) / dh);
+  const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="${top}" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
   let panels = "";
   for (const sel of [".toolbar", ".palette", ".props"]) {
     const e = document.querySelector(sel);
