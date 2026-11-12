@@ -335,6 +335,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await waitFor(() => readFileSync(uriOf("tmp-reqd2.sysmld").fsPath, "utf8").includes("'Functional Safety'"), 90000, "the diagram file follows");
       await clean(file);
       await parses(file);
+      await eventually(async () => assert.ok((await m()).document.outline.some((o) => o.heading === "Functional Safety")), "the view shows the new heading", 60000);
       // paragraph with a terminator
       await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .para [data-testid=edit-para]` });
       await gesture(scope, { kind: "input", selector: `${sec("'Functional Safety'")} textarea.para-edit`, value: "Comments end with */ and start with /*." });
