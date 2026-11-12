@@ -133,6 +133,8 @@ export type HostToWebview =
   | { type: "exportPng"; requestId: number }
   | { type: "testGesture"; requestId: number; gesture: Gesture }
   | { type: "setView"; view: ViewMode }
+  /** Test only: force the width of the page (px; null restores the window width), re-run the layout; answered with a gestureResult. */
+  | { type: "testWidth"; requestId: number; width: number | null }
   /** An edit was not applied because the element changed since the field was opened: show `current` beside the draft. */
   | { type: "conflict"; fieldKey: string; current: string };
 
@@ -166,6 +168,8 @@ export interface RequirementsMetrics {
   notice?: { level: "info" | "error"; message: string };
   errors: string[];
   size: { width: number; height: number };
+  /** The layout in use: the panel width it was chosen for, the table or card mode, where the detail pane sits, and the widths of the Text cells. */
+  layout: { width: number; mode: "table" | "card"; detail: "beside" | "below"; textWidths: number[]; rowWidths: number[] };
 }
 
 export type WebviewToHost =

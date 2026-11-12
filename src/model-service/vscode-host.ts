@@ -1,4 +1,5 @@
 /** The VS Code side of `ModelService`: applies plans as one workspace edit, saves, and forces diagram changes. */
+import { isFileGone } from "../diagram/file-gone.js";
 import * as vscode from "vscode";
 import { applyEdits, groupByUri, sourceMatches, type DiagramUpdate, type LoadedDiagram, type PlanSource, type TextEdit } from "../edit/index.js";
 import type { DiagramEditorProvider } from "../diagram/diagram-editor.js";
@@ -164,6 +165,11 @@ export class VsCodeModelHost implements ModelHost {
           written.push(key);
         }
       } catch (e) {
+        if (isFileGone(e)) {
+          // The file was removed since the index saw it: a removal, not a failure.
+          this.files.index.delete(key);
+          continue;
+        }
         failed.push(key);
         this.log(`forcing a diagram change on ${key} failed: ${e instanceof Error ? e.message : String(e)}`);
       }

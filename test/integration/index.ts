@@ -46,6 +46,7 @@ export interface TestApi {
     metrics(scope: ReqScope): Promise<ReqMetrics>;
     png(scope: ReqScope): Promise<string>;
     gesture(scope: ReqScope, g: ReqGesture): Promise<void>;
+    setWidth(scope: ReqScope, width: number | null): Promise<void>;
     intent(scope: ReqScope, intent: Record<string, unknown>): Promise<{ ok: boolean; message?: string }>;
     setView(scope: ReqScope, view: "table" | "document"): Promise<void>;
     setUi(ui: { confirm?: (m: string, d: string, a: string) => Promise<boolean>; pickOne?: (items: { id: string; label: string }[], title: string) => Promise<string | undefined>; pickMany?: (items: { id: string; label: string }[], title: string) => Promise<string[] | undefined>; pickVerification?: (cases: { id: string; label: string }[], title: string) => Promise<{ existing: string } | { create: string } | undefined>; inputName?: (p: string) => Promise<string | undefined> } | undefined): void;
@@ -65,6 +66,7 @@ export interface ReqMetrics {
   table: { rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[]; selected?: string; counts: { total: number; unsatisfied: number; unverified: number }; detail?: { qn: string; satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] } };
   document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string }[]; rootBlocks: number };
   pendingEdits: string[]; conflicts: string[]; overflow: { count: number; horizontalScroll: boolean; samples: string[] }; notice?: { level: string; message: string }; errors: string[]; size: { width: number; height: number };
+  layout: { width: number; mode: "table" | "card"; detail: "beside" | "below"; textWidths: number[]; rowWidths: number[] };
 }
 export interface Failure { reason: string; goToError?: { uri: string; line: number; column: number }; goToDefinition?: { uri: string; line: number; column: number; name: string } }
 export interface PickItem { label: string; description?: string; detail?: string }

@@ -23,6 +23,8 @@ export interface RequirementsTestApi {
   /** A PNG (base64) of the current view and theme. */
   png(scope: RequirementsScope): Promise<string>;
   gesture(scope: RequirementsScope, g: Gesture): Promise<void>;
+  /** Force the width of the page content (px) and re-run its layout; null restores the window width. */
+  setWidth(scope: RequirementsScope, width: number | null): Promise<void>;
   /** Run an intent as the webview would send it (the real path from the controller down). */
   intent(scope: RequirementsScope, intent: Intent): Promise<ControllerResult>;
   setView(scope: RequirementsScope, view: ViewMode): Promise<void>;
@@ -289,6 +291,10 @@ export class RequirementsEditor implements vscode.Disposable {
     gesture: async (scope, gesture) => {
       const r = await this.request<"gestureResult">(scope, (requestId) => ({ type: "testGesture", requestId, gesture }));
       if (r.error) throw new Error(`gesture ${gesture.kind} failed in the webview: ${r.error}`);
+    },
+    setWidth: async (scope, width) => {
+      const r = await this.request<"gestureResult">(scope, (requestId) => ({ type: "testWidth", requestId, width }));
+      if (r.error) throw new Error(`setWidth failed in the webview: ${r.error}`);
     },
     intent: (scope, intent) => {
       const p = this.panels.get(scopeKey(scope));

@@ -1,5 +1,6 @@
 /** Entry point of the requirements editor webview (`dist/webview/requirements.js`): the Table and the Document view. */
 import type { BlockVM, Gesture, HostToWebview, Intent, ItemVM, RelationVM, RequirementRowVM, RequirementsMetrics, RequirementsScope, RequirementsState, SectionVM, ViewMode, WebviewToHost } from "../../requirements/protocol.js";
+import { layoutFor, parseTestWidth } from "../../requirements/layout.js";
 import { parseMarkdown, type Inline, type MdBlock } from "../../requirements/markdown.js";
 
 interface VsCodeApi {
@@ -255,17 +256,18 @@ function tableView(s: RequirementsState): HTMLElement {
   const rows = s.table.rows;
   if (!rows.length) wrap.append(h("p", { class: "empty" }, "No requirements in this scope yet. Add one above."));
   const table = h("table", { class: "req-table", "data-testid": "table" });
+  table.append(h("colgroup", {}, ...["id", "name", "text", "owner", "satisfy", "verify"].map((c) => h("col", { class: "col-" + c }))));
   table.append(h("thead", {}, h("tr", {}, ...["ID", "Name", "Text", "Owner", "Satisfy", "Verify"].map((t) => h("th", { scope: "col" }, t)))));
   const body = h("tbody");
   for (const r of rows) {
     const tr = h("tr", { "data-qn": r.qn, "data-testid": "row", class: (r.qn === selected ? "selected " : "") + (r.satisfy === 0 ? "unsatisfied " : "") + (r.verify === 0 ? "unverified" : ""), "aria-selected": r.qn === selected ? "true" : "false" });
     const set = (f: "id" | "name" | "text") => (v: string, expected: string) => intent({ type: "setCell", qn: r.qn, field: f, value: v, expected });
-    const count = (n: number, what: string) => h("td", { class: "num " + (n === 0 ? "warn" : ""), "data-cell": what }, h("span", { class: "count" }, String(n)), n === 0 ? h("span", { class: "badge", title: `No ${what} relationship` }, what === "satisfy" ? "unsatisfied" : "unverified") : undefined);
+    const count = (n: number, what: string) => h("td", { class: "num " + (n === 0 ? "warn" : ""), "data-cell": what, "data-label": what === "satisfy" ? "Satisfy" : "Verify" }, h("span", { class: "count" }, String(n)), n === 0 ? h("span", { class: "badge", title: `No ${what} relationship` }, what === "satisfy" ? "unsatisfied" : "unverified") : undefined);
     tr.append(
-      h("td", { "data-cell": "id" }, field(r.qn + "|id", r.id, { label: "Id", editable: r.editable, className: "id" }, set("id"))),
-      h("td", { "data-cell": "name" }, field(r.qn + "|name", r.name, { label: "Name", editable: r.editable }, set("name"))),
-      h("td", { "data-cell": "text" }, field(r.qn + "|text", r.text, { label: "Text", multiline: true, editable: r.editable }, set("text"))),
-      h("td", { "data-cell": "owner", class: "owner", title: r.owner }, ...ownerParts(r.owner)),
+      h("td", { "data-cell": "id", "data-label": "ID" }, field(r.qn + "|id", r.id, { label: "Id", editable: r.editable, className: "id" }, set("id"))),
+      h("td", { "data-cell": "name", "data-label": "Name" }, field(r.qn + "|name", r.name, { label: "Name", editable: r.editable }, set("name"))),
+      h("td", { "data-cell": "text", "data-label": "Text" }, field(r.qn + "|text", r.text, { label: "Text", multiline: true, editable: r.editable }, set("text"))),
+      h("td", { "data-cell": "owner", "data-label": "Owner", class: "owner", title: r.owner }, ...ownerParts(r.owner)),
       count(r.satisfy, "satisfy"),
       count(r.verify, "verify"),
     );
@@ -434,6 +436,7 @@ function draw(): void {
   if (!s) root.append(h("p", { class: "empty" }, "Loading..."));
   else if (s.problem) root.append(h("p", { class: "empty error" }, s.problem));
   else root.append(view === "table" ? tableView(s) : documentView(s));
+  applyLayout();
   window.scrollTo(0, scrollY);
   // A pending edit or conflict whose field no longer exists (its element is gone) cannot be shown; tell the user.
   if (s && !s.problem) {
@@ -451,6 +454,37 @@ function draw(): void {
   }
   if (focusKey && !pending.has(focusKey)) void focusKey;
 }
+
+// ------------------------------------------------------------------ responsive layout
+
+/** Test only: the forced page width (px). */
+let forcedWidth: number | undefined;
+const panelWidth = () => forcedWidth ?? document.documentElement.clientWidth;
+
+/** Choose table or card layout and the place of the detail pane for the current width; CSS does the rest. */
+function applyLayout(): void {
+  const lay = layoutFor(panelWidth());
+  root.dataset.layout = lay.mode;
+  root.dataset.detail = lay.detail;
+  // Text fields grow with their content; the content wraps differently at another width.
+  for (const ta of document.querySelectorAll<HTMLTextAreaElement>("textarea.cell-edit")) {
+    if (ta.getAttribute("rows") !== "2") continue;
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + 2 + "px";
+  }
+}
+function setForcedWidth(w: number | undefined): void {
+  forcedWidth = w;
+  document.body.style.width = w === undefined ? "" : w + "px";
+  applyLayout();
+}
+let lastObserved = -1;
+new ResizeObserver(() => {
+  const w = document.documentElement.clientWidth;
+  if (w === lastObserved) return;
+  lastObserved = w;
+  requestAnimationFrame(applyLayout); // never resize elements inside the observer callback (loop errors)
+}).observe(document.documentElement);
 
 // ------------------------------------------------------------------ metrics and PNG
 
@@ -491,9 +525,16 @@ function metrics(): RequirementsMetrics {
     if (e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX !== "visible" && !e.matches(".table-scroll")) over.push(`${e.tagName.toLowerCase()}.${e.className}`);
   }
   // A cell squeezed to nothing is as unreadable as clipped text.
-  for (const td of document.querySelectorAll<HTMLElement>("td[data-cell=text], td[data-cell=name]")) if (td.clientWidth < 110) over.push(`narrow cell ${td.dataset.cell}: ${td.clientWidth}px`);
+  const lay = layoutFor(panelWidth());
+  const textWidths = [...document.querySelectorAll<HTMLElement>("td[data-cell=text]")].map((td) => td.clientWidth);
+  const rowWidths = [...document.querySelectorAll<HTMLElement>("tr[data-testid=row]")].map((tr) => tr.clientWidth);
+  for (const td of document.querySelectorAll<HTMLElement>("td[data-cell=text], td[data-cell=name]")) {
+    const w = td.clientWidth;
+    const min = lay.mode === "card" ? (td.dataset.cell === "text" ? (td.parentElement?.clientWidth ?? 0) - 32 : 100) : td.dataset.cell === "text" ? 200 : 100;
+    if (w < min) over.push(`narrow cell ${td.dataset.cell}: ${w}px`);
+  }
+  if (root.scrollWidth > root.clientWidth + 1) over.push(`page content wider than its box: ${root.scrollWidth}px in ${root.clientWidth}px`);
   const sc = document.scrollingElement!;
-  const tableScroll = document.querySelector<HTMLElement>(".table-scroll");
   return {
     view,
     theme: lightTheme() ? "light" : "dark",
@@ -521,10 +562,11 @@ function metrics(): RequirementsMetrics {
     },
     pendingEdits: [...pending.keys()],
     conflicts: [...conflicts.keys()],
-    overflow: { count: over.length, horizontalScroll: sc.scrollWidth > sc.clientWidth + 1 || (!!tableScroll && tableScroll.scrollWidth > tableScroll.clientWidth + 1), samples: over.slice(0, 5) },
+    overflow: { count: over.length, horizontalScroll: (forcedWidth === undefined && sc.scrollWidth > sc.clientWidth + 1) || root.scrollWidth > root.clientWidth + 1, samples: over.slice(0, 5) },
     ...(notice ? { notice } : {}),
     errors,
     size: { width: window.innerWidth, height: window.innerHeight },
+    layout: { width: panelWidth(), mode: lay.mode, detail: lay.detail, textWidths, rowWidths },
   };
 }
 
@@ -541,7 +583,7 @@ function styledCopy(src: Element): Element {
 }
 
 async function exportPng(): Promise<string> {
-  const W = Math.min(window.innerWidth, 1400);
+  const W = Math.min(forcedWidth ?? window.innerWidth, 1400);
   const H = Math.min(Math.max(document.documentElement.scrollHeight, window.innerHeight), 3000);
   const copy = styledCopy(document.body);
   copy.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
@@ -626,6 +668,16 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       case "exportPng":
         exportPng().then((base64) => post({ type: "pngResult", requestId: m.requestId, base64 }), (e: unknown) => post({ type: "pngResult", requestId: m.requestId, error: e instanceof Error ? e.message : String(e) }));
         break;
+      case "testWidth": {
+        setForcedWidth(parseTestWidth(m.width));
+        const done = () => post({ type: "gestureResult", requestId: m.requestId });
+        // let the layout settle (two frames, or a timer when frames are not delivered)
+        let sent = false;
+        const once = () => { if (!sent) { sent = true; applyLayout(); done(); } };
+        requestAnimationFrame(() => requestAnimationFrame(once));
+        setTimeout(once, 250);
+        break;
+      }
       case "testGesture":
         gesture(m.gesture).then(() => post({ type: "gestureResult", requestId: m.requestId }), (e: unknown) => post({ type: "gestureResult", requestId: m.requestId, error: e instanceof Error ? e.message : String(e) }));
         break;

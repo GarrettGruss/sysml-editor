@@ -144,6 +144,37 @@ export function requirementsTests(c: Ctx): Test[] {
   const row = (m: ReqMetrics, id: string) => m.table.rows.find((r) => r.cells.id === id)!;
   const settle = async (scope: ReqScope) => { await api.requirements.settled(scope); };
 
+  const WIDTHS = [320, 480, 640, 800, 1100];
+  /** At each forced page width: nothing clipped or squeezed, no sideways page scroll, wide Text cells (or full width cards), all six pieces of information per requirement. */
+  const checkWidths = async (scope: ReqScope, m: () => Promise<ReqMetrics>, view: "table" | "document", rows: number) => {
+    try {
+      for (const w of WIDTHS) {
+        await api.requirements.setWidth(scope, w);
+        const x = await m();
+        const at = `${view} at ${w}px`;
+        assert.strictEqual(x.layout.width, w, `${at}: width applied`);
+        assert.strictEqual(x.layout.mode, w < 520 ? "card" : "table", `${at}: layout mode`);
+        assert.strictEqual(x.overflow.count, 0, `${at}: no clipped content (${x.overflow.samples.join(", ")})`);
+        assert.strictEqual(x.overflow.horizontalScroll, false, `${at}: no sideways page scroll`);
+        if (view === "table") {
+          assert.strictEqual(x.table.rows.length, rows, `${at}: all rows`);
+          for (const r of x.table.rows) for (const [k, v] of Object.entries(r.cells)) if (k !== "text") assert.notStrictEqual(v, "", `${at}: ${r.qn} has ${k}`); // text may be empty in the model; its cell is checked below
+          assert.strictEqual(x.layout.textWidths.length, rows);
+          x.layout.textWidths.forEach((tw, i) => {
+            if (x.layout.mode === "table") assert.ok(tw >= 200, `${at}: Text cell is ${tw}px`);
+            else assert.ok(tw >= x.layout.rowWidths[i]! - 32, `${at}: card text is ${tw}px of ${x.layout.rowWidths[i]}px`);
+          });
+        } else {
+          assert.ok(x.document.items.length >= 2 && x.document.items.every((i) => i.id !== "" && i.name !== ""), `${at}: requirement cards complete`);
+          assert.ok(x.document.outline.length === 6, `${at}: outline`);
+        }
+        console.log(`  ${at}: mode=${x.layout.mode} detail=${x.layout.detail} textWidths=${x.layout.textWidths.join("/")} overflow=${x.overflow.count} scroll=${x.overflow.horizontalScroll}`);
+      }
+    } finally {
+      await api.requirements.setWidth(scope, null);
+    }
+  };
+
   const tests: Test[] = [
     ["Requirements table: lists the requirements of a package and its nested packages with counts, marks unsatisfied and unverified ones", scenario("ReqT1", async ({ scope, qn, m }) => {
       const x = await m();
@@ -159,7 +190,7 @@ export function requirementsTests(c: Ctx): Test[] {
       assert.ok(row(x, "R4").unsatisfied && row(x, "R4").unverified, "unsatisfied and unverified are marked");
       assert.deepStrictEqual(x.table.counts, { total: 4, unsatisfied: 3, unverified: 3 });
       assert.strictEqual(x.overflow.count, 0, `no clipped content: ${x.overflow.samples.join(", ")}`);
-      void scope;
+      await checkWidths(scope, m, "table", 4);
     })],
 
     ["Requirements table: edit text, id and name inline; add and delete a requirement; only the edited text changes and the file is saved", scenario("ReqT2", async ({ file, scope, qn, m, before }) => {
@@ -313,6 +344,7 @@ export function requirementsTests(c: Ctx): Test[] {
       const x = await m();
       assert.strictEqual(x.overflow.count, 0, `no clipped content: ${x.overflow.samples.join(", ")}`);
       assert.strictEqual(x.overflow.horizontalScroll, false);
+      await checkWidths(scope, m, "document", 0);
       // a click on a table-of-contents entry scrolls to the section
       await gesture(scope, { kind: "click", selector: `[data-testid=toc-entry][data-qn="${qn("Verification")}"] a` });
     }, { view: "document" })],
@@ -411,6 +443,20 @@ export function requirementsTests(c: Ctx): Test[] {
         assert.deepStrictEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], "a PNG");
         assert.ok(png.length > 8000, `${view}-${theme} is ${png.length} bytes`);
         writeFileSync(path.join(c.artifactDir, `requirements-${view}-${theme}.png`), png);
+        if (theme === "light") {
+          try {
+            for (const w of [480, 1100]) {
+              await api.requirements.setWidth(scope, w);
+              const xw = await m();
+              assert.strictEqual(xw.overflow.count, 0, `${view} ${w}px: no clipped content (${xw.overflow.samples.join(", ")})`);
+              const pw = Buffer.from(await api.requirements.png(scope), "base64");
+              assert.ok(pw.length > 8000, `${view}-${w} is ${pw.length} bytes`);
+              writeFileSync(path.join(c.artifactDir, `requirements-${view}-${w}.png`), pw);
+            }
+          } finally {
+            await api.requirements.setWidth(scope, null);
+          }
+        }
         console.log(`  requirements-${view}-${theme}.png: ${png.length} bytes; ${view === "table" ? `rows=${x.table.rows.length}` : `outline=${x.document.outline.map((o) => o.number).join(",")}`} overflow=${x.overflow.count} size=${x.size.width}x${x.size.height}`);
       };
       await save("table", "dark");
