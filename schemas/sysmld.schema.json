@@ -7,7 +7,7 @@
   "required": ["version", "kind", "root", "sources", "nodes", "edges"],
   "properties": {
     "version": { "type": "integer", "enum": [1] },
-    "kind": { "type": "string", "enum": ["general", "interconnection", "requirements"] },
+    "kind": { "type": "string", "enum": ["general", "interconnection", "requirements", "actionFlow", "stateTransition", "sequence"] },
     "root": { "type": "string", "minLength": 1, "description": "Qualified name of the root element." },
     "sources": { "type": "array", "items": { "type": "string" }, "description": "Workspace-relative paths of the .sysml files the diagram draws from." },
     "nodes": { "type": "array", "items": { "$ref": "#/definitions/node" } },

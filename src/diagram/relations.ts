@@ -4,7 +4,7 @@
  * runs from the satisfying element to the requirement, a derivation edge from the derived
  * requirement to the original one.
  */
-import { behaviorEnds, type Element, type ModelIndex } from "../model/index.js";
+import { behaviorEnds, interactionOf, type Element, type ModelIndex } from "../model/index.js";
 
 /** One end of a relationship: a name as written (resolved from `scope`), or the nearest shown owner of `scope`. */
 export interface RelationEnd {
@@ -47,7 +47,15 @@ export function relationOf(e: Element, index: ModelIndex): Relation | undefined 
     if (b) return { kind: e.kind, source: { scope, element: b.source }, target: { scope, element: b.target } };
     if (e.kind !== "flow") return undefined;
   }
-  if (e.kind === "message" && e.ends.length >= 2) return { kind: "message", source: { scope, text: e.ends[0]! }, target: { scope, text: e.ends[e.ends.length - 1]! } };
+  if (e.kind === "message" && e.ends.length >= 2) {
+    // A message runs between the participants (lifelines) named at its ends, which may be unnamed redefinitions (`ref part :>> driver`).
+    const i = e.owner ? interactionOf(index, e.owner) : undefined;
+    const m = i?.messages.find((x) => x.statement === e);
+    const from = i?.participants.find((p) => p.name === m?.fromParticipant)?.element;
+    const to = i?.participants.find((p) => p.name === m?.toParticipant)?.element;
+    if (from && to) return { kind: "message", source: { scope, element: from }, target: { scope, element: to } };
+    return { kind: "message", source: { scope, text: e.ends[0]! }, target: { scope, text: e.ends[e.ends.length - 1]! } };
+  }
   if (e.ends.length >= 2) {
     const first = { scope, text: e.ends[0]! };
     const last = { scope, text: e.ends[e.ends.length - 1]! };

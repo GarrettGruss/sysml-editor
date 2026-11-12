@@ -1,6 +1,5 @@
 /** Creating diagrams from the model and adding elements to them. No `vscode` import. */
-import type { Element, ModelIndex } from "../model/index.js";
-import { isLibraryUri } from "../model/index.js";
+import { analyze, interactionOf, isActionNode, isActionLike, isStateKind, isStateNode, isLibraryUri, ownsMessages, syntheticMembers, isVirtualKind, type Element, type ModelIndex } from "../model/index.js";
 import { isVisible } from "../tree/tree-model.js";
 import type { DiagramDocument, DiagramEdge, DiagramKind, DiagramNode } from "./format.js";
 import { endElement, relationOf } from "./relations.js";
@@ -24,6 +23,61 @@ export function nextId(doc: Pick<DiagramDocument, "nodes" | "edges">, prefix: "n
 }
 
 
+/** The kinds of diagram a root can have. A general view fits everything; the behaviour views need a matching element. */
+export function diagramKindsFor(element: Element): DiagramKind[] {
+  const kinds: DiagramKind[] = ["general", "interconnection", "requirements"];
+  if (isActionLike(element) && element.qualifiedName !== undefined) kinds.push("actionFlow");
+  if (isStateKind(element.kind) && element.qualifiedName !== undefined) kinds.push("stateTransition");
+  if (ownsMessages(element)) kinds.push("sequence");
+  return kinds;
+}
+
+/** Why `element` cannot be the root of a diagram of this kind, or undefined. */
+export function rootProblem(kind: DiagramKind, element: Element): string | undefined {
+  const what = `${element.kind}${element.name !== undefined ? ` '${element.name}'` : ""}`;
+  if (kind === "actionFlow" && !isActionLike(element)) return `An Action Flow View needs an action or an action definition as its root; ${what} is neither.`;
+  if (kind === "stateTransition" && !isStateKind(element.kind)) return `A State Transition View needs a state or a state definition as its root; ${what} is neither.`;
+  if (kind === "sequence" && !ownsMessages(element)) return `A Sequence View needs an occurrence, part or interaction that owns messages as its root; ${what} owns no \`message\`.`;
+  return undefined;
+}
+
+/** Behaviour views: the root and what it owns, recursively, as nested nodes, then the successions, flows, transitions or messages. */
+function createBehavior(doc0: DiagramDocument, index: ModelIndex, root: Element, kind: DiagramKind, sourceOf: SourceMapper): DiagramDocument {
+  let doc = doc0;
+  const rootId = doc.nodes[0]!.id;
+  const containers: Element[] = [];
+  const shown = (m: Element) => (kind === "stateTransition" ? isStateNode(m) : isActionNode(m));
+  const addTree = (el: Element, id: string, depth: number): void => {
+    containers.push(el);
+    for (const m of el.members.filter(shown)) {
+      const r = addElement(doc, index, m, id, { sourceOf });
+      doc = r.doc;
+      if (r.id && depth < 8 && m.members.some(shown)) addTree(m, r.id, depth + 1);
+      else if (r.id) containers.push(m);
+    }
+    for (const v of syntheticMembers(index, el).filter((x) => isVirtualKind(x.kind))) doc = addElement(doc, index, v, id, { sourceOf }).doc;
+  };
+  addTree(root, rootId, 0);
+  const resolution = resolveDiagram(doc, index, { sourceOf });
+  for (const c of containers) {
+    for (const cand of ownedCandidates(c, index)) {
+      if (!relationOf(cand, index)) continue;
+      doc = addElement(doc, index, cand, undefined, { sourceOf, resolution }).doc;
+    }
+  }
+  return doc;
+}
+
+/** A Sequence View: the participants as lifelines and the messages between them. */
+function createSequence(doc0: DiagramDocument, index: ModelIndex, root: Element, sourceOf: SourceMapper): DiagramDocument {
+  let doc = doc0;
+  const inter = interactionOf(index, root);
+  for (const p of inter.participants) if (p.element) doc = addElement(doc, index, p.element, undefined, { sourceOf }).doc;
+  const resolution = resolveDiagram(doc, index, { sourceOf });
+  for (const m of inter.messages) doc = addElement(doc, index, m.statement, undefined, { sourceOf, resolution }).doc;
+  return doc;
+}
+
 /** Pre-populate a diagram with the root and its visible direct members; no positions are written. */
 export function createDiagram(index: ModelIndex, rootQualifiedName: string, kind: DiagramKind, options: CreateOptions = {}): DiagramDocument {
   const sourceOf = options.sourceOf ?? makeSourceMapper();
@@ -31,6 +85,8 @@ export function createDiagram(index: ModelIndex, rootQualifiedName: string, kind
     ? resolveReference({ ref: rootQualifiedName }, { sources: [] }, index, { sourceOf })
     : undefined;
   if (!root) throw new Error(`No element named ${rootQualifiedName}`);
+  const problem = rootProblem(kind, root);
+  if (problem) throw new Error(problem);
   const isRelationship = (e: Element) => relationOf(e, index) !== undefined;
   const allow = options.elements ? new Set(options.elements) : undefined;
   let members = root.members.filter(isVisible).filter((m) => !allow || (m.qualifiedName !== undefined && allow.has(m.qualifiedName)) || (allow && m.qualifiedName === undefined && isRelationship(m)));
@@ -38,6 +94,8 @@ export function createDiagram(index: ModelIndex, rootQualifiedName: string, kind
 
   let doc: DiagramDocument = { version: 1, kind, root: rootQualifiedName, sources: [sourceOf(root.uri)], nodes: [], edges: [] };
   doc = addElement(doc, index, root, undefined, { sourceOf }).doc;
+  if (kind === "actionFlow" || kind === "stateTransition") return createBehavior(doc, index, root, kind, sourceOf);
+  if (kind === "sequence") return createSequence(doc, index, root, sourceOf);
   const rootId = doc.nodes[0]!.id;
   for (const m of members.filter((m) => !isRelationship(m))) doc = addElement(doc, index, m, rootId, { sourceOf }).doc;
   if (kind === "requirements") {

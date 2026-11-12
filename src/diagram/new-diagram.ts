@@ -11,6 +11,9 @@ export const KIND_LABELS: Record<DiagramKind, { label: string; detail: string }>
   general: { label: "General View", detail: "Definitions and usages with specialization, composition and typing" },
   interconnection: { label: "Interconnection View", detail: "Parts nested in a part, with ports and connections" },
   requirements: { label: "Requirements View", detail: "Requirements with satisfy, verify and derivation relationships" },
+  actionFlow: { label: "Action Flow View", detail: "Actions with successions, control nodes and flows" },
+  stateTransition: { label: "State Transition View", detail: "States with entry, do and exit actions and transitions" },
+  sequence: { label: "Sequence View", detail: "Lifelines and the messages between them in time order" },
 };
 
 const RESERVED = /^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;

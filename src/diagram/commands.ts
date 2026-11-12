@@ -5,7 +5,7 @@ import { isLibraryUri } from "../model/index.js";
 import type { ModelNode } from "../tree/tree-model.js";
 import { resolveNode } from "../tree/tree-model.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
-import { createDiagram } from "./create.js";
+import { createDiagram, diagramKindsFor } from "./create.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { VIEW_TYPE } from "./diagram-editor.js";
 import { DiagramFileIndex } from "./diagram-index.js";
@@ -131,7 +131,7 @@ export async function newDiagram(deps: DiagramCommandDeps, node?: ModelNode): Pr
     void vscode.window.showWarningMessage("A diagram needs a named element as its root.");
     return undefined;
   }
-  const kinds = (Object.keys(KIND_LABELS) as DiagramKind[]).map((k) => ({ label: KIND_LABELS[k].label, detail: KIND_LABELS[k].detail, diagramKind: k }));
+  const kinds = diagramKindsFor(element).map((k) => ({ label: KIND_LABELS[k].label, detail: KIND_LABELS[k].detail, diagramKind: k }));
   const kind = (await deps.diagrams.ui.pick(kinds, { title: `New Diagram: ${element.name}`, placeHolder: "Choose the kind of diagram" }))?.diagramKind;
   if (!kind) return undefined;
 
