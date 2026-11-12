@@ -2,13 +2,14 @@
  * VS Code side of the agent tools: the Language Model Tools adapter, the hosted MCP server, and its registration
  * with VS Code, switched by `sysml.agent.channels`. The logic lives in `vscode`-free modules; this is wiring.
  */
-import * as path from "node:path";
 import * as vscode from "vscode";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { planChannels, type ChannelPlan } from "./agent-channels.js";
 import { callTool, toolDefinitions, type ToolContext, type ToolResult } from "./agent-tools/index.js";
-import { startMcpServer, type RunningMcpServer } from "./mcp/server.js";
+import { fsPathToToolPath, type FolderInfo } from "./agent-paths.js";
+import { McpServerController } from "./mcp/server-controller.js";
+import { startMcpServer } from "./mcp/server.js";
 import type { WorkspaceModel } from "./workspace/workspace-model.js";
 
 export const MCP_PROVIDER_ID = "sysml.mcpServer";
@@ -17,7 +18,7 @@ const CHANNELS_SETTING = "sysml.agent.channels";
 export class AgentIntegration implements vscode.Disposable {
   private plan: ChannelPlan = { lmTools: false, mcpServer: false, registerWithVsCode: false };
   private lmRegistrations: vscode.Disposable[] = [];
-  private server: RunningMcpServer | undefined;
+  private readonly controller: McpServerController<string[]>;
   private providerReg: vscode.Disposable | undefined;
   private readonly definitionsChanged = new vscode.EventEmitter<void>();
   private readonly subs: vscode.Disposable[] = [];
@@ -29,17 +30,26 @@ export class AgentIntegration implements vscode.Disposable {
     private readonly log: (msg: string) => void,
     private readonly version: string,
   ) {
+    this.controller = new McpServerController<string[]>((workspaces) =>
+      startMcpServer({ context: () => this.context(), workspaces, serverVersion: this.version, log: this.log }),
+    );
     this.subs.push(
       this.definitionsChanged,
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration(CHANNELS_SETTING)) void this.apply();
       }),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => void this.apply()),
     );
   }
 
-  /** The workspace folder this extension instance serves (the first one). */
+  /** All workspace folders; the first one defines plain relative paths. */
+  get folders(): FolderInfo[] {
+    return (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
+  }
+
+  /** The first workspace folder. */
   get workspaceFolder(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return this.folders[0]?.fsPath;
   }
 
   currentPlan(): ChannelPlan {
@@ -48,16 +58,14 @@ export class AgentIntegration implements vscode.Disposable {
 
   /** Port and token of the running MCP server, for tests. */
   mcpEndpoint(): { url: string; port: number; token: string } | undefined {
-    return this.server && { url: this.server.url, port: this.server.port, token: this.server.token };
+    const s = this.controller.server;
+    return s && { url: s.url, port: s.port, token: s.token };
   }
 
   private context(): ToolContext {
-    const root = this.workspaceFolder;
-    const uriToPath = (uri: string): string | undefined => {
-      if (root === undefined || !uri.startsWith("file:")) return undefined;
-      const rel = path.relative(root, vscode.Uri.parse(uri).fsPath);
-      return rel === "" || rel.startsWith("..") || path.isAbsolute(rel) ? undefined : rel.split(path.sep).join("/");
-    };
+    const folders = this.folders;
+    const uriToPath = (uri: string): string | undefined =>
+      uri.startsWith("file:") ? fsPathToToolPath(folders, vscode.Uri.parse(uri).fsPath) : undefined;
     return {
       index: this.model.index,
       uriToPath,
@@ -86,15 +94,13 @@ export class AgentIntegration implements vscode.Disposable {
       this.lmRegistrations = [];
     }
 
-    const folder = this.workspaceFolder;
-    if (next.mcpServer && !this.server && folder !== undefined) {
-      this.server = await startMcpServer({ context: () => this.context(), workspace: folder, serverVersion: this.version });
-      this.log(`MCP server listening on ${this.server.url}`);
-      this.definitionsChanged.fire();
-    } else if (!next.mcpServer && this.server) {
-      const s = this.server;
-      this.server = undefined;
-      await s.stop();
+    const folders = this.folders.map((f) => f.fsPath);
+    const want = next.mcpServer && folders.length > 0 ? folders : undefined;
+    const changed = await this.controller.reconcile(want);
+    if (this.disposed) return;
+    if (changed) {
+      const s = this.controller.server;
+      if (s) this.log(`MCP server listening on ${s.url}`);
       this.definitionsChanged.fire();
     }
 
@@ -103,7 +109,7 @@ export class AgentIntegration implements vscode.Disposable {
       this.providerReg = vscode.lm.registerMcpServerDefinitionProvider(MCP_PROVIDER_ID, {
         onDidChangeMcpServerDefinitions: this.definitionsChanged.event,
         provideMcpServerDefinitions: () => {
-          const s = this.server;
+          const s = this.controller.server;
           if (!s) return [];
           return [new vscode.McpHttpServerDefinition("SysML Editor", vscode.Uri.parse(s.url), { Authorization: `Bearer ${s.token}` }, this.version)];
         },
@@ -138,8 +144,7 @@ export class AgentIntegration implements vscode.Disposable {
     this.lmRegistrations.forEach((d) => d.dispose());
     this.providerReg?.dispose();
     this.subs.forEach((d) => d.dispose());
-    void this.server?.stop();
-    this.server = undefined;
+    void this.controller.dispose().catch((e: unknown) => this.log(`agent channels: ${String(e)}`));
   }
 }
 

@@ -60,3 +60,25 @@ repository root after `npm run build`. The path changes with each extension vers
 The workspace is the folder opened in VS Code. The bridge finds the running server through a file in
 `~/.sysml-editor/servers/` (readable by your user only). If VS Code is not open on that workspace, the bridge prints
 `VS Code must be open on this workspace` to stderr and exits with code 1.
+
+### Several windows, several folders, and limits
+
+- **Several VS Code windows on the same workspace**: each window runs its own server. The first window owns
+  `<hash>.json`; later ones write `<hash>.<pid>.json`. A window removes only its own entries when it stops. The bridge
+  uses the newest entry whose process is alive and deletes entries of dead processes.
+- **Multi-root workspaces**: all folders are served. Paths in the first folder are plain relative paths; files in other
+  folders are prefixed with the folder name (`<folderName>/<relative path>`). One discovery entry is written per folder
+  path, so the bridge can be pointed at any of them. Adding or removing folders re-applies this. With no folder open the
+  server is not started.
+- **The path given to `--workspace` must be the same folder VS Code has open.** Symlinks are resolved on both sides, but
+  a different folder (for example a parent) does not match.
+- **Security**: the server listens on `127.0.0.1` only, requires the bearer token, and rejects any request that has an
+  `Origin` header or a `Host` other than `127.0.0.1:<port>` / `localhost:<port>` (403). Discovery files are written
+  atomically with mode 0600 in a 0700 directory. On Windows these modes do not apply; the file relies on the permissions
+  of your user profile.
+- **Stale entries**: if an entry exists but connecting fails, the bridge prints
+  `Stale server entry for this workspace; reopen it in VS Code` and exits with code 1. If the connection to VS Code is lost
+  while the bridge is idle it also exits with code 1 and a message on stderr.
+- **Output limits**: `sysml_validate` returns at most 200 problems (the note gives the total; call it per file);
+  `sysml_list_files` at most 500 files; `sysml_get_element` at most 200 owned members (with `ownedMembersTotal`) and 20
+  declarations; `sysml_get_element_tree` at most 500 nodes.
