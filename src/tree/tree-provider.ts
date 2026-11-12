@@ -306,6 +306,8 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     this.io++;
     let found: vscode.Uri[];
     this.readsInFlight.add(start);
+    // Entries added after the read began (by a scan or another folder's re-read) are newer than this read and are not removed by it.
+    const before = this.diagrams;
     try {
       found = await vscode.workspace.findFiles(new vscode.RelativePattern(uri, "**/*.sysmld"));
     } catch {
@@ -318,7 +320,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     const prefix = path + "/";
     const fresh = (u: string) => (this.lastEvent.get(u) ?? 0) > start;
     // Entries an event touched after the read began keep the event's word.
-    const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix) || fresh(u)));
+    const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix) || fresh(u) || !before.has(u)));
     for (const u of visibleDiagrams(this.env, found.map(uriKey))) if (!fresh(u) || this.diagrams.has(u)) next.add(u);
     if (next.size === this.diagrams.size && [...next].every((u) => this.diagrams.has(u))) return;
     this.applyDiagrams(next);
