@@ -205,18 +205,38 @@ export async function run(): Promise<void> {
         await api.agent.apply();
       };
       const lmNames = () => vscode.lm.tools.map((t) => t.name).filter((n) => n.startsWith("sysml_")).sort();
+      const listing = async (expected: number) => {
+        try {
+          await waitFor(() => lmNames().length === expected, 3000, `${expected} sysml_ tools in vscode.lm.tools`);
+        } catch (e) {
+          throw new Error(`assertion A (vscode.lm.tools listing) failed: expected ${expected}, saw [${lmNames()}]; ${e}`);
+        }
+      };
+      const invoke = async (shouldWork: boolean) => {
+        let err: unknown;
+        try {
+          await vscode.lm.invokeTool("sysml_list_files", { toolInvocationToken: undefined, input: {} });
+        } catch (e) {
+          err = e;
+        }
+        if (shouldWork && err) throw new Error(`assertion B (invokeTool) failed: expected success, got ${err}`);
+        if (!shouldWork && !err) throw new Error("assertion B (invokeTool) failed: expected rejection, but it succeeded");
+      };
       try {
         await set("mcp");
         assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: false, mcpServer: true, registerWithVsCode: true });
-        assert.deepStrictEqual(lmNames(), []);
+        await listing(0);
+        await invoke(false);
         assert.ok(api.agent.mcpEndpoint());
         await set("lmTools");
         assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: true, mcpServer: false, registerWithVsCode: false });
-        assert.strictEqual(lmNames().length, 4);
+        await listing(4);
+        await invoke(true);
         assert.strictEqual(api.agent.mcpEndpoint(), undefined);
         await set("both");
         assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: true, mcpServer: true, registerWithVsCode: false });
-        assert.strictEqual(lmNames().length, 4);
+        await listing(4);
+        await invoke(true);
         assert.ok(api.agent.mcpEndpoint());
       } finally {
         await set(undefined);

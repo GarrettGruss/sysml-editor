@@ -4,6 +4,7 @@ import { runTests } from "@vscode/test-electron";
 async function main(): Promise<void> {
   const root = path.resolve(__dirname, "../../..");
   await runTests({
+    version: process.env.VSCODE_VERSION || undefined,
     extensionDevelopmentPath: root,
     extensionTestsPath: path.resolve(__dirname, "index"),
     launchArgs: [

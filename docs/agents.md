@@ -35,7 +35,7 @@ Changes apply immediately, without reloading the window.
 
 Install the extension and open the workspace folder. Nothing else is needed: with `both` or `lmTools` the tools appear in the
 agent's tool picker (names start with `sysml_`). With `mcp` the server appears in the MCP server list (command
-"MCP: List Servers").
+"MCP: List Servers"). In `mcp` mode the `sysml_*` tools are hidden from VS Code's built-in tool list.
 
 ## MCP clients outside VS Code (the bridge)
 
