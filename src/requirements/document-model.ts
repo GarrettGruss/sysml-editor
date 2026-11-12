@@ -96,7 +96,7 @@ function blocksOf(index: ModelIndex, pkg: Element, rel: Relations): SectionBlock
       blocks.push({ kind: "paragraph", source: m.kind, text: unescapeTerminator(m.documentation ?? ""), element: m });
     } else if (isRequirement(m)) {
       const info = describeRequirement(m, rel);
-      const label = (e: Element | undefined, fallback: string) => (e ? (e.shortName ?? e.name ?? fallback) : fallback);
+      const label = (e: Element | undefined, fallback: string) => (e ? [e.shortName, e.name].filter(Boolean).join(" ") || fallback : fallback);
       blocks.push({
         kind: "item",
         info,

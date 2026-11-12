@@ -166,7 +166,11 @@ export class RequirementsEditor implements vscode.Disposable {
   }
 
   private post(p: Panel, m: HostToWebview): void {
-    void p.panel.webview.postMessage(m);
+    try {
+      void Promise.resolve(p.panel.webview.postMessage(m)).then(undefined, () => undefined);
+    } catch {
+      // the panel was closed while an operation was running
+    }
   }
 
   private async render(p: Panel, force = false): Promise<void> {
@@ -247,14 +251,22 @@ export class RequirementsEditor implements vscode.Disposable {
 
   readonly testApi: RequirementsTestApi = {
     open: async (scope, view = "table") => {
-      await this.open(scope, view);
-      const p = this.panels.get(scopeKey(scope))!;
-      const end = Date.now() + 60_000;
-      while (!p.ready || p.generation === 0) {
-        if (Date.now() > end) throw new Error(`the requirements editor for ${scopeKey(scope)} did not render (errors: ${this.errorLog.join(" | ")})`);
-        await new Promise((r) => setTimeout(r, 40));
+      // A new webview can be slow to come up (or, the first time in a session, not at all while its group is not visible): ask again with a fresh panel.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await this.open(scope, view);
+        const p = this.panels.get(scopeKey(scope))!;
+        const end = performance.now() + 30_000;
+        while (!p.ready || p.generation === 0) {
+          if (performance.now() > end) break;
+          await new Promise((r) => setTimeout(r, 40));
+        }
+        if (p.ready && p.generation > 0) {
+          if (p.view !== view) await this.testApi.setView(scope, view);
+          return;
+        }
+        p.panel.dispose();
       }
-      if (p.view !== view) await this.testApi.setView(scope, view);
+      throw new Error(`the requirements editor for ${scopeKey(scope)} did not render (errors: ${this.errorLog.join(" | ")})`);
     },
     close: async (scope) => {
       this.panels.get(scopeKey(scope))?.panel.dispose();

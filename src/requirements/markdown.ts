@@ -38,16 +38,17 @@ export function parseInline(s: string): Inline[] {
         continue;
       }
     }
-    if ((s.startsWith("**", i) || s.startsWith("__", i)) && s.indexOf(s.slice(i, i + 2), i + 2) > i + 2) {
+    if ((s.startsWith("**", i) || s.startsWith("__", i)) && /\w/.test(s[i + 2] ?? "") && s.indexOf(s.slice(i, i + 2), i + 2) > i + 2 && /\w/.test(s[s.indexOf(s.slice(i, i + 2), i + 2) - 1] ?? "")) {
       const j = s.indexOf(s.slice(i, i + 2), i + 2);
       flush();
       out.push({ t: "strong", c: parseInline(s.slice(i + 2, j)) });
       i = j + 2;
       continue;
     }
-    if ((ch === "*" || ch === "_") && s[i + 1] !== " " && s[i + 1] !== ch) {
+    // Emphasis must wrap word characters: "*/ and /*" (the comment terminator convention) stays text.
+    if ((ch === "*" || ch === "_") && /\w/.test(s[i + 1] ?? "") && !/\w/.test(s[i - 1] ?? " ")) {
       const j = s.indexOf(ch, i + 1);
-      if (j > i + 1 && s[j - 1] !== " " && (ch === "*" || !/\w/.test(s[j + 1] ?? ""))) {
+      if (j > i + 1 && /\w/.test(s[j - 1] ?? "") && (ch === "*" || !/\w/.test(s[j + 1] ?? ""))) {
         flush();
         out.push({ t: "em", c: parseInline(s.slice(i + 1, j)) });
         i = j + 1;

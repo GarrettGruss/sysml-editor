@@ -500,8 +500,9 @@ async function gesture(g: Gesture): Promise<void> {
     }
     case "key": find(g.selector).dispatchEvent(new KeyboardEvent("keydown", { key: g.key, bubbles: true })); break;
     case "dragToc": {
-      const from = find(`[data-testid=toc-entry][data-qn="${CSS.escape(g.fromQn).replace(/\\/g, "\\\\")}"]`);
-      const onto = find(`[data-testid=toc-entry][data-qn="${CSS.escape(g.ontoQn).replace(/\\/g, "\\\\")}"]`);
+      const quoted = (q: string) => q.replace(/["\\]/g, "\\$&");
+      const from = find(`[data-testid=toc-entry][data-qn="${quoted(g.fromQn)}"]`);
+      const onto = find(`[data-testid=toc-entry][data-qn="${quoted(g.ontoQn)}"]`);
       const dt = new DataTransfer();
       from.dispatchEvent(new DragEvent("dragstart", { dataTransfer: dt, bubbles: true }));
       const r = onto.getBoundingClientRect();

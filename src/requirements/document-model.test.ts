@@ -88,6 +88,13 @@ describe("DocumentModel", () => {
 });
 
 describe("Markdown subset", () => {
+  test("the comment terminator convention stays text", () => {
+    const [p] = parseMarkdown("Comments end with */ and start with /*.");
+    expect(inlineText((p as any).c)).toBe("Comments end with */ and start with /*.");
+    expect((p as any).c.every((n: any) => n.t === "text")).toBe(true);
+    expect(inlineText((parseMarkdown("a * b * c")[0] as any).c)).toBe("a * b * c");
+    expect((parseMarkdown("*em* and **strong** and _u_")[0] as any).c.map((n: any) => n.t)).toEqual(["em", "text", "strong", "text", "em"]);
+  });
   test("a bulleted list", () => {
     const b = parseMarkdown("Intro\n\n- one\n- two *em*\n\n1. first\n2. second");
     expect(b.map((x) => x.t)).toEqual(["p", "ul", "ol"]);

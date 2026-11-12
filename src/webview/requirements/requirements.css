@@ -41,7 +41,7 @@ textarea { resize: vertical; min-height: 2.4em; }
 .req-table th { text-align: left; font-weight: 600; padding: 6px; border-bottom: 1px solid var(--border); color: var(--muted); }
 .req-table th:nth-child(1) { width: 90px; } .req-table th:nth-child(2) { width: 170px; } .req-table th:nth-child(4) { width: 170px; } .req-table th:nth-child(5), .req-table th:nth-child(6) { width: 110px; }
 .req-table td { padding: 4px 6px; vertical-align: top; border-bottom: 1px solid var(--border); }
-.req-table td.owner { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.req-table td.owner { color: var(--muted); overflow-wrap: anywhere; }
 .req-table tr.selected { background: var(--row-sel); }
 .req-table td.num { white-space: nowrap; }
 .req-table td.warn .count { color: var(--warn); font-weight: 600; }
