@@ -1,6 +1,6 @@
 /** Pure edits of a diagram document made by the user's layout actions. No `vscode` import. */
 import type { DiagramDocument } from "./format.js";
-import type { BoxPatch, EdgePoints, NodeBox } from "./protocol.js";
+import type { BoxPatch, EdgePatch, EdgePoints, NodeBox } from "./protocol.js";
 import type { ViewModel } from "./view-model.js";
 import { MAX_COORD, validBox } from "./session.js";
 
@@ -95,4 +95,34 @@ export function applyAutoLayout(doc: DiagramDocument, boxes: readonly NodeBox[],
     return { ...e, points: p.map((q) => ({ x: q.x, y: q.y })) };
   });
   return changed ? { ...doc, nodes, edges } : undefined;
+}
+
+const validLabel = (l: unknown): l is NonNullable<EdgePatch["label"]> => {
+  if (typeof l !== "object" || l === null) return false;
+  const o = l as Record<string, unknown>;
+  return finite(o.dx) && finite(o.dy) && (o.w === undefined || (finite(o.w) && o.w > 0)) && (o.h === undefined || (finite(o.h) && o.h > 0)) && (o.wrap === undefined || typeof o.wrap === "boolean");
+};
+
+/** Hand-edited routes and label layouts of lines; layout only, so the edges' model references are untouched. Undefined when nothing changes. */
+export function applyEdgeLayout(doc: DiagramDocument, patches: readonly EdgePatch[]): DiagramDocument | undefined {
+  const byId = new Map(patches.filter((p) => p && typeof p.id === "string").map((p) => [p.id, p] as const));
+  let changed = false;
+  const edges = doc.edges.map((e) => {
+    const p = byId.get(e.id);
+    if (!p) return e;
+    let next = e;
+    if (p.points !== undefined && doc.kind !== "sequence" && Array.isArray(p.points) && p.points.length >= 2 && p.points.every((q) => finite(q?.x) && finite(q?.y))) {
+      const pts = p.points.map((q) => ({ x: q.x, y: q.y }));
+      if (JSON.stringify(pts) !== JSON.stringify(e.points)) next = { ...next, points: pts };
+    }
+    if (p.label === null) {
+      if (next.label !== undefined) { const { label: _l, ...rest } = next; next = rest as typeof e; }
+    } else if (validLabel(p.label)) {
+      const l = { dx: p.label.dx, dy: p.label.dy, ...(p.label.w !== undefined ? { w: p.label.w } : {}), ...(p.label.h !== undefined ? { h: p.label.h } : {}), ...(p.label.wrap === false ? { wrap: false } : {}) };
+      if (JSON.stringify(l) !== JSON.stringify(next.label)) next = { ...next, label: l };
+    }
+    if (next !== e) changed = true;
+    return next;
+  });
+  return changed ? { ...doc, edges } : undefined;
 }

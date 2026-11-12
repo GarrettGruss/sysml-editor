@@ -9,7 +9,9 @@ import {
   type Box, type Measure, type Pt, type TextStyle,
 } from "./geometry.js";
 import { HANDLES, handleBoxes } from "./interaction.js";
+import { laidOutLabel, labelHandleBoxes, LABEL_LINE, type LabelLayout } from "./labels.js";
 import { edgeRoute, placeLabel } from "./routing.js";
+import { routeHandles } from "./route-edit.js";
 
 export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel" | "inherited";
 export type Palette = Record<Role, string>;
@@ -39,9 +41,15 @@ export interface SvgResult {
   /** The polyline drawn for each edge (absolute coordinates) and the box of its label. */
   routes: Map<string, Pt[]>;
   labels: Map<string, Box>;
+  /** The lines of text drawn in each label. */
+  labelLines: Map<string, string[]>;
+  /** Edges whose label has a stored layout. */
+  laidOut: Set<string>;
 }
 
 export interface BuildExtras {
+  /** A gesture in progress: the route and label layout to draw instead of the stored ones (`null`: the default placement). */
+  overrides?: ReadonlyMap<string, { points?: readonly Pt[]; label?: LabelLayout | null }>;
   /** Stored or ELK routes (absolute) tried before computing one. */
   routes?: ReadonlyMap<string, readonly Pt[]>;
   selected?: ReadonlySet<string>;
@@ -135,7 +143,7 @@ function drawPortLabel(n: VmNode, b: Box, owner: Box, o: SvgOptions): string {
 
 const DASHED = new Set(["typing", "satisfy", "verify", "derivation", "flow", "include"]);
 
-function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, selected = false): string {
+function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, lines: string[], selected = false): string {
   const first = pts[0]!;
   const second = pts[1] ?? first;
   const last = pts[pts.length - 1]!;
@@ -157,7 +165,7 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, s
   }
   // A wide invisible line makes a thin edge easy to hit and select.
   if (selected) g += `<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="4" stroke-opacity="0.35"${paint(o, "none", "sel")}/>`;
-  if (e.label && label) g += text(o, label.x + label.w / 2, label.y + 10, (e.unordered ? "\u2248 " : "") + e.label, "small", e.resolved ? "subtext" : "warn", "middle");
+  if (e.label && label) lines.forEach((l, i) => { g += text(o, label.x + label.w / 2, label.y + 10 + i * LABEL_LINE, (i === 0 && e.unordered ? "\u2248 " : "") + l, "small", e.resolved ? "subtext" : "warn", "middle"); });
   return g + "</g>";
 }
 
@@ -188,6 +196,8 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
   for (const n of order) if (n.shape !== "port") out += drawNode(n, abs.get(n.id)!, o, measure, selected.has(n.id));
   const routes = new Map<string, Pt[]>();
   const labels = new Map<string, Box>();
+  const labelLines = new Map<string, string[]>();
+  const laidOut = new Set<string>();
   const endOf = (id: string) => {
     const n = byId.get(id);
     const box = abs.get(id)!;
@@ -224,7 +234,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     };
     const skip = new Set([...related(e.source), ...related(e.target)]);
     const obstacles = vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!);
-    const pts = edgeRoute(endOf(e.source), endOf(e.target), extras.routes?.get(e.id) ?? e.points, obstacles, drawn.map((d) => d.pts));
+    const pts = edgeRoute(endOf(e.source), endOf(e.target), extras.overrides?.get(e.id)?.points ?? extras.routes?.get(e.id) ?? e.points, obstacles, drawn.map((d) => d.pts));
     routes.set(e.id, pts);
     drawn.push({ e, pts, ends: [s, t] });
   }
@@ -232,19 +242,35 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
   const allNodes = order.map((n) => abs.get(n.id)!);
   const parents = new Set(vm.nodes.map((n) => n.parent).filter((x): x is string => x !== undefined));
   const containers = order.filter((n) => parents.has(n.id)).map((n) => abs.get(n.id)!);
+  // Labels with a stored layout first, so the others keep off them.
+  const layoutOf = (e: VmEdge): LabelLayout | undefined => {
+    const ov = extras.overrides?.get(e.id);
+    const l = ov && "label" in ov ? ov.label ?? undefined : e.labelLayout;
+    return e.fixed || e.derived ? undefined : l;
+  };
   for (const d of drawn) {
-    if (!d.e.label) continue;
+    const l = layoutOf(d.e);
+    if (!d.e.label || !l) continue;
+    const r = laidOutLabel(d.pts, d.e.label, l, measure);
+    labels.set(d.e.id, r.box);
+    labelLines.set(d.e.id, r.lines);
+    laidOut.add(d.e.id);
+  }
+  for (const d of drawn) {
+    if (!d.e.label || laidOut.has(d.e.id)) continue;
     if (d.e.fixed) {
       // Above the arrow, between its ends; a self-message's label sits to the right of its loop.
       const p = d.pts, lw = measure((d.e.unordered ? "\u2248 " : "") + d.e.label, "small") + 4;
       const self = d.e.source === d.e.target;
       labels.set(d.e.id, self ? { x: p[1]!.x + 4, y: p[1]!.y + 3, w: lw, h: 13 } : { x: (p[0]!.x + p[p.length - 1]!.x) / 2 - lw / 2, y: p[0]!.y - 15, w: lw, h: 13 });
+      labelLines.set(d.e.id, [d.e.label]);
       continue;
     }
     const others = drawn.filter((x) => x !== d).map((x) => x.pts);
     labels.set(d.e.id, placeLabel(d.pts, measure(d.e.label, "small") + 4, 13, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
+    labelLines.set(d.e.id, [d.e.label]);
   }
-  for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id), selected.has(d.e.id));
+  for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id), labelLines.get(d.e.id) ?? [], selected.has(d.e.id));
   for (const n of order) {
     if (n.shape !== "port") continue;
     const b = abs.get(n.id)!;
@@ -252,7 +278,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const owner = n.attachedTo !== undefined && byId.has(n.attachedTo) ? abs.get(n.attachedTo) : undefined;
     if (owner) out += drawPortLabel(n, b, owner, o);
   }
-  return { content: out, bounds: boundsOf([...abs.values(), ...labels.values()], 0), routes, labels };
+  return { content: out, bounds: boundsOf([...abs.values(), ...labels.values()], 0), routes, labels, labelLines, laidOut };
 }
 
 /** Selection outlines and resize handles (single selected non-port node), and the rubber band. */
@@ -267,6 +293,28 @@ export function overlaySvg(selected: readonly Box[], handlesFor: Box | undefined
     for (const h of HANDLES) g += `<rect data-handle="${h}" x="${f(hb[h].x)}" y="${f(hb[h].y)}" width="${f(hb[h].w)}" height="${f(hb[h].h)}"${fill}${o.palette ? ` stroke="${o.palette.bg}"` : ' stroke="none"'}/>`;
   }
   if (band) g += `<rect x="${f(band.x)}" y="${f(band.y)}" width="${f(band.w)}" height="${f(band.h)}" fill-opacity="0.12" stroke-width="${sw}"${o.palette ? ` fill="${o.palette.sel}" stroke="${o.palette.sel}"` : ' class="band"'}/>`;
+  return g;
+}
+
+/** Handles of a selected line: bends and segment middles of its route, and the move and resize handles of its label. */
+export function edgeHandlesSvg(route: readonly Pt[] | undefined, label: Box | undefined, o: SvgOptions, zoom = 1): string {
+  const stroke = o.palette ? ` stroke="${o.palette.sel}"` : ' class="sel-line"';
+  const fill = o.palette ? ` fill="${o.palette.sel}"` : ' class="sel-fill"';
+  const edge = o.palette ? ` stroke="${o.palette.bg}"` : ' stroke="none"';
+  const s = 8 / zoom;
+  let g = "";
+  if (label) {
+    g += `<rect data-label-box="true" x="${f(label.x)}" y="${f(label.y)}" width="${f(label.w)}" height="${f(label.h)}" fill="none" stroke-width="${f(1 / zoom)}" stroke-dasharray="3 2"${stroke}/>`;
+    const hb = labelHandleBoxes(label, s);
+    g += `<rect data-label-handle="move" x="${f(hb.move.x)}" y="${f(hb.move.y)}" width="${f(s)}" height="${f(s)}"${fill}${edge}/>`;
+    g += `<rect data-label-handle="resize" x="${f(hb.resize.x)}" y="${f(hb.resize.y)}" width="${f(s)}" height="${f(s)}"${fill}${edge}/>`;
+  }
+  if (route) {
+    for (const h of routeHandles(route)) {
+      if (h.kind === "bend") g += `<rect data-route-handle="bend" x="${f(h.at.x - s / 2)}" y="${f(h.at.y - s / 2)}" width="${f(s)}" height="${f(s)}"${fill}${edge}/>`;
+      else g += `<circle data-route-handle="segment" cx="${f(h.at.x)}" cy="${f(h.at.y)}" r="${f(s / 2)}" fill-opacity="0.45"${fill}${edge}/>`;
+    }
+  }
   return g;
 }
 

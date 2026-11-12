@@ -10,7 +10,7 @@ const horiz = (d: Side) => d === "L" || d === "R";
 const eq = (a: number, b: number) => Math.abs(a - b) < 0.01;
 
 /** Drop repeated points and middle points of straight runs. */
-function clean(pts: Pt[]): Pt[] {
+export function clean(pts: Pt[]): Pt[] {
   const out: Pt[] = [];
   for (const p of pts) {
     const last = out[out.length - 1];
@@ -213,7 +213,7 @@ export function segmentThroughBox(p: Pt, q: Pt, box: Box, rim = 1): boolean {
 
 export const routeThroughBox = (pts: readonly Pt[], box: Box): boolean => pts.some((p, i) => i > 0 && segmentThroughBox(pts[i - 1]!, p, box));
 
-const onBorder = (p: Pt, b: Box, tol: number): boolean => {
+export const onBorder = (p: Pt, b: Box, tol: number): boolean => {
   const inX = p.x >= b.x - tol && p.x <= b.x + b.w + tol;
   const inY = p.y >= b.y - tol && p.y <= b.y + b.h + tol;
   return inX && inY && (Math.abs(p.x - b.x) <= tol || Math.abs(p.x - b.x - b.w) <= tol || Math.abs(p.y - b.y) <= tol || Math.abs(p.y - b.y - b.h) <= tol);

@@ -31,6 +31,18 @@ export interface ElementReference {
   locator?: ElementLocator;
 }
 
+/** Layout of the label drawn on a line, stored in the edge entry and relative to the route's label anchor (the middle of its longest segment). */
+export interface LabelLayout {
+  /** Top-left corner of the label relative to the anchor. */
+  dx: number;
+  dy: number;
+  /** Size of the label box; absent: the size of the text. */
+  w?: number;
+  h?: number;
+  /** Wrap the text within the width; absent means yes. */
+  wrap?: boolean;
+}
+
 export interface DiagramNode extends ElementReference {
   id: string;
   x?: number;
@@ -50,6 +62,7 @@ export interface DiagramEdge extends ElementReference {
   source: string;
   target: string;
   points?: Point[];
+  label?: LabelLayout;
   style?: Record<string, unknown>;
   [extra: string]: unknown;
 }
@@ -169,6 +182,15 @@ export function parseDiagram(text: string): ParseResult {
           bad(`${p}.points[${j}]`, "Must be an object with numeric x and y");
       });
     }
+    if (e.label !== undefined) {
+      const l = e.label;
+      if (!isObj(l)) bad(`${p}.label`, "Must be an object");
+      else {
+        for (const k of ["dx", "dy"]) if (typeof l[k] !== "number" || !Number.isFinite(l[k])) bad(`${p}.label.${k}`, "Must be a finite number");
+        for (const k of ["w", "h"]) if (l[k] !== undefined && (typeof l[k] !== "number" || !Number.isFinite(l[k]) || (l[k] as number) <= 0)) bad(`${p}.label.${k}`, "Must be a positive number");
+        if (l.wrap !== undefined && typeof l.wrap !== "boolean") bad(`${p}.label.wrap`, "Must be a boolean");
+      }
+    }
     if (e.style !== undefined && !isObj(e.style)) bad(`${p}.style`, "Must be an object");
   });
 
@@ -243,6 +265,7 @@ function canonicalItem(o: Obj, first: readonly string[]): Obj {
   return ordered(o, first, (k, v) => {
     if (k === "locator" && isObj(v)) return canonicalLocator(v as ElementLocator);
     if (GEOM.has(k) && typeof v === "number") return num(v);
+    if (k === "label" && isObj(v)) return ordered(v, ["dx", "dy", "w", "h", "wrap"], (_k, x) => (typeof x === "number" ? num(x) : x));
     if (k === "points" && Array.isArray(v)) return v.map((p) => ordered(p as Obj, ["x", "y"], (_k, x) => (typeof x === "number" ? num(x) : x)));
     return canonicalValue(v);
   });

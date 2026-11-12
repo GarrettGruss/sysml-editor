@@ -592,6 +592,133 @@ export function interactionTests(c: Ctx): Test[] {
       await close();
     }],
 
+    // ---- hand-edited line routes and labels -----------------------------------------------------
+    ["dragging a segment of a line moves it orthogonally, stores the route as layout (dirty until save, .sysml untouched) and survives save and reopen", withCopy("lamp-state-transition.sysmld", "tmp-route.sysmld", async () => {
+      const f = "tmp-route.sysmld";
+      const edge = async () => (await metrics(f)).edges.find((e) => e.label?.startsWith("TurnOn"))!;
+      const stored = (id: string) => doc(f).edges.find((e) => e.id === id)!;
+      const diskPoints = (id: string) => JSON.stringify((JSON.parse(readFileSync(uriOf(f).fsPath, "utf8")) as DiagramDoc).edges.find((e) => e.id === id)?.points);
+      const e0 = await edge();
+      assert.strictEqual(dirty(f), false);
+      if (e0.points.length < 4) {
+        await gesture(f, { kind: "dblclickEdge", id: e0.id });
+        await c.eventually(async () => assert.ok((await edge()).points.length >= 4, "a bend was added"), "bend added");
+        await api.diagram.save(uriOf(f));
+      }
+      const before = (await edge()).points;
+      const onDisk = diskPoints(e0.id);
+      const horiz = Math.abs(before[1]!.y - before[2]!.y) < 0.5;
+      const d = 24;
+      await gesture(f, { kind: "dragSegment", id: e0.id, index: 1, d });
+      await waitFor(() => JSON.stringify(stored(e0.id).points) !== JSON.stringify(before), 5000, "the route reaches the document");
+      await waitFor(() => c.tabDirty(uriOf(f)) === true, 5000, "the tab is dirty");
+      const after = stored(e0.id).points!;
+      assert.ok(after.some((p) => Math.abs((horiz ? p.y : p.x) - ((horiz ? before[1]!.y : before[1]!.x) + d)) < 0.5), "the segment moved by the drag, perpendicular to itself");
+      for (let i = 1; i < after.length; i++) assert.ok(Math.abs(after[i]!.x - after[i - 1]!.x) < 0.01 || Math.abs(after[i]!.y - after[i - 1]!.y) < 0.01, "orthogonal");
+      assert.deepStrictEqual(after[0], before[0], "the start stays where it was on the border");
+      assert.deepStrictEqual(after[after.length - 1], before[before.length - 1], "the end stays where it was on the border");
+      assert.strictEqual(diskPoints(e0.id), onDisk, "nothing is written before save");
+      const m = await metrics(f);
+      assert.strictEqual(m.diagonalSegments, 0);
+      assert.strictEqual(m.edgesThroughEndNodes, 0);
+      assert.deepStrictEqual(m.edges.find((e) => e.id === e0.id)!.points, after, "the drawn route is the stored one");
+      assert.ok(m.routeHandles >= after.length - 2, "the selected line shows bend and segment handles");
+      await api.diagram.save(uriOf(f));
+      assert.deepStrictEqual((JSON.parse(readFileSync(uriOf(f).fsPath, "utf8")) as DiagramDoc).edges.find((e) => e.id === e0.id)!.points, after);
+      await close();
+      await api.diagram.open(uriOf(f));
+      await c.eventually(async () => assert.deepStrictEqual((await edge()).points, after), "the route after reopening");
+      assert.strictEqual(dirty(f), false);
+    })],
+
+    ["dragging an end segment past its node routes around the node; double-click adds a bend; both are layout only", withCopy("lamp-state-transition.sysmld", "tmp-route2.sysmld", async () => {
+      const f = "tmp-route2.sysmld";
+      const edge = async () => (await metrics(f)).edges.find((e) => e.label?.startsWith("TurnOn"))!;
+      const stored = (id: string) => doc(f).edges.find((e) => e.id === id)!;
+      const e0 = await edge();
+      const before = e0.points;
+      const src = nodeOf(await metrics(f), e0.source);
+      // the first segment runs along x or y; drag it far beyond the node's extent in the other direction
+      const horiz = Math.abs(before[0]!.y - before[1]!.y) < 0.5;
+      const d = horiz ? -(before[0]!.y - src.y + 90) : -(before[0]!.x - src.x + 90);
+      await gesture(f, { kind: "dragSegment", id: e0.id, index: 0, d });
+      await waitFor(() => JSON.stringify(stored(e0.id).points) !== JSON.stringify(before), 5000, "the route reaches the document");
+      const after = stored(e0.id).points!;
+      assert.ok(after.length > before.length, `bends were added (${before.length} -> ${after.length})`);
+      assert.deepStrictEqual(after[0], before[0], "the route still leaves from the same border point");
+      const m = await metrics(f);
+      assert.strictEqual(m.diagonalSegments, 0, "orthogonal");
+      assert.strictEqual(m.edgesThroughEndNodes, 0, "the route goes around the node");
+      assert.ok(dirty(f));
+      // double-click: a bend point on the line
+      const n = after.length;
+      await gesture(f, { kind: "dblclickEdge", id: e0.id });
+      await waitFor(() => (stored(e0.id).points?.length ?? 0) > n, 5000, "a bend point was added");
+      const m2 = await metrics(f);
+      assert.strictEqual(m2.diagonalSegments, 0);
+      assert.strictEqual(m2.edgesThroughEndNodes, 0);
+    })],
+
+    ["a line label moves and resizes by its handles, wraps by default, follows its line and persists; the menu resets it and toggles wrapping; the .sysml never changes", withCopy("lamp-state-transition.sysmld", "tmp-label.sysmld", async () => {
+      const f = "tmp-label.sysmld";
+      const edge = async () => (await metrics(f)).edges.find((e) => e.label?.startsWith("TurnOn"))!;
+      const stored = (id: string) => doc(f).edges.find((e) => e.id === id)!;
+      const e0 = await edge();
+      const box0 = e0.labelBox!;
+      assert.ok(box0 && !e0.labelLaidOut, "automatic placement at first");
+      assert.strictEqual(stored(e0.id).label, undefined);
+      // move
+      await gesture(f, { kind: "labelDrag", id: e0.id, dx: 30, dy: -20 });
+      await waitFor(() => stored(e0.id).label !== undefined, 5000, "the label layout reaches the document");
+      await waitFor(() => c.tabDirty(uriOf(f)) === true, 5000, "the tab is dirty");
+      assert.strictEqual((JSON.parse(readFileSync(uriOf(f).fsPath, "utf8")) as DiagramDoc).edges.find((e) => e.id === e0.id)!.label, undefined, "nothing is written before save");
+      await c.eventually(async () => {
+        const e = await edge();
+        assert.ok(e.labelLaidOut);
+        assert.ok(Math.abs(e.labelBox!.x - (box0.x + 30)) < 1 && Math.abs(e.labelBox!.y - (box0.y - 20)) < 1, "the label moved with the drag");
+        assert.strictEqual(e.label, e0.label, "the text still comes from the model");
+        assert.deepStrictEqual(e.labelLines, [e0.label], "no wrapping needed at its own width");
+      }, "label moved");
+      assert.ok((await metrics(f)).labelHandles >= 2, "a selected label shows its handles");
+      // resize narrower and taller: the text wraps within the width
+      await gesture(f, { kind: "labelResize", id: e0.id, dw: -(Math.round(box0.w / 2)), dh: 20 });
+      await waitFor(() => stored(e0.id).label?.w !== undefined, 5000, "the size reaches the document");
+      const l1 = stored(e0.id).label!;
+      assert.ok(l1.w! < box0.w && l1.h! > box0.h, "narrower and taller");
+      await c.eventually(async () => assert.ok((await edge()).labelLines!.length > 1, "wrapped by default"), "wrapped");
+      // save and reopen
+      await api.diagram.save(uriOf(f));
+      assert.deepStrictEqual((JSON.parse(readFileSync(uriOf(f).fsPath, "utf8")) as DiagramDoc).edges.find((e) => e.id === e0.id)!.label, l1);
+      await close();
+      await api.diagram.open(uriOf(f));
+      await c.eventually(async () => {
+        const e = await edge();
+        assert.ok(e.labelLaidOut && Math.abs(e.labelBox!.w - l1.w!) < 0.5 && e.labelLines!.length > 1, "the label after reopening");
+      }, "label after reopen");
+      assert.strictEqual(dirty(f), false);
+      // wrap off through the menu (a check item)
+      await gesture(f, { kind: "labelMenu", id: e0.id, action: "wrap" });
+      await waitFor(() => stored(e0.id).label?.wrap === false, 5000, "wrap off reaches the document");
+      await c.eventually(async () => assert.deepStrictEqual((await edge()).labelLines, [e0.label]), "one line");
+      assert.ok(dirty(f));
+      await gesture(f, { kind: "labelMenu", id: e0.id, action: "wrap" });
+      await waitFor(() => stored(e0.id).label?.wrap === undefined, 5000, "wrap on again");
+      await c.eventually(async () => assert.ok((await edge()).labelLines!.length > 1), "wrapped again");
+      // the label stays relative to its line when a node moves
+      const rel = stored(e0.id).label;
+      await gesture(f, { kind: "drag", id: e0.source, dx: 0, dy: -40 });
+      await sleep(600);
+      assert.deepStrictEqual(stored(e0.id).label, rel, "the label layout is relative and unchanged by a node move");
+      // reset
+      await gesture(f, { kind: "labelMenu", id: e0.id, action: "reset" });
+      await waitFor(() => stored(e0.id).label === undefined, 5000, "reset removes the layout");
+      await c.eventually(async () => {
+        const e = await edge();
+        assert.ok(!e.labelLaidOut, "automatic placement again");
+        assert.deepStrictEqual(e.labelLines, [e0.label]);
+      }, "label reset");
+    })],
+
     // ---- I: orthogonal edges in every fixture; theme; editor appearance ---------------------
     ["every fixture draws orthogonal edges that avoid their end nodes, and the editor appearance is exported in the dark theme with a selection", async () => {
       for (const f of ["ports-general.sysmld", "ports-general-auto.sysmld", "drivetrain-interconnection.sysmld"]) {

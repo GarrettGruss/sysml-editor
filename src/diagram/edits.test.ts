@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ModelIndex } from "../model/index.js";
 import { addElements, createDiagram } from "./create.js";
-import { applyAutoLayout, applyBoxPatches, removeItems, withDescendants } from "./edits.js";
+import { applyAutoLayout, applyBoxPatches, applyEdgeLayout, removeItems, withDescendants } from "./edits.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument } from "./format.js";
 import { relink } from "./reconcile.js";
 import { relationOf } from "./relations.js";
@@ -190,5 +190,49 @@ describe("adding existing elements", () => {
     const b = addElements(a.doc, ix, [inn], { sourceOf });
     expect(b.doc.edges).toHaveLength(1);
     expect(b.doc.edges[0]!.locator?.kind).toBe("connect");
+  });
+});
+
+describe("edge layout edits", () => {
+  const base = parse("drivetrain-interconnection.sysmld");
+  const e0 = base.edges[0]!;
+  const route = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 5 }];
+
+  it("stores a route and a label layout on the edge and nothing else", () => {
+    const r = applyEdgeLayout(base, [{ id: e0.id, points: route, label: { dx: 1.234, dy: 2, w: 50, wrap: false } }])!;
+    expect(r.edges[0]!.points).toEqual(route);
+    expect(r.edges[0]!.label).toEqual({ dx: 1.234, dy: 2, w: 50, wrap: false });
+    expect(r.nodes).toEqual(base.nodes);
+    expect(r.edges.slice(1)).toEqual(base.edges.slice(1));
+  });
+  it("removes the label layout with null and reports no change when nothing differs", () => {
+    const r = applyEdgeLayout(base, [{ id: e0.id, label: { dx: 1, dy: 2 } }])!;
+    expect(applyEdgeLayout(r, [{ id: e0.id, label: { dx: 1, dy: 2 } }])).toBeUndefined();
+    const back = applyEdgeLayout(r, [{ id: e0.id, label: null }])!;
+    expect("label" in back.edges[0]!).toBe(false);
+    expect(applyEdgeLayout(base, [{ id: e0.id, label: null }])).toBeUndefined();
+  });
+  it("ignores invalid input", () => {
+    expect(applyEdgeLayout(base, [{ id: e0.id, points: [{ x: 0, y: 0 }] }, { id: e0.id, label: { dx: NaN, dy: 0 } }, { id: "nope", label: { dx: 1, dy: 1 } }])).toBeUndefined();
+  });
+  it("writes the label with fixed key order and rounding, and old files without it load", () => {
+    const r = applyEdgeLayout(base, [{ id: e0.id, label: { wrap: false, h: 20.456, w: 50, dy: 2, dx: 1.234 } }])!;
+    const text = serializeDiagram(r);
+    expect(text).toMatch(/"label": \{\s+"dx": 1\.23,\s+"dy": 2,\s+"w": 50,\s+"h": 20\.46,\s+"wrap": false\s+\}/);
+    const back = parseDiagram(text);
+    expect(back.ok).toBe(true);
+    expect(serializeDiagram((back as { doc: DiagramDocument }).doc)).toBe(text);
+    expect(parseDiagram(serializeDiagram(base)).ok).toBe(true);
+  });
+  it("rejects a malformed label in a file", () => {
+    const bad = JSON.parse(serializeDiagram(base)) as DiagramDocument;
+    (bad.edges[0] as { label?: unknown }).label = { dx: "a", dy: 0 };
+    expect(parseDiagram(JSON.stringify(bad)).ok).toBe(false);
+  });
+  it("keeps the label when an end node moves while the route is dropped", () => {
+    const withBoth = applyEdgeLayout(base, [{ id: e0.id, points: route, label: { dx: 1, dy: 2 } }])!;
+    const moved = applyBoxPatches(withBoth, [{ id: e0.source, x: 999, y: 999 }])!;
+    expect(moved.edges[0]!.points).toBeUndefined();
+    expect(moved.edges[0]!.label).toEqual({ dx: 1, dy: 2 });
   });
 });

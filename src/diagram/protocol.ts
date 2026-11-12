@@ -1,4 +1,5 @@
 /** Messages between the extension host and the diagram webview. No `vscode` import, no DOM. */
+import type { LabelLayout } from "./format.js";
 import type { ViewModel } from "./view-model.js";
 
 /** `light`: the fixed export theme. `editor-dark`: the editor appearance (selection handles included) in a fixed dark palette, for test artifacts. */
@@ -32,6 +33,13 @@ export interface MetricsNode extends NodeBox {
   inherited?: boolean;
 }
 
+/** What the user changed on a line: its whole route, and/or its label layout (`null`: back to the default placement). */
+export interface EdgePatch {
+  id: string;
+  points?: { x: number; y: number }[];
+  label?: LabelLayout | null;
+}
+
 export interface EdgePoints {
   id: string;
   points: { x: number; y: number }[];
@@ -41,6 +49,8 @@ export interface EdgePoints {
 export type DiagramEdit =
   | { kind: "layout"; label: "Move" | "Resize" | "Nudge"; boxes: BoxPatch[] }
   | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
+  /** A hand-edited route or label layout of lines. */
+  | { kind: "edgeLayout"; label: "Route" | "Label"; edges: EdgePatch[] }
   | { kind: "remove"; ids: string[] };
 
 /** What the properties panel edits; `null` removes a value. */
@@ -88,6 +98,17 @@ export type TestGesture =
   | { kind: "selectEdge"; id: string }
   /** Press on a message and drag it vertically: nothing may change (messages are placed by time order). */
   | { kind: "dragEdge"; id: string; dy: number }
+  /** Select a line, then drag the middle handle of segment `index` of its route by `d` perpendicular to the segment. */
+  | { kind: "dragSegment"; id: string; index: number; d: number }
+  /** Select a line, then drag the bend handle `index` (an inner route point) by (dx, dy). */
+  | { kind: "dragBend"; id: string; index: number; dx: number; dy: number }
+  /** Double-click a line (at the middle of its longest segment): adds a bend point. */
+  | { kind: "dblclickEdge"; id: string }
+  /** Select a line, then drag its label's move handle, or its resize handle (bottom-right corner). */
+  | { kind: "labelDrag"; id: string; dx: number; dy: number }
+  | { kind: "labelResize"; id: string; dw: number; dh: number }
+  /** Right-click the label handle and choose the item: Reset Position and Size, or Wrap Text. */
+  | { kind: "labelMenu"; id: string; action: "reset" | "wrap" }
   /** Double-click a node label: opens the inline editor; `text` types into it and Enter commits (or Escape cancels). */
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   /** Edit a field of the properties panel as the user would: sets the value and fires `change`. */
@@ -119,6 +140,10 @@ export interface MetricsEdge {
   /** Messages: position in time order, and the marker for an order the model leaves open. */
   order?: number;
   unordered?: boolean;
+  /** The drawn label box, its lines of text, and whether it has a stored layout. */
+  labelBox?: { x: number; y: number; w: number; h: number };
+  labelLines?: string[];
+  labelLaidOut?: boolean;
 }
 
 export interface DiagramMetrics {
@@ -155,6 +180,9 @@ export interface DiagramMetrics {
   selectedNamed: number;
   /** Resize handles drawn. */
   handles: number;
+  /** Bend and segment handles of the selected line, and its label's handles. */
+  routeHandles: number;
+  labelHandles: number;
   /** Nodes drawn as inherited features. */
   inheritedNodes: number;
   /** Labels of the palette items, the active tool, and what the properties panel shows. */

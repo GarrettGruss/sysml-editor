@@ -56,6 +56,17 @@
           "type": "array",
           "items": { "type": "object", "required": ["x", "y"], "properties": { "x": { "type": "number" }, "y": { "type": "number" } } }
         },
+        "label": {
+          "type": "object",
+          "required": ["dx", "dy"],
+          "properties": {
+            "dx": { "type": "number" },
+            "dy": { "type": "number" },
+            "w": { "type": "number", "exclusiveMinimum": 0 },
+            "h": { "type": "number", "exclusiveMinimum": 0 },
+            "wrap": { "type": "boolean" }
+          }
+        },
         "style": { "type": "object" }
       }
     }
