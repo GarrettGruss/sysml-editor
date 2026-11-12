@@ -5,7 +5,9 @@
  */
 import {
   BailErrorStrategy,
+  AtomTransition,
   BasicBlockStartState,
+  BlockEndState,
   EpsilonTransition,
   PlusLoopbackState,
   StarLoopEntryState,
@@ -20,6 +22,7 @@ import {
   ParserATNSimulator,
   PredictionContextCache,
   RecognitionException,
+  RuleStopState,
   RuleTransition,
   type ATNState,
   type ParserRuleContext,
@@ -88,6 +91,12 @@ export function newSim(): Sim {
  * different parse and never a spurious error. In every other case ordinary prediction runs.
  * Only the decisions listed here, the ones measured to need it, use it.
  *
+ * Independence rule: the shortcuts are enabled ONLY on the main-thread fast path (`shortcuts`
+ * argument of `fastParse`, set by `tryFastParse`). The parse worker, the same-thread exact
+ * fallback, snippet validation (`build-snippets.ts`) and the snapshot generator run without them,
+ * so "exact" really is the unmodified generated parser. The soundness argument rests on grammar
+ * facts that `checkShortcutFacts` verifies against the generated ATN at load.
+ *
  * 1. Optional parts (`x?`) of `usageDeclaration` and `featureSpecializationPart`: enter when LA(1)
  *    can start `x` and cannot follow it in this context.
  * 2. `identification : LT name GT name | LT name GT | name`: after `< name >`, a name token that
@@ -134,25 +143,170 @@ const SHORTCUTS: Shortcuts = (() => {
     }
   }
   const rule = SysMLv2Parser.ruleNames.indexOf("identification");
+  if (rule < 0) return { globalFollow, optional, identDecision: -1, identStop: -1, nameStart: new Set() };
   const identDecision = atn.decisionToState.findIndex((d) => d.ruleIndex === rule && d.transitions.length === 3);
-  const nameStart = new Set(atn.nextTokens(atn.ruleToStartState[SysMLv2Parser.ruleNames.indexOf("name")]!).toArray());
+  const nameRule = SysMLv2Parser.ruleNames.indexOf("name");
+  const nameStart = new Set(nameRule < 0 ? [] : atn.nextTokens(atn.ruleToStartState[nameRule]!).toArray());
   return { globalFollow, optional, identDecision, identStop: atn.ruleToStopState[rule]!.stateNumber, nameStart };
 })();
+
+/** Minimum and maximum number of tokens a rule consumes; `max` is Infinity when the rule can loop. */
+function ruleTokenRange(ruleIndex: number): [number, number] {
+  const atn = SysMLv2Parser._ATN;
+  const memo = new Map<number, [number, number]>();
+  const rules = new Map<number, [number, number]>();
+  const visiting = new Set<number>();
+  const rule = (r: number): [number, number] => {
+    let v = rules.get(r);
+    if (!v) rules.set(r, (v = go(atn.ruleToStartState[r]!)));
+    return v;
+  };
+  const go = (st: ATNState): [number, number] => {
+    if (st instanceof RuleStopState) return [0, 0];
+    const known = memo.get(st.stateNumber);
+    if (known) return known;
+    if (visiting.has(st.stateNumber)) return [0, Infinity];
+    visiting.add(st.stateNumber);
+    let min = Infinity, max = -Infinity;
+    for (const tr of st.transitions) {
+      const [a, b] = tr instanceof RuleTransition ? rule(tr.target.ruleIndex) : tr.isEpsilon ? [0, 0] : [1, 1];
+      const [c, d] = go(tr instanceof RuleTransition ? tr.followState : tr.target);
+      min = Math.min(min, a + c);
+      max = Math.max(max, b + d);
+    }
+    visiting.delete(st.stateNumber);
+    const out: [number, number] = [min, max];
+    memo.set(st.stateNumber, out);
+    return out;
+  };
+  return rule(ruleIndex);
+}
+
+/** The labels of an alternative that is a plain sequence of tokens and rule calls, or undefined. */
+function linearAlternative(start: ATNState): string[] | undefined {
+  const out: string[] = [];
+  let st = start;
+  for (let guard = 0; guard < 50; guard++) {
+    if (st instanceof RuleStopState) return out;
+    if (st.transitions.length !== 1) return undefined;
+    const tr = st.transitions[0]!;
+    if (tr instanceof RuleTransition) {
+      out.push(`rule ${SysMLv2Parser.ruleNames[tr.target.ruleIndex]}`);
+      st = tr.followState;
+    } else if (tr instanceof AtomTransition) {
+      out.push(`token ${SysMLv2Parser.symbolicNames[tr.labelValue] ?? tr.labelValue}`);
+      st = tr.target;
+    } else if (tr.isEpsilon || st instanceof BlockEndState) st = tr.target;
+    else return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * The grammar facts the soundness argument relies on, checked against the generated ATN. Returns
+ * the problems found (empty when all hold):
+ * - `identification` has one decision with three alternatives `LT name GT name`, `LT name GT`, `name`;
+ * - `name` is exactly one token, so the token after `LT name GT` is the fourth token of the
+ *   identification and one lookahead token (LA(4)) separates the first two alternatives;
+ * - every rule in SHORTCUT_RULES has at least one located optional-part decision.
+ */
+export function checkShortcutFacts(): string[] {
+  const problems: string[] = [];
+  const atn = SysMLv2Parser._ATN;
+  const { optional, identDecision, nameStart } = SHORTCUTS;
+  const rule = (n: string) => SysMLv2Parser.ruleNames.indexOf(n);
+  for (const r of ["identification", "name", ...SHORTCUT_RULES]) if (rule(r) < 0) problems.push(`rule ${r} not found in the generated parser`);
+  if (problems.length) return problems;
+  if (identDecision < 0) problems.push("the identification decision (3 alternatives) was not located in the ATN");
+  else {
+    const want = [
+      ["token LT", "rule name", "token GT", "rule name"],
+      ["token LT", "rule name", "token GT"],
+      ["rule name"],
+    ];
+    const st = atn.decisionToState[identDecision]!;
+    want.forEach((w, i) => {
+      const got = linearAlternative(st.transitions[i]!.target);
+      if (!got || got.join(", ") !== w.join(", ")) problems.push(`identification alternative ${i + 1} is [${got?.join(", ") ?? "not a plain sequence"}], expected [${w.join(", ")}]`);
+    });
+  }
+  const [min, max] = ruleTokenRange(rule("name"));
+  if (min !== 1 || max !== 1) problems.push(`name consumes ${min}..${max} tokens, expected exactly 1`);
+  if (nameStart.size === 0) problems.push("name has an empty first set");
+  for (const r of SHORTCUT_RULES) {
+    const ri = rule(r);
+    if (!atn.decisionToState.some((st, d) => st.ruleIndex === ri && optional[d] !== undefined)) problems.push(`no optional-part decision located in rule ${r}`);
+  }
+  return problems;
+}
+
+const shortcutProblems = (() => {
+  try {
+    return checkShortcutFacts();
+  } catch (e) {
+    return [`checking the grammar facts failed: ${String(e)}`];
+  }
+})();
+const strict = typeof process !== "undefined" && !!(process.env?.["VITEST"] || process.env?.["SYSML_STRICT_SHORTCUTS"]);
+if (shortcutProblems.length > 0) {
+  const msg = `Parser prediction shortcuts disabled, grammar no longer matches their assumptions:\n  ${shortcutProblems.join("\n  ")}`;
+  if (strict) throw new Error(msg);
+  console.error(msg); // once, at load; parsing continues on the plain fast path (slower, may defer more files to the worker)
+}
+/** True when the shortcut decisions were located and the grammar facts hold. */
+export const shortcutsAvailable = shortcutProblems.length === 0;
+/** Throws when the shortcuts cannot be used; called by the gate so `npm run gate:parser` fails loudly. */
+export function assertShortcutsAvailable(): void {
+  if (!shortcutsAvailable) throw new Error(`Parser prediction shortcuts unavailable:\n  ${shortcutProblems.join("\n  ")}`);
+}
+/** The located decisions, for tests. */
+export function shortcutInfo(): { identDecision: number; optionalDecisions: number[]; problems: string[] } {
+  const optionalDecisions: number[] = [];
+  SHORTCUTS.optional.forEach((o, d) => { if (o) optionalDecisions.push(d); });
+  return { identDecision: SHORTCUTS.identDecision, optionalDecisions, problems: shortcutProblems };
+}
+
+/**
+ * Test-only: makes one shortcut deliberately wrong, to prove the comparison with the exact parser
+ * can fail. "ident-short-only" always picks `LT name GT` (alternative 2).
+ */
+export type ShortcutFault = "ident-short-only" | undefined;
+let shortcutFault: ShortcutFault;
+export function setShortcutFault(f: ShortcutFault): void {
+  shortcutFault = f;
+}
 
 /** In-context follow sets, cached in a trie keyed by exit state and then the invoking-state chain. */
 interface FollowNode {
   next: Map<number, FollowNode>;
   follow?: { contains(t: number): boolean };
 }
-const followCache = new Map<number, FollowNode>();
+let followCache = new Map<number, FollowNode>();
+/** The cache is dropped when it holds more nodes than `limit` (checked per lookup, so it may overshoot by one chain). */
+export const followCacheStats = { nodes: 0, limit: 50_000, clears: 0 };
 function followInContext(exit: ATNState, ctx: ParserRuleContext | null): { contains(t: number): boolean } {
   const atn = SysMLv2Parser._ATN;
-  let node: FollowNode = followCache.get(exit.stateNumber) ?? { next: new Map() };
-  followCache.set(exit.stateNumber, node);
+  if (followCacheStats.nodes > followCacheStats.limit) {
+    followCache = new Map();
+    followCacheStats.nodes = 0;
+    followCacheStats.clears++;
+  }
+  let node: FollowNode;
+  const top = followCache.get(exit.stateNumber);
+  if (top) node = top;
+  else {
+    followCacheStats.nodes++;
+    followCache.set(exit.stateNumber, (node = { next: new Map() }));
+  }
   for (let c: ParserRuleContext | null = ctx; c; c = c.parent as ParserRuleContext | null) {
-    const n: FollowNode = node.next.get(c.invokingState) ?? { next: new Map() };
-    node.next.set(c.invokingState, n);
-    node = n;
+    const known = node.next.get(c.invokingState);
+    if (known) node = known;
+    else {
+      followCacheStats.nodes++;
+      const n: FollowNode = { next: new Map() };
+      node.next.set(c.invokingState, n);
+      node = n;
+    }
   }
   return (node.follow ??= atn.nextTokens(exit, ctx ?? undefined));
 }
@@ -174,6 +328,7 @@ function usePredictionShortcuts(parser: SysMLv2Parser): void {
         if (!followInContext(exit, ctx).contains(la)) return 1;
       }
     } else if (decision === identDecision && input.LA(1) === SysMLv2Lexer.LT) {
+      if (shortcutFault === "ident-short-only") return 2;
       const la = input.LA(4);
       if (!nameStart.has(la)) return 2;
       if (!globalFollow[identRule]!.has(la) || !followInContext(atn.states[identStop]!, ctx).contains(la)) return 1;
@@ -212,14 +367,14 @@ export type FastResult =
 
 /**
  * A parse that bails on the first problem (SLL prediction, or full LL with `ll`). Never reports
- * more than the first position.
+ * more than the first position. `shortcuts` enables the prediction shortcuts (main-thread fast path only).
  */
-export function fastParse(text: string, sim?: Sim, ll = false): FastResult {
+export function fastParse(text: string, sim?: Sim, ll = false, shortcuts = false): FastResult {
   const errors: SyntaxErrorInfo[] = [];
   const { tokens, parser } = setUp(text, errors, sim);
   parser.interpreter.predictionMode = ll ? PredictionMode.LL : PredictionMode.SLL;
   parser.errorHandler = new BailErrorStrategy();
-  usePredictionShortcuts(parser);
+  if (shortcuts && shortcutsAvailable) usePredictionShortcuts(parser);
   try {
     const tree = parser.rootNamespace();
     tokens.fill();
@@ -236,7 +391,8 @@ export function fastParse(text: string, sim?: Sim, ll = false): FastResult {
 
 /**
  * Fast SLL attempt, then, only on failure, a full-LL parse with normal error reporting and
- * recovery, both on the same prediction cache (`sim`, or the parser class's static DFAs).
+ * recovery, both on the same prediction cache (`sim`, or the parser class's static DFAs). Never
+ * uses the prediction shortcuts: this is the exact parser.
  */
 export function twoStage(text: string, sim?: Sim): ParseResult {
   const f = fastParse(text, sim);

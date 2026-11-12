@@ -1,12 +1,14 @@
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CharStream, CommonTokenStream, ParserATNSimulator, ParserRuleContext, TerminalNode, type ParseTree } from "antlr4ng";
 import { parse, tryFastParse, type SyntaxErrorInfo } from "../src/parser/parse.js";
-import { newSim } from "../src/parser/parse-core.js";
-import { SysMLv2Lexer } from "../src/parser/generated/SysMLv2Lexer.js";
-import { SysMLv2Parser } from "../src/parser/generated/SysMLv2Parser.js";
+import { assertShortcutsAvailable } from "../src/parser/parse-core.js";
+import { exactParse, firstDifference, negativeCorpus } from "../src/parser/exact-reference.js";
 
+// The prediction shortcuts must have found their decisions in the generated ATN; if not, the gate fails.
+assertShortcutsAvailable();
+
+const gateStart = performance.now();
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 // Hand-maintained input: files excused from the gate. This script never writes it.
 const excusedList: { file: string; reason: string }[] = JSON.parse(
@@ -31,45 +33,6 @@ const groups: Record<string, string> = {
 // rejects, nor build a different tree. The reference is the generated parser as it is: full LL prediction on a freshly
 // built cache, no shortcuts, default error handling.
 
-const exactSim = newSim();
-function exactParse(text: string): { tree: ParserRuleContext; errors: number } {
-  let errors = 0;
-  const lexer = new SysMLv2Lexer(CharStream.fromString(text));
-  lexer.removeErrorListeners();
-  lexer.addErrorListener({ syntaxError: () => void errors++, reportAmbiguity() {}, reportAttemptingFullContext() {}, reportContextSensitivity() {} });
-  const tokens = new CommonTokenStream(lexer);
-  const parser = new SysMLv2Parser(tokens);
-  parser.interpreter = new ParserATNSimulator(parser, SysMLv2Parser._ATN, exactSim.dfas, exactSim.cache);
-  parser.removeErrorListeners();
-  parser.addErrorListener({ syntaxError: () => void errors++, reportAmbiguity() {}, reportAttemptingFullContext() {}, reportContextSensitivity() {} });
-  const tree = parser.rootNamespace();
-  tokens.fill();
-  return { tree, errors };
-}
-
-/** A structural dump of one node: rule name, alternative number, token start and stop index. */
-function nodeDump(n: ParseTree): string {
-  if (n instanceof TerminalNode) return `token ${n.symbol.type}@${n.symbol.tokenIndex}`;
-  const c = n as ParserRuleContext;
-  const alt = (c as unknown as { getAltNumber?: () => number }).getAltNumber?.() ?? 0;
-  return `${SysMLv2Parser.ruleNames[c.ruleIndex] ?? c.ruleIndex} alt=${alt} tokens ${c.start?.tokenIndex ?? "-"}..${c.stop?.tokenIndex ?? "-"} (line ${c.start?.line ?? "?"})`;
-}
-
-/** The first node (in document order) at which two parse trees differ, or undefined when they are the same. */
-function firstDifference(a: ParseTree, b: ParseTree): string | undefined {
-  const stack: [ParseTree, ParseTree][] = [[a, b]];
-  while (stack.length) {
-    const [x, y] = stack.pop()!;
-    const dx = nodeDump(x);
-    const dy = nodeDump(y);
-    if (dx !== dy) return `fast: ${dx}; exact: ${dy}`;
-    const kx = x instanceof ParserRuleContext ? x.children : [];
-    const ky = y instanceof ParserRuleContext ? y.children : [];
-    if (kx.length !== ky.length) return `${dx}: fast has ${kx.length} children, exact ${ky.length}`;
-    for (let i = kx.length - 1; i >= 0; i--) stack.push([kx[i]!, ky[i]!]);
-  }
-  return undefined;
-}
 
 const soundnessFailures: string[] = [];
 let soundnessChecked = 0, soundnessSkipped = 0, soundnessMs = 0;
@@ -134,6 +97,7 @@ const otherFailures: { file: string; errors: number; first: string }[] = [];
 const suspicious: { file: string; line: number; message: string }[] = [];
 const classCounts: Record<string, number> = {};
 const rejoinFailures: string[] = [];
+const fixtureTexts: string[] = [];
 const kerml: string[] = [];
 let gated = 0, gatedErr = 0, rejoined = 0, libMs = 0;
 
@@ -154,7 +118,10 @@ for (const [name, rel] of Object.entries(groups)) {
     const toks = r.tokens.getTokens().filter((t) => t.type !== -1);
     if (toks.map((t) => t.text ?? "").join("") !== text) rejoinFailures.push(relative(root, f));
     const rel2 = relative(root, f);
-    if (!excused.has(rel2)) checkSoundness(rel2, text);
+    if (!excused.has(rel2)) {
+      checkSoundness(rel2, text);
+      if (text.length <= 8000) fixtureTexts.push(text);
+    }
     if (excused.has(rel2)) seenExcused.add(rel2);
     if (!r.errors.length) {
       if (excused.has(rel2)) problems.push(`stale expected-invalid entry (file now parses clean): ${rel2}`);
@@ -196,6 +163,16 @@ for (const name of ["heldout-snippets.json", "training-snippets.json"]) {
   snippets += picked.length;
   for (const t of picked) checkSoundness(`${name} snippet ${all.indexOf(t)}`, t);
 }
+// ---- negative corpus: seeded invalid variants of the held-out snippets and of fixture texts ---------------------
+// Wherever the exact parser reports errors the fast path must decline; where it accepts a variant the trees must match.
+const heldOutAll: string[] = JSON.parse(readFileSync(join(root, "scripts/dfa-training/heldout-snippets.json"), "utf8"));
+const negT0 = performance.now();
+const negHeld = negativeCorpus(heldOutAll, 1);
+const negFixtures = negativeCorpus(sample(fixtureTexts, 300, 777), 2);
+const negMs = performance.now() - negT0;
+const neg = (["variants", "invalidPerExact", "declinedOfInvalid", "validPerExact", "acceptedValid"] as const).map((k) => negHeld[k] + negFixtures[k]);
+const negViolations = [...negHeld.violations.map((v) => `negative corpus (held-out) ${v}`), ...negFixtures.violations.map((v) => `negative corpus (fixtures) ${v}`)];
+for (const p of negViolations) problems.push(p);
 for (const p of soundnessFailures) problems.push(p);
 const gatedTotal = gated - expectedInvalid.length;
 const overallClean = pct(gatedTotal - gatedErr, gatedTotal);
@@ -232,9 +209,11 @@ console.log(`expected invalid (pre-release syntax): ${expectedInvalid.length} ${
 console.log(`gated: ${gatedTotal}, clean: ${gatedTotal - gatedErr} (${overallClean}%)`);
 console.log(`token re-join failures: ${rejoinFailures.length} of ${rejoined}`);
 console.log(`fast-path soundness: ${soundnessChecked} texts compared with the exact parser (${soundnessSkipped} declined by the fast path, ${snippets} snippets), exact parsing took ${Math.round(soundnessMs)} ms, failures: ${soundnessFailures.length}`);
+console.log(`negative corpus: ${neg[0]} variants (${heldOutAll.length} held-out snippets + ${Math.min(300, fixtureTexts.length)} fixture texts), invalid per exact parser ${neg[1]}, declined by fast path ${neg[2]}, exact-valid ${neg[3]} (fast path accepted ${neg[4]} with identical trees), violations ${negViolations.length}, ${Math.round(negMs)} ms`);
 console.log(`standard library (.sysml) parse time: ${Math.round(libMs)} ms`);
 for (const p of problems) console.log(`  PROBLEM ${p}`);
 for (const o of otherFailures) console.log(`  UNEXCUSED FAILURE ${o.file} [${o.errors}] ${o.first}`);
 for (const o of suspicious) console.log(`  STRAY ${o.file}:${o.line} ${o.message}`);
+console.log(`gate total time: ${Math.round(performance.now() - gateStart)} ms`);
 console.log(pass ? "GATE: PASS" : "GATE: FAIL");
 process.exitCode = pass ? 0 : 1;

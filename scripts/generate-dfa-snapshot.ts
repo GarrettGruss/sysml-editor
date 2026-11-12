@@ -16,7 +16,16 @@ function walk(dir: string, out: string[] = []): string[] {
   return out;
 }
 async function main(): Promise<void> {
-const { parse } = await import("../src/parser/parse.js");
+// Trained WITHOUT the prediction shortcuts (parse-core's exact path: SLL, then LL, both with bail on the
+// static DFAs; a text that fails both is validated on a separate cache), so the snapshot still holds
+// DFA states for the decisions the main-thread fast path short-cuts.
+const { fastParse, newSim, twoStage } = await import("../src/parser/parse-core.js");
+const sim = newSim();
+const parse = (text: string) => {
+  let r = fastParse(text);
+  if (!r.ok && !r.lexer) r = fastParse(text, undefined, true);
+  return r.ok ? r.result : twoStage(text, sim);
+};
 const { extractSnapshot } = await import("../src/parser/dfa-snapshot.js");
 const dirs = (process.argv[2] ?? "fixtures/sysml-v2-release,fixtures/sysml-v2-models").split(",");
 const t0 = performance.now();
@@ -34,7 +43,8 @@ snippets.forEach((t, i) => {
 });
 n += snippets.length;
 const snap = extractSnapshot();
-const out = join(root, "src/parser/dfa-snapshot.json");
+// An optional output path (used by `npm run check:dfa`) keeps the checked-in snapshot untouched.
+const out = process.argv[3] ? resolve(process.argv[3]) : join(root, "src/parser/dfa-snapshot.json");
 writeFileSync(out, JSON.stringify(snap));
 const states = snap.decisions.reduce((a, d) => a + d.s.length, 0);
 console.log(`trained on ${n} files and snippets in ${Math.round(performance.now() - t0)} ms: ${snap.decisions.length} decisions, ${states} states -> ${out}`);
