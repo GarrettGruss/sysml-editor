@@ -5,6 +5,9 @@ import { ModelIndex, defaultDocumentParser, loadLibrary } from "../model/index.j
 import { allDerivations, derivationOf } from "../requirements/relations.js";
 import { buildRelations, listRequirements } from "../requirements/queries.js";
 import { applyEdits, groupByUri } from "./text.js";
+import { FakeHost } from "../model-service/fake-host.js";
+import { ModelService } from "../model-service/service.js";
+import { planMoveMember } from "./requirements.js";
 import { planAddParagraph, planAddSection, planDerivation, planRemoveDerivation, planVerify } from "./requirements.js";
 import type { PlanResult } from "./types.js";
 
@@ -164,5 +167,137 @@ describe("satisfy forms (item 4)", () => {
     const ri = listRequirements(ix, q("P"), rel).find((r) => r.name === "R")!;
     expect(ri.satisfiedBy.map((s) => s.by)).toEqual(["v"]);
     expect(ri.notSatisfiedBy).toEqual([]);
+  });
+});
+
+describe("planMoveMember is reversible (item 17b)", () => {
+  const T = `package D {
+    doc /* intro */
+    package A { doc /* a */ }
+
+    // about B
+    package B;
+    part def X;
+    /* block about C */
+    package C {
+        part def Y;
+    }
+    package E;
+}
+`;
+  const pkgs = ["A", "B", "C", "E"];
+  const reload = (t: string) => setup(t);
+
+  test("down then up restores the text byte for byte, for first, middle and last", () => {
+    for (let i = 0; i < pkgs.length - 1; i++) {
+      const { ix, q } = setup(T);
+      const m = q(`D::${pkgs[i]}`);
+      const n = q(`D::${pkgs[i + 1]}`);
+      const next = m.owner!.members[m.owner!.members.indexOf(m) + 1]!; // what followed it (a part def for B)
+      const t1 = after(planMoveMember(ix, m, { after: n }), T);
+      expect(t1).not.toBe(T);
+      const s = reload(t1);
+      const up = planMoveMember(s.ix, s.q(`D::${pkgs[i]}`), { before: s.q(`D::${next.name}`) });
+      expect(after(up, t1), `moving ${pkgs[i]} down and up`).toBe(T);
+    }
+  });
+  test("up then down restores the text, also across a non-package member", () => {
+    for (let i = 1; i < pkgs.length; i++) {
+      const { ix, q } = setup(T);
+      const m = q(`D::${pkgs[i]}`);
+      const prev = m.owner!.members.slice(0, m.owner!.members.indexOf(m)).reverse().find((x) => x.name !== undefined)!; // the previous named member, a part def for C
+      const t1 = after(planMoveMember(ix, m, { before: prev }), T);
+      const s = reload(t1);
+      const back = planMoveMember(s.ix, s.q(`D::${pkgs[i]}`), { after: s.q(`D::${prev.name}`) });
+      expect(after(back, t1), `moving ${pkgs[i]} up and down`).toBe(T);
+    }
+    // B after C (over the part def X) and back before X
+    const { ix, q } = setup(T);
+    const t1 = after(planMoveMember(ix, q("D::B"), { after: q("D::C") }), T);
+    const s = reload(t1);
+    expect(after(planMoveMember(s.ix, s.q("D::B"), { before: s.q("D::X") }), t1)).toBe(T);
+  });
+  test("a member without a blank line above it, in the middle, last and first of a body", () => {
+    const U = "package D {\n    package P1;\n    // note\n    package P2;\n    package P3;\n}\n";
+    for (const [mv, nx] of [["P1", "P2"], ["P2", "P3"]] as const) {
+      const { ix, q } = setup(U);
+      const t1 = after(planMoveMember(ix, q(`D::${mv}`), { after: q(`D::${nx}`) }), U);
+      const s = reload(t1);
+      const nextOf = mv === "P1" ? "P2" : "P3";
+      void nextOf;
+      const orig = setup(U);
+      const following = orig.q(`D::${mv}`).owner!.members;
+      const nextName = following[following.indexOf(orig.q(`D::${mv}`)) + 1]!.name!;
+      expect(after(planMoveMember(s.ix, s.q(`D::${mv}`), { before: s.q(`D::${nextName}`) }), t1), `${mv}`).toBe(U);
+    }
+  });
+});
+
+describe("refusals of the new operations in guarded cases (item 17c)", () => {
+  const OK = "package P {\n    requirement r;\n    requirement s;\n    verification def V { objective { } }\n    package Sec { doc /* x */ }\n}\n";
+  test("syntax errors in the file", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, OK);
+    const svc = new ModelService(host);
+    const q = (qn: string) => host.index.findByQualifiedName(qn)[0]!;
+    host.addDocument(URI, OK.replace("requirement s;", "requirement s")); // now broken
+    for (const r of [
+      await svc.verify(q("P::r"), q("P::V")),
+      await svc.derive(q("P::r"), [q("P::s")]),
+      await svc.addSection(q("P"), "N"),
+      await svc.addParagraph(q("P"), "text"),
+      await svc.moveMember(q("P::Sec"), { before: q("P::r") }),
+    ]) {
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/syntax error|cannot|errors/i);
+    }
+  });
+  test("library, excluded and out-of-workspace files, and inherited elements", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, OK);
+    host.addDocument("sysml-library:///L.sysml", "standard library package L { requirement lr; requirement ls; verification def LV { objective { } } package LS { doc /* x */ } }");
+    host.addDocument("file:///w/ex/e.sysml", "package Ex { requirement er; requirement es; package ES { doc /* x */ } verification def EV { objective { } } }");
+    host.blocked.set("file:///w/ex/e.sysml", "e.sysml is excluded from the model.");
+    host.addDocument("untitled:Untitled-1", "package U { requirement ur; package US { doc /* x */ } }");
+    const svc = new ModelService(host);
+    const q = (qn: string) => host.index.findByQualifiedName(qn)[0]!;
+    const targets: [string, () => Promise<{ ok: boolean }>][] = [
+      ["library verify", () => svc.verify(q("L::lr"), q("L::LV"))],
+      ["library derive", () => svc.derive(q("L::lr"), [q("L::ls")])],
+      ["library section", () => svc.addSection(q("L"), "N")],
+      ["library paragraph", () => svc.addParagraph(q("L::LS"), "t")],
+      ["library move", () => svc.moveMember(q("L::LS"), { position: "start" })],
+      ["excluded verify", () => svc.verify(q("Ex::er"), q("Ex::EV"))],
+      ["excluded derive", () => svc.derive(q("Ex::er"), [q("Ex::es")])],
+      ["excluded section", () => svc.addSection(q("Ex"), "N")],
+      ["excluded paragraph", () => svc.addParagraph(q("Ex::ES"), "t")],
+      ["excluded setParagraph", () => svc.setParagraph(q("Ex::ES").members[0]!, "t")],
+      ["outside workspace section", () => svc.addSection(q("U"), "N")],
+      ["outside workspace paragraph", () => svc.addParagraph(q("U::US"), "t")],
+      ["derive into a library owner", () => svc.derive(q("P::r"), [q("P::s")], q("L"))],
+      ["verify into a library case", () => svc.verify(q("P::r"), q("L::LV"))],
+    ];
+    for (const [name, run] of targets) expect((await run()).ok, name).toBe(false);
+    expect(host.buffers.get(URI)).toBe(OK);
+  });
+});
+
+describe("appendix placement (item 17d)", () => {
+  test("@Appendix; goes inside the new package and the import into the right package exactly once", () => {
+    const T = "package Outer {\n    package Spec {\n        package Body;\n    }\n    package Other;\n}\n";
+    const { ix, q } = setup(T, true);
+    const t = after(planAddSection(ix, q("Outer::Spec"), "Glossary", { appendix: true }), T);
+    expect(t.match(/import DocumentAnnotations::\*;/g)).toHaveLength(1);
+    expect(t.match(/@Appendix;/g)).toHaveLength(1);
+    // the import goes into the package that receives the appendix (Spec), before it, and not into Other or Glossary
+    expect(t.indexOf("import DocumentAnnotations")).toBeGreaterThan(t.indexOf("package Spec"));
+    expect(t.indexOf("import DocumentAnnotations")).toBeLessThan(t.indexOf("package Glossary"));
+    expect(t).toMatch(/package Glossary \{\n\s+@Appendix;\n\s+\}/);
+    expect(t.slice(t.indexOf("package Other"))).not.toContain("import");
+    // a second appendix does not add a second import
+    const s = setup(t, true);
+    const t2 = after(planAddSection(s.ix, s.q("Outer::Spec"), "Index", { appendix: true }), t);
+    expect(t2.match(/import DocumentAnnotations::\*;/g)).toHaveLength(1);
+    expect(t2.match(/@Appendix;/g)).toHaveLength(2);
   });
 });

@@ -283,7 +283,19 @@ export function planRemoveDerivation(index: ModelIndex, connection: Element, der
 
 export type MoveTarget = { owner?: Element; position?: "start" | "end"; after?: Element; before?: Element };
 
-/** The whole lines of a declaration and the comments attached to it, or why they cannot be cut out. */
+/** The start of the run of blank lines directly above the line that starts at `at` (`at` itself when there is none). Blank lines belong to the declaration below them. */
+function blankRunStart(text: string, at: number): number {
+  let start = at;
+  while (start > 0 && text[start - 1] === "\n") {
+    const prevEnd = text[start - 2] === "\r" ? start - 2 : start - 1;
+    const prevStart = lineStart(text, prevEnd);
+    if (!/^[ \t]*$/.test(text.slice(prevStart, prevEnd))) break;
+    start = prevStart;
+  }
+  return start;
+}
+
+/** The whole lines of a declaration, the comments attached to it and the blank lines above it (they travel with it), or why they cannot be cut out. */
 function blockOf(index: ModelIndex, text: string, el: Element): { start: number; end: number; text: string } | PlanFailure {
   const ds = declStart(text, el);
   if (!startsOwnLine(text, ds)) return fail(`${describeElement(el)} shares its line with other declarations and cannot be moved.`);
@@ -292,8 +304,9 @@ function blockOf(index: ModelIndex, text: string, el: Element): { start: number;
   const lineEnd = nl === -1 ? text.length : nl;
   const rest = tokenize(text).filter((t) => t.start >= de && t.start < lineEnd && !isWs(t));
   if (rest.some((t) => isCode(t) || isBlockComment(t))) return fail(`${describeElement(el)} shares its line with other declarations and cannot be moved.`);
-  const start = attachedStart(index, text, el);
-  const indent = lineIndent(text, start);
+  const declLineStart = attachedStart(index, text, el);
+  const start = blankRunStart(text, declLineStart);
+  const indent = lineIndent(text, declLineStart);
   const raw = text.slice(start, lineEnd).replace(/\r$/, "");
   const dedent = raw.split(/\r?\n/).map((l) => (l.startsWith(indent) ? l.slice(indent.length) : l.trimStart())).join("\n");
   return { start, end: nl === -1 ? text.length : nl + 1, text: dedent };
@@ -331,21 +344,31 @@ export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarg
     const i = sibs.indexOf(to.before);
     if (i < 0) return fail("The reference declaration is not a member of the target.");
     if (sameOwner && sibs[i - 1] === element) return fail("The declaration is already there.");
-    const prev = sibs.slice(0, i).reverse().find((m) => m !== element);
+    // The member before the reference's attached comments (a comment right above it travels with it, so go above it).
+    const refText = index.getDocument(to.before.uri)?.text ?? "";
+    const at = attachedStart(index, refText, to.before);
+    const prev = sibs.slice(0, i).reverse().find((m) => m !== element && m.range.end.offset <= at);
     position = prev ? { after: prev } : "start";
   } else position = to.position ?? "end";
   const ins = insertDecls(index, owner, [block.text], position);
   if (!ins.ok) return ins;
-  const del = deleteEdit(index, element);
-  if (!del.ok) return del;
-  const edits = [del.edit, ...ins.edits];
+  // The block (with its blank lines) is cut out whole, so that moving it back restores the text.
+  const del: { ok: true; edit: TextEdit } = { ok: true, edit: { uri: element.uri, range: { start: block.start, end: block.end }, newText: "" } };
+  // An insertion before a member goes above the blank lines that belong to that member.
+  const otext = oc.state.text;
+  const insEdits = ins.edits.map((e) => {
+    if (e.uri !== owner.uri || e.range.start !== e.range.end || otext[e.range.start - 1] !== "\n") return e;
+    const at = blankRunStart(otext, e.range.start);
+    return at === e.range.start ? e : { ...e, range: { start: at, end: at } };
+  });
+  const edits = [del.edit, ...insEdits];
   let result: string;
   try {
     result = applyEdits(text, edits.filter((e) => e.uri === element.uri));
   } catch (e) {
     return fail(`The move could not be planned (${(e as Error).message}); nothing was changed.`);
   }
-  if (result === text && ins.edits.every((e) => e.uri === element.uri)) return fail("The declaration is already there.");
+  if (result === text && insEdits.every((e) => e.uri === element.uri)) return fail("The declaration is already there.");
   const plan: PlanOk = { ok: true, edits, description: `Move ${describeElement(element)}${sameOwner ? "" : ` to ${describeElement(owner)}`}` };
   return checkResolutionPreserved(index, validatePlan(index, plan));
 }

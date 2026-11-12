@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ModelIndex, defaultDocumentParser } from "../model/index.js";
 import { FakeHost } from "../model-service/fake-host.js";
 import { ModelService } from "../model-service/service.js";
 import { ToolError, invokeTool, toolDefinitions, type ToolContext } from "./index.js";
@@ -120,5 +121,69 @@ describe("requirement edit tools", () => {
     expect(m.find((t) => t.name === "sysml_read_requirements_document")!.tags).toContain("read-only");
     expect(m.find((t) => t.name === "sysml_create_requirement")!.tags).toContain("edits-model");
     expect(toolDefinitions.filter((t) => !t.readOnly).every((t) => m.find((x) => x.name === t.name)!.tags.includes("read-only") === false)).toBe(true);
+  });
+});
+
+describe("requirement tools with hostile input", () => {
+  const PR = "VehicleSpec::'Performance Requirements'";
+  it("writes ids with spaces, quotes, backslashes and > quoted, and the real parser reads them back", async () => {
+    const ids = ["R 1", "a'b", "back\\slash", "x>y", "say \"hi\"", "end\\", "'"];
+    for (const id of ids) {
+      const { host, ctx } = setup();
+      const r = await call(ctx, "sysml_create_requirement", { owner: PR, name: "hostile", id, documentation: "text */ here" });
+      expect(r.isError, `${id}: ${r.text}`).toBeUndefined();
+      const text = host.buffers.get(URI)!;
+      expect(defaultDocumentParser(URI, text).errors, `${id}\n${text}`).toEqual([]);
+      const ix = new ModelIndex();
+      ix.setDocument(URI, text);
+      const el = ix.findByQualifiedName(`${PR}::hostile`)[0]!;
+      expect(el.shortName).toBe(id);
+      expect(el.documentation).toBe("text *\\/ here");
+    }
+  });
+  it("writes <'R 1'> with correct quoting", async () => {
+    const { host, ctx } = setup();
+    await call(ctx, "sysml_create_requirement", { owner: PR, name: "spaced", id: "R 1" });
+    expect(host.buffers.get(URI)).toContain("requirement <'R 1'> spaced;");
+  });
+  it("hostile qualified names are refused without changing anything", async () => {
+    const { host, ctx } = setup();
+    for (const owner of ["a'b", "VehicleSpec::", "::", "VehicleSpec::'", "'Perf'::x", "x".repeat(300), "A::'B::C'", "a\nb"]) {
+      const r = await call(ctx, "sysml_create_requirement", { owner, name: "x" });
+      expect(r.isError, owner).toBe(true);
+    }
+    expect((await call(ctx, "sysml_read_requirements_document", { package: "'" })).isError).toBe(true);
+    expect(host.buffers.get(URI)).toBe(MODEL);
+  });
+  it("names that are not names are refused", async () => {
+    const { host, ctx } = setup();
+    for (const name of ["a b\nc", "x;", "}", "a'b"]) {
+      const r = await call(ctx, "sysml_create_requirement", { owner: PR, name });
+      if (!r.isError) {
+        const text = host.buffers.get(URI)!;
+        expect(defaultDocumentParser(URI, text).errors, name).toEqual([]);
+      }
+    }
+  });
+  it("very long strings are rejected by the schema or written validly", async () => {
+    const { host, ctx } = setup();
+    expect((await call(ctx, "sysml_create_requirement", { owner: PR, name: "x".repeat(5000) })).isError).toBe(true);
+    expect((await call(ctx, "sysml_create_requirement", { owner: PR, name: "ok", documentation: "y".repeat(200000) })).isError).toBe(true);
+    expect((await call(ctx, "sysml_create_requirement", { owner: "x".repeat(100000), name: "ok" })).isError).toBe(true);
+    const long = await call(ctx, "sysml_create_requirement", { owner: PR, name: "longText", documentation: "word ".repeat(5000) });
+    expect(long.isError, long.text.slice(0, 200)).toBeUndefined();
+    expect(defaultDocumentParser(URI, host.buffers.get(URI)!).errors).toEqual([]);
+  });
+  it("kinds outside the enum and a verification case that is not one are refused", async () => {
+    const { host, ctx } = setup();
+    expect((await call(ctx, "sysml_create_relationship", { kind: "refine", requirement: `${PR}::massLimit` })).isError).toBe(true);
+    const r = await call(ctx, "sysml_create_relationship", { kind: "verify", requirement: `${PR}::chassisMass`, verificationCase: `${PR}::TestRig` });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/not a verification case/);
+    const r2 = await call(ctx, "sysml_create_relationship", { kind: "verify", requirement: `${PR}::TestRig`, newVerificationCase: "v2" });
+    expect(r2.isError).toBe(true);
+    const r3 = await call(ctx, "sysml_create_relationship", { kind: "derivation", original: `${PR}::TestRig`, derived: [`${PR}::chassisMass`] });
+    expect(r3.isError).toBe(true);
+    expect(host.buffers.get(URI)).toBe(MODEL);
   });
 });

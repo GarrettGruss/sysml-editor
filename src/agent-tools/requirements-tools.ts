@@ -15,7 +15,7 @@ const readRequirementsDocument: ToolDefinition = {
     "`package` is the qualified name of the root package (a nested package reads just that part). Output is limited to 60000 characters; the end then says it was truncated. Read-only.",
   inputSchema: {
     type: "object",
-    properties: { package: { type: "string", minLength: 1, description: "Qualified name of the package, e.g. VehicleSpec." } },
+    properties: { package: { type: "string", minLength: 1, maxLength: 4096, description: "Qualified name of the package, e.g. VehicleSpec." } },
     required: ["package"],
     additionalProperties: false,
   },
@@ -36,10 +36,10 @@ const createRequirement: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      owner: { type: "string", minLength: 1, description: "Qualified name of the package to add the requirement to." },
-      name: { type: "string", minLength: 1, description: "Name of the requirement." },
-      id: { type: "string", description: "Requirement id, written as the short name <'id'>." },
-      documentation: { type: "string", description: "The requirement text, written as a doc comment." },
+      owner: { type: "string", minLength: 1, maxLength: 4096, description: "Qualified name of the package to add the requirement to." },
+      name: { type: "string", minLength: 1, maxLength: 1000, description: "Name of the requirement." },
+      id: { type: "string", maxLength: 1000, description: "Requirement id, written as the short name <'id'>." },
+      documentation: { type: "string", maxLength: 100000, description: "The requirement text, written as a doc comment." },
       definition: { type: "boolean", description: "Create a requirement def instead of a requirement usage." },
     },
     required: ["owner", "name"],

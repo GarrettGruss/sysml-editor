@@ -28,6 +28,8 @@ export function validateSchema(value: unknown, schema: JsonSchema, path = "input
   if (t === "string" && typeof value !== "string") return [`${path} must be a string`];
   if (typeof value === "string" && schema.minLength !== undefined && value.length < schema.minLength)
     errs.push(`${path} must have at least ${schema.minLength} characters`);
+  if (typeof value === "string" && schema.maxLength !== undefined && value.length > schema.maxLength)
+    errs.push(`${path} must have at most ${schema.maxLength} characters`);
   if (t === "boolean" && typeof value !== "boolean") return [`${path} must be a boolean`];
   if ((t === "integer" || t === "number") && (typeof value !== "number" || !Number.isFinite(value)))
     return [`${path} must be a number`];

@@ -804,6 +804,7 @@
             "package": {
               "type": "string",
               "minLength": 1,
+              "maxLength": 4096,
               "description": "Qualified name of the package, e.g. VehicleSpec."
             }
           },
@@ -830,19 +831,23 @@
             "owner": {
               "type": "string",
               "minLength": 1,
+              "maxLength": 4096,
               "description": "Qualified name of the package to add the requirement to."
             },
             "name": {
               "type": "string",
               "minLength": 1,
+              "maxLength": 1000,
               "description": "Name of the requirement."
             },
             "id": {
               "type": "string",
+              "maxLength": 1000,
               "description": "Requirement id, written as the short name <'id'>."
             },
             "documentation": {
               "type": "string",
+              "maxLength": 100000,
               "description": "The requirement text, written as a doc comment."
             },
             "definition": {
