@@ -26,13 +26,13 @@ function typeOf(e: Element): string | undefined {
   return e.types.length ? e.types.join(", ") : undefined;
 }
 
-// ------------------------------------------------------------------ list_files
+// ------------------------------------------------------------------ sysml_list_files
 
 const listFiles: ToolDefinition = {
-  name: "list_files",
+  name: "sysml_list_files",
   description:
     "List the SysML v2 (.sysml) files of the workspace with their root package names and whether each has syntax errors. " +
-    "Standard library files are not listed. Use it first to find out what models exist; then use get_element_tree or get_element. " +
+    "Standard library files are not listed. Use it first to find out what models exist; then use sysml_get_element_tree or sysml_get_element. " +
     "Returns JSON: { files: [{ path, rootPackages, hasSyntaxErrors }] } with paths relative to the workspace root.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   readOnly: true,
@@ -50,7 +50,7 @@ const listFiles: ToolDefinition = {
   },
 };
 
-// ------------------------------------------------------------------ get_element_tree
+// ------------------------------------------------------------------ sysml_get_element_tree
 
 interface TreeNode {
   qualifiedName?: string;
@@ -83,7 +83,7 @@ function closestPrefixMessage(index: ModelIndex, qn: string): string {
       return `Closest existing prefix: "${prefix}"${names.length ? ` (members: ${names.join(", ")})` : ""}.`;
     }
   }
-  return "No prefix of that name exists; call list_files or get_element_tree without a root to see the top-level packages.";
+  return "No prefix of that name exists; call sysml_list_files or sysml_get_element_tree without a root to see the top-level packages.";
 }
 
 function lookup(index: ModelIndex, qn: string): readonly Element[] {
@@ -93,7 +93,7 @@ function lookup(index: ModelIndex, qn: string): readonly Element[] {
 }
 
 const getElementTree: ToolDefinition = {
-  name: "get_element_tree",
+  name: "sysml_get_element_tree",
   description:
     "Browse the ownership hierarchy of the SysML v2 model. Without `root` it starts at all root packages of the workspace; " +
     "with `root` (a qualified name such as VehicleModel::Vehicle) it returns that subtree, which can also be a standard library element. " +
@@ -167,7 +167,7 @@ const getElementTree: ToolDefinition = {
   },
 };
 
-// ------------------------------------------------------------------ get_element
+// ------------------------------------------------------------------ sysml_get_element
 
 function describeElement(e: Element, ctx: ToolContext) {
   const members = visibleChildren(e);
@@ -193,12 +193,12 @@ function describeElement(e: Element, ctx: ToolContext) {
 }
 
 const getElement: ToolDefinition = {
-  name: "get_element",
+  name: "sysml_get_element",
   description:
     "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, " +
     "specializes/subsets/redefines, multiplicity, documentation, visibility, owner, owned members (name, kind, type), relationship statements it owns " +
     "(connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only " +
-    "standard library content. Use get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. " +
+    "standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. " +
     "Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",
   inputSchema: {
     type: "object",
@@ -216,7 +216,7 @@ const getElement: ToolDefinition = {
 // ------------------------------------------------------------------ validate
 
 const validate: ToolDefinition = {
-  name: "validate",
+  name: "sysml_validate",
   description:
     "Check SysML v2 files for problems and return them as a list; an empty list means clean. Call it after writing or editing a .sysml file. " +
     "Reports (1) syntax errors and (2) unresolved names, limited to what can be judged reliably: the type after ':' of a usage, supertypes (:>) of definitions, " +
@@ -234,7 +234,7 @@ const validate: ToolDefinition = {
     if (typeof input.file === "string") {
       const uri = ctx.pathToUri(input.file);
       if (!uri || !ctx.index.getDocument(uri))
-        throw new ToolError(`No SysML file "${input.file}" in the workspace. Use list_files for the available paths (relative to the workspace root).`);
+        throw new ToolError(`No SysML file "${input.file}" in the workspace. Use sysml_list_files for the available paths (relative to the workspace root).`);
       uris = [uri];
     } else uris = workspaceUris(ctx.index);
     const problems: { file: string; line: number; column: number; severity: string; message: string }[] = [];
