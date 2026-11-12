@@ -1,15 +1,52 @@
 {
   "name": "sysml-editor",
-  "module": "index.ts",
-  "type": "module",
+  "displayName": "SysML Editor",
+  "description": "Graphical and model-aware editor for SysML v2",
+  "version": "0.0.1",
+  "publisher": "your-publisher",
   "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22",
+    "vscode": "^1.99.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/*.sysml",
+    "workspaceContains:**/*.kerml"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sysml",
+          "title": "SysML",
+          "icon": "$(symbol-structure)"
+        }
+      ]
+    },
+    "views": {
+      "sysml": [
+        {
+          "id": "sysmlModel",
+          "name": "SysML Model"
+        }
+      ]
+    }
+  },
   "scripts": {
-    "typecheck": "bun check"
+    "typecheck": "tsc --noEmit",
+    "build": "node esbuild.mjs",
+    "test": "vitest run",
+    "test:integration": "npm run build && tsc -p tsconfig.integration.json && node out/test/integration/runTest.js"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^7"
+    "@types/node": "^26.6.6",
+    "@types/vscode": "^1.146.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
   }
 }
