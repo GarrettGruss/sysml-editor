@@ -1,0 +1,11 @@
+export type { DiagramUpdate, PlanFailure, PlanOk, PlanResult, SourceLocation, TextEdit, TextRange, UnjudgedReferences } from "./types.js";
+export { applyEdits, groupByUri } from "./text.js";
+export { validatePlan } from "./validate.js";
+export { planInsertMember, buildDeclaration, type MemberSpec } from "./insert.js";
+export type { InsertPosition } from "./body.js";
+export { planDeleteElement } from "./delete.js";
+export { planRename, type LoadedDiagram, type RenameOptions } from "./rename.js";
+export { planSetType, planSetMultiplicity, planSetShortName, planSetDocumentation } from "./props.js";
+export { planConnect, planSatisfy } from "./connect.js";
+export { writeReference, type WrittenReference } from "./refs.js";
+export { checkDocument, checkElement } from "./guard.js";
