@@ -24,6 +24,10 @@ export interface BoxPatch {
 export interface MetricsNode extends NodeBox {
   parent?: string;
   attachedTo?: string;
+  /** `data-shape` of the drawn node: definition, usage, package, requirement, port or unresolved. */
+  shape?: string;
+  /** All text drawn in the node, joined with " | ". */
+  text?: string;
 }
 
 export interface EdgePoints {
@@ -47,6 +51,8 @@ export type TestGesture =
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
   | { kind: "menu"; id: string; action: "remove" | "relink" }
+  /** Open the context menu on a node, as a right click does. */
+  | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[] }
   | { kind: "flush" };
 
@@ -65,6 +71,9 @@ export interface MetricsEdge {
   target: string;
   /** The polyline as drawn. */
   points: { x: number; y: number }[];
+  /** Notation style (`satisfy`, `derivation`, ...) and the drawn label. */
+  style?: string;
+  label?: string;
 }
 
 export interface DiagramMetrics {
@@ -85,6 +94,8 @@ export interface DiagramMetrics {
   /** Ports whose centre is more than 2 px from their owner's border. */
   portsOffBorder: number;
   selected: string[];
+  /** Labels of the open context menu's items (empty when none is open). */
+  menu: string[];
   /** Selected nodes that carry an accessible name (aria-label). */
   selectedNamed: number;
   /** Resize handles drawn. */

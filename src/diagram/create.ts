@@ -1,5 +1,6 @@
 /** Creating diagrams from the model and adding elements to them. No `vscode` import. */
 import type { Element, ModelIndex } from "../model/index.js";
+import { isLibraryUri } from "../model/index.js";
 import { isVisible } from "../tree/tree-model.js";
 import type { DiagramDocument, DiagramEdge, DiagramKind, DiagramNode } from "./format.js";
 import { endElement, relationOf } from "./relations.js";
@@ -39,6 +40,16 @@ export function createDiagram(index: ModelIndex, rootQualifiedName: string, kind
   doc = addElement(doc, index, root, undefined, { sourceOf }).doc;
   const rootId = doc.nodes[0]!.id;
   for (const m of members.filter((m) => !isRelationship(m))) doc = addElement(doc, index, m, rootId, { sourceOf }).doc;
+  if (kind === "requirements") {
+    // Requirements the root's relationships refer to, wherever they are declared.
+    for (const m of members.filter(isRelationship)) {
+      const r = relationOf(m, index)!;
+      for (const end of [r.source, r.target]) {
+        const el = endElement(index, end, (x) => x.kind.includes("requirement") && !x.kind.includes("satisfy") && !isRelationship(x));
+        if (el && !isLibraryUri(el.uri)) doc = addElement(doc, index, el, rootId, { sourceOf }).doc;
+      }
+    }
+  }
   // Edges do not change which nodes exist, so resolve once for all relationship ends.
   const resolution = resolveDiagram(doc, index, { sourceOf });
   for (const m of members.filter(isRelationship)) doc = addElement(doc, index, m, undefined, { sourceOf, resolution }).doc;

@@ -125,29 +125,31 @@ describe("requirements view", () => {
   const vm = buildViewModel(doc, resolveDiagram(doc, ix, { sourceOf }), ix);
 
   it("shows requirement boxes with id, name and documentation", () => {
-    const n = vm.nodes.find((x) => x.id === "n2")!;
+    const n = vm.nodes.find((x) => x.id === "n3")!;
     expect(n.shape).toBe("requirement");
     expect(n.label).toBe("<R1> VehicleMass");
     expect(n.doc).toContain("shall not exceed 2000 kg");
+    expect(vm.nodes.find((x) => x.id === "n4")!.label).toBe("<R1.1> EngineMass");
   });
   it("draws satisfy and verify from the satisfier or verifier to the requirement, and derivation from derived to original", () => {
     const e = (id: string) => vm.edges.find((x) => x.id === id)!;
-    expect(e("e1")).toMatchObject({ style: "satisfy", source: "n4", target: "n2", label: "«satisfy»", resolved: true });
-    expect(e("e2")).toMatchObject({ style: "satisfy", source: "n6", target: "n3" });
-    expect(e("e3")).toMatchObject({ style: "derivation", source: "n3", target: "n2", label: "«derive»" });
-    expect(e("e4")).toMatchObject({ style: "verify", source: "n5", target: "n2", label: "«verify»" });
+    expect(e("e1")).toMatchObject({ style: "satisfy", source: "n2", target: "n3", label: "«satisfy»", resolved: true });
+    expect(e("e2")).toMatchObject({ style: "satisfy", source: "n6", target: "n4" });
+    expect(e("e3")).toMatchObject({ style: "derivation", source: "n4", target: "n3", label: "«derive»" });
+    expect(e("e4")).toMatchObject({ style: "verify", source: "n5", target: "n3", label: "«verify»" });
   });
   it("recognises the relationships in the model", () => {
-    const pkg = ix.findByQualifiedName("Requirements")[0]!;
+    const pkg = ix.findByQualifiedName("Design")[0]!;
     const kinds = pkg.members.map((m) => relationOf(m, ix)?.kind).filter(Boolean);
     expect(kinds).toEqual(["satisfy", "satisfy", "derivation"]);
   });
   it("a new Requirements View holds the requirements, what they relate to, and the relationships", () => {
-    const d = createDiagram(ix, "Requirements", "requirements", { sourceOf });
+    const d = createDiagram(ix, "Design", "requirements", { sourceOf });
     const refs = d.nodes.map((n) => n.ref);
+    expect(refs).toContain("Design::vehicle");
     expect(refs).toContain("Requirements::VehicleMass");
-    expect(refs).toContain("Requirements::vehicle");
-    expect(refs).not.toContain("Requirements::Engine");
+    expect(refs).toContain("Requirements::EngineMass");
+    expect(refs).not.toContain("Design::Engine");
     expect(d.edges.map((x) => x.locator?.kind).sort()).toEqual(["connection", "satisfy", "satisfy"]);
   });
 });
