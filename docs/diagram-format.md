@@ -66,6 +66,26 @@ the coordinates in `points`) are rounded to two decimals; every other number (st
 properties) is written unchanged, except `-0`, which becomes `0`. Opening and saving an unchanged canonical file is byte-identical. A file that was not
 canonical is normalised by the first save.
 
+## Layout, saving and conflicts
+
+A diagram is a view of the model; layout stays in memory until the user saves. Positions computed
+automatically for nodes without stored positions (on open or re-render) are not an unsaved change:
+the document is not dirty and there is no undo entry. They are written whenever the document is next
+saved for any reason. Only a user action (move, resize, Auto-layout, remove) or an agent tool call
+makes an undoable, dirtying edit. Stored positions never move; a stored position outside its
+container is drawn at the container's inner edge.
+
+Reference updates from rename detection are model-forced: they are written to the `.sysmld` file at
+once, on top of the file's last saved state (pending in-memory layout is not written), and applied
+in memory without dirtying or an undo entry.
+
+Save checks the file on disk first. If it changed since it was opened or last saved, a modal
+warning offers "Overwrite", "Revert to file on disk" or cancel (cancel fails the save, so the
+document stays dirty). When the file changes on disk while the document has unsaved changes, a
+non-modal warning says so once. A clean document reloads silently. A file that does not parse is
+never overwritten: saving it fails with an error. Undo and redo entries from before a reload or
+revert do nothing.
+
 ## Unresolved references
 
 If a reference matches no element (deleted or renamed in the text), the item stays in the file with
