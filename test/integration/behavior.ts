@@ -519,6 +519,9 @@ export function behaviorTests(c: Ctx): Test[] {
       assert.ok(t.includes("state operating"), "the other states stay");
       assert.strictEqual(api.model.index.getDocument(vscode.Uri.file(uriOf(model).fsPath).toString())?.errors.length, 0, "the model still parses");
       await waitFor(() => !diskDiagram(diagram).nodes.some((n) => n.id === off) && diskDiagram(diagram).edges.length === 1 /* low_to_high */, 15000, "the nodes and edges are gone from the diagram file");
+      // Settle first, as the editing tests do: the delete's save and re-parse must be finished, or the undo races them.
+      await waitFor(() => textDoc(model)?.isDirty === false && textDoc(model)?.getText() === onDisk(model), 15000, "the deleted text is saved and equal to its buffer");
+      await api.model.ready;
       await vscode.commands.executeCommand("undo");
       await waitFor(() => onDisk(model) === original, 15000, "one undo restores the text exactly");
     })],
