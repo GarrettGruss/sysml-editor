@@ -37,3 +37,10 @@
 
 - [x] 5.1 End-to-end test: create a diagram from the tree, arrange it, save, reopen, then have an agent read it as JSON and PNG; verify positions and content match
 - [x] 5.2 Package with `vsce package` and verify `.sysmld` files open in the diagram editor from an installed `.vsix` (`npm run package` and `check:vsix` pass locally; the existing CI step that runs the integration tests, diagram tests included, against the installed `.vsix` is CI only: installing a `.vsix` fails in this WSL environment)
+
+## 6. Layout editing additions
+
+- [ ] 6.1 Auto-layout of the selection only (unselected nodes fixed, crossing lines re-routed); whole diagram when nothing is selected; verify with metrics and an integration test
+- [ ] 6.2 Draggable orthogonal line routes (draw.io conventions): segment drag, end segments routed around their node when dragged past it, bend points added by double-click or segment-midpoint handles, collinear bends removed; derived lines and sequence messages fixed; stored as `points`, saved with the layout; verify with unit tests of the route geometry and integration tests
+- [ ] 6.3 Adjustable line labels: move and resize by handle, wrapping by default, right-click menu "Reset Position and Size" and "Wrap Text"; stored in the diagram file as layout; document the format in `docs/diagram-format.md`; verify with unit and integration tests
+
