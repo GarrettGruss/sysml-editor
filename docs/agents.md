@@ -197,9 +197,13 @@ cannot forge a marker (`<!--` and `-->` in model text are escaped).
 - `kind: "verify"` with `requirement` and either `verificationCase` (an existing case, whose objective gets `verify <requirement>;`;
   an objective is created when missing) or `newVerificationCase` (a name; `verification <name> { objective { verify <requirement>; } }`
   is created in `owner`, default the requirement's package). SysML v2 allows `verify` only inside a verification case.
-- `kind: "derivation"` with `original` and `derived` (a list): `#derivation connection { end #original ::> a; end #derive ::> b; }`
+  A requirement definition is verified as `verify requirement : R;`.
+- `kind: "derivation"` with `original` and `derived` (a list; usages only, a definition is refused; a second derivation from the same original in the same owner extends the existing connection): `#derivation connection { end #original ::> a; end #derive ::> b; }`
   in `owner` (default the package of the first derived requirement), plus `private import RequirementDerivation::*;` when
   those names are not visible there.
+
+String inputs are bounded (names and ids 1000 characters, qualified names 4096, documentation 100000); ids and names are quoted as needed (`<'R 1'>`).
+Comment text containing `*/` is stored as `*\/`; Markdown read through `sysml_read_requirements_document` shows it unescaped (one backslash is removed from each run of backslashes between `*` and `/`).
 
 Both channels (language model tools and MCP) return identical results; write tools are refused in an untrusted workspace and on
 files with syntax errors.

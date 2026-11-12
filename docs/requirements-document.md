@@ -21,8 +21,20 @@ changes (also from the text editor); a cell being edited and the selection are k
 | verify | `verify <requirement>;` inside the `objective` of a verification case (the only place SysML v2 allows it). An objective is created when the case has none; "new case" writes `verification <name> { objective { verify <requirement>; } }` |
 | derivation | `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; }` (one `end #derive` per derived requirement); `derive` is not a keyword. `private import RequirementDerivation::*;` is added when those names are not visible |
 
+A requirement *definition* is verified with `verify requirement : R;` (an anonymous requirement usage typed by the definition), which the relation reader
+recognises. A derivation connects requirement usages: a definition is refused. A second derivation from the same original in the same owner adds
+`end #derive ::> x;` to the existing connection instead of a second one; a duplicate end is refused. References written inside a verification case or
+derivation are written qualified when the requirement's name collides with a feature those inherit (`subject`, `objective`, `verdict`, ...), and a plan whose
+written reference would not resolve to the intended element after the edit is refused.
+
+Satisfy statements are read in all their forms: `satisfy R by x;`, `satisfy R;` (the owning element satisfies), and `satisfy requirement r : R by x;` (counted
+against `R`). `not satisfy R by x;` and `assert not satisfy ...` are shown as *not satisfied by x* and do not count as satisfied.
+
 Existing derivations are read back, both the untyped form above and the typed form (`#derivation connection : Def { end r1 ::> a; ... }`,
-where the roles come from the definition's `#original` and `#derive` ends). The Requirements View palette offers the same three tools (click
+where the roles come from the definition's `#original` and `#derive` ends), and hand-written forms: a connection annotated `@DerivationMetadata` or
+`metadata DerivationMetadata`, or typed by `DerivationConnections::Derivation` (resolved through specialization). They count like the others. Removing a whole
+derivation works for every form; removing one derived requirement from a hand-written connection with several is disabled (with an explanation), because its ends are
+required by the definition. The Requirements View palette offers the same three tools (click
 the source, then the target; derivation goes from the original to the derived requirement) and writes identical text.
 
 ## Document view
@@ -67,7 +79,24 @@ library: **SysML: Copy Document Annotations Library to Workspace** copies the fi
 ### The comment terminator
 
 SysML v2 comments cannot contain `*/` and define no escape. This extension stores `*/` in paragraph (and documentation) text as `*\/` and shows it as
-`*/`. It is a convention of this extension; other tools show the backslash.
+`*/`. It is a convention of this extension; other tools show the backslash. The convention is a bijection on runs of backslashes between `*` and `/`: writing adds one
+backslash to each such run (`*/` becomes `*\/`, `*\/` becomes `*\\/`), reading removes one. A literal `*\/` typed by the user is therefore stored as `*\\/` and shown
+again as `*\/`. It is applied wherever comment text is shown for editing or in the Document view and the agent's Markdown (and in the table's text column);
+raw displays such as the Diagram's documentation property and the tree tooltip show the stored text. **Existing files:** a comment that already contains `*\/` is
+displayed as `*/`, because that is the convention.
+
+### Edit conflicts
+
+Every cell, heading and paragraph edit carries the text the field was opened with. The host applies it only when the element still has that text; otherwise nothing
+changes and the field shows the current model text beside your draft with **Overwrite** (sends the draft against the new text) and **Discard**. A live refresh keeps a
+draft only while the model text it was started from is unchanged. Paragraphs are identified by their owner, kind and index among the owner's `doc`/`comment` members, so
+inserting text above a paragraph does not move an edit to another paragraph.
+
+### The DocumentAnnotations copy
+
+**SysML: Copy Document Annotations Library to Workspace** never overwrites an existing file and asks which folder when several are open. A workspace declaration of the root
+package `DocumentAnnotations` shadows the bundled one entirely (name resolution and qualified-name lookup see only the workspace copy), so resolution is never ambiguous and
+nothing tries to edit the bundled copy. Standard library packages are never shadowed.
 
 ### Paragraph formatting
 
