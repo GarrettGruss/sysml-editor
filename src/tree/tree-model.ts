@@ -531,6 +531,34 @@ export function affectedDiagramNodes(env: FolderEnv, previous: ReadonlySet<strin
   return [...out.values()];
 }
 
+// ---- All view: the same folders, with `.sysml` files (and their elements), then `.sysmld` diagrams ----
+
+/** True when a `.sysml` file or a diagram lies below the folder. */
+export function hasAnythingBelow(index: ModelIndex, diagrams: ReadonlySet<string>, folderUri: string): boolean {
+  return hasSysmlBelow(index, folderUri) || hasDiagramBelow(diagrams, folderUri);
+}
+
+/** Subfolders, then `.sysml` files, then diagram files (each by name) of a folder. Folders with neither below have only subfolders. */
+export async function allChildren(index: ModelIndex, diagrams: ReadonlySet<string>, env: FolderEnv, node: ModelNode): Promise<ModelNode[]> {
+  const empty = !hasAnythingBelow(index, diagrams, node.uri);
+  const indexed = new Set(workspaceUris(index));
+  const lower = (n: string) => n.toLowerCase();
+  const e = await shownEntries(env, node, (n) => lower(n).endsWith(".sysml") || lower(n).endsWith(".sysmld"));
+  if (!e) return [];
+  const uriOf = (n: string) => env.child(node.uri, n);
+  return [
+    ...capFolders(node, e.folders.map((n) => folderNode(uriOf(n))), empty),
+    ...(empty ? [] : e.files.filter((n) => lower(n).endsWith(".sysml")).map(uriOf).filter((u) => indexed.has(u)).map(fileNode)),
+    ...(empty ? [] : e.files.filter((n) => lower(n).endsWith(".sysmld")).map(uriOf).filter((u) => diagrams.has(u)).map(diagramNode)),
+  ];
+}
+
+export function allFolderInfo(index: ModelIndex, diagrams: ReadonlySet<string>, env: FolderEnv, node: ModelNode): { label: string; description?: string; empty: boolean } {
+  const root = env.roots.find((r) => r.uri === node.uri);
+  const empty = !hasAnythingBelow(index, diagrams, node.uri);
+  return { label: root?.name ?? fileName(node.uri), description: empty ? "no SysML files or diagrams" : undefined, empty };
+}
+
 // ---- Search: filter the tree to the nodes matching a query, plus the path to them ----
 
 /** Case-insensitive substring test of a trimmed query; an empty query matches nothing (it means "no filter"). */
@@ -615,4 +643,18 @@ export function keepFolderNodes(nodes: readonly ModelNode[], filter: { files: Re
 /** Keep the element nodes that match or lead to a match. */
 export function keepElementNodes(nodes: readonly ModelNode[], filter: ElementFilter): ModelNode[] {
   return nodes.filter((n) => filter.elements.has(n.id));
+}
+
+/** What stays visible in the All view: the element filter, with the matching diagram files added to its files. */
+export function buildAllFilter(index: ModelIndex, diagrams: Iterable<string>, query: string): ElementFilter {
+  const ef = buildElementFilter(index, query);
+  const files = new Set(ef.files);
+  let matches = ef.matches;
+  for (const u of diagrams) {
+    if (matchesQuery(fileName(u), query)) {
+      files.add(u);
+      matches++;
+    }
+  }
+  return { ...ef, files, matches, folders: ancestorsOf(files) };
 }

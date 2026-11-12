@@ -3,7 +3,7 @@ import { makeExcludeFilter } from "../workspace/exclude.js";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import {
   affectedDiagramNodes, affectedFolderNodes, diagramRoots, diagramChildren, diagramFolderInfo, diagramKindLabel, diagramNode, folderChain, isExcludedPath, visibleDiagrams, hasDiagramBelow, childNodes, fileChildren, folderChildren, folderInfo, folderParent, folderRoots, hasSysmlBelow, fileNode, folderNode, type FolderEnv, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
-  buildDiagramFilter, buildElementFilter, keepElementNodes, keepFolderNodes, matchesQuery,
+  allChildren, allFolderInfo, buildAllFilter, buildDiagramFilter, buildElementFilter, keepElementNodes, keepFolderNodes, matchesQuery,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -392,5 +392,43 @@ describe("search filtering", () => {
     expect(f.folders.has("file:///w") && f.folders.has("file:///w/a") && !f.folders.has("file:///w/b")).toBe(true);
     const kept = keepFolderNodes([folderNode("file:///w/a"), folderNode("file:///w/b"), diagramNode("file:///w/a/State One.sysmld")], f);
     expect(kept.map((n) => n.uri)).toEqual(["file:///w/a", "file:///w/a/State One.sysmld"]);
+  });
+});
+
+describe("All view", () => {
+  const disk: Record<string, { name: string; isDir: boolean }[]> = {
+    "file:///w": [
+      { name: "zeta", isDir: true }, { name: "Alpha", isDir: true }, { name: "b.sysmld", isDir: false }, { name: "z.sysml", isDir: false },
+      { name: "a.sysmld", isDir: false }, { name: "m.sysml", isDir: false }, { name: "x.md", isDir: false },
+    ],
+    "file:///w/Alpha": [{ name: "g.sysmld", isDir: false }],
+    "file:///w/zeta": [],
+  };
+  const env: FolderEnv = { roots: [{ name: "w", uri: "file:///w" }], list: async (u) => disk[u] ?? [], child: (f, n) => `${f}/${n}`, excluded: () => false };
+  const ix = new ModelIndex();
+  for (const n of ["z", "m"]) ix.setDocument(`file:///w/${n}.sysml`, `package ${n}Pkg { part def Engine; }`);
+  const diagrams = new Set(["file:///w/b.sysmld", "file:///w/a.sysmld", "file:///w/Alpha/g.sysmld"]);
+
+  it("lists subfolders, then .sysml files, then diagrams, each sorted by name", async () => {
+    const kids = await allChildren(ix, diagrams, env, folderNode("file:///w"));
+    expect(kids.map((k) => `${k.kind}:${k.id.split("/").pop()}`)).toEqual(["folder:Alpha", "folder:zeta", "file:m.sysml", "file:z.sysml", "diagram:a.sysmld", "diagram:b.sysmld"]);
+  });
+
+  it("is empty only when neither a .sysml file nor a diagram is below", async () => {
+    expect(allFolderInfo(ix, diagrams, env, folderNode("file:///w/Alpha"))).toMatchObject({ empty: false, description: undefined });
+    expect(allFolderInfo(ix, diagrams, env, folderNode("file:///w/zeta"))).toEqual({ label: "zeta", description: "no SysML files or diagrams", empty: true });
+    expect(allFolderInfo(new ModelIndex(), new Set(), env, folderNode("file:///w/Alpha")).empty).toBe(true);
+    const onlyEmpty = await allChildren(new ModelIndex(), new Set(), env, folderNode("file:///w"));
+    expect(onlyEmpty.every((n) => n.kind === "folder")).toBe(true);
+  });
+
+  it("searches element, .sysml file and diagram names", () => {
+    const byElement = buildAllFilter(ix, diagrams, "engine");
+    expect([...byElement.files].sort()).toEqual(["file:///w/m.sysml", "file:///w/z.sysml"]);
+    const byFile = buildAllFilter(ix, diagrams, "g.sysmld");
+    expect([...byFile.files]).toEqual(["file:///w/Alpha/g.sysmld"]);
+    expect(byFile.folders.has("file:///w/Alpha")).toBe(true);
+    expect(byFile.matches).toBe(1);
+    expect([...buildAllFilter(ix, diagrams, "m.sysml").files]).toEqual(["file:///w/m.sysml"]);
   });
 });

@@ -45,7 +45,7 @@ export function foldersTests(c: Ctx): Test[] {
     return out;
   };
 
-  const withFilter = (filter: "elements" | "diagrams", fn: () => Promise<void>): (() => Promise<void>) => async () => {
+  const withFilter = (filter: "elements" | "diagrams" | "all", fn: () => Promise<void>): (() => Promise<void>) => async () => {
     await api.provider.setFilter(filter);
     try {
       await fn();
@@ -202,7 +202,7 @@ export function foldersTests(c: Ctx): Test[] {
       const fired: unknown[] = [];
       const sub = api.provider.onDidChangeTreeData((e) => fired.push(e));
       try {
-        await vscode.commands.executeCommand("sysml.tree.showDiagrams");
+        await vscode.commands.executeCommand("sysml.tree.changeView", "diagrams");
         assert.strictEqual(api.provider.filter, "diagrams");
         assert.ok(fired.includes(undefined), "the whole tree is refreshed on a switch");
         const root = (await kids())[0]!;
@@ -210,7 +210,7 @@ export function foldersTests(c: Ctx): Test[] {
         assert.ok(top.every((n) => n.kind === "folder" || n.kind === "diagram"), "no .sysml files in the Diagrams view");
         assert.ok(top.some((n) => label(n) === "ports-general.sysmld"), "the fixture diagrams are leaves");
         assert.ok(top.every((n) => !n.kind || n.kind !== "file"));
-        await vscode.commands.executeCommand("sysml.tree.showElements");
+        await vscode.commands.executeCommand("sysml.tree.changeView", "elements");
         assert.strictEqual(api.provider.filter, "elements");
         assert.ok((await kids(root)).some((n) => n.kind === "file" && label(n) === "vehicle.sysml"));
         assert.ok(!(await kids(root)).some((n) => n.kind === "diagram"), "no diagrams in the Elements view");
@@ -505,6 +505,86 @@ export function foldersTests(c: Ctx): Test[] {
       const before = api.provider.ioCalls;
       await sleep(5000);
       assert.strictEqual(api.provider.ioCalls, before, "no search or directory read while idle");
+    })],
+    ["All view: switching shows subfolders, then .sysml files, then diagrams; a diagram opens from it; empty folders are marked; search matches elements, files and diagrams", withFilter("all", async () => {
+      setup();
+      mkdirSync(dir("vacant")); // "empty" may still be indexed with the previous test's new file for a while, so a folder of our own is checked
+      writeFileSync(dir("Nest", "deep", "d.sysmld"), JSON.stringify({ version: 1, kind: "interconnection", root: "Deep", sources: ["m.sysml"], nodes: [{ id: "n1", ref: "Deep" }], edges: [] }, null, 2) + "\n");
+      try {
+        assert.strictEqual(api.provider.filter, "all");
+        await waitFor(() => indexed("Nest/deep/m.sysml"), 20000, "m.sysml indexed");
+        const root = (await kids())[0]!;
+        await waitFor(async () => {
+          const t = (await kids(root)).find((n) => label(n) === "tmp-tree");
+          const nest = t && (await kids(t)).find((n) => label(n) === "Nest");
+          const deep = nest && (await kids(nest)).find((n) => label(n) === "deep");
+          return !!deep && (await kids(deep)).some((n) => label(n) === "d.sysmld");
+        }, 20000, "the diagram is found under Nest/deep");
+        const tmp = await find(root, "tmp-tree");
+        assert.deepStrictEqual((await kids(tmp)).map(label), ["docs", "empty", "Nest", "vacant", "a.sysml", "b.sysml"]);
+        for (const e of ["docs", "vacant"]) assert.strictEqual(api.provider.getTreeItem(await find(tmp, e)).description, "no SysML files or diagrams");
+        const deep = await find(await find(tmp, "Nest"), "deep");
+        assert.strictEqual(api.provider.getTreeItem(deep).description, undefined);
+        assert.deepStrictEqual((await kids(deep)).map((n) => `${n.kind}:${label(n)}`), ["file:m.sysml", "diagram:d.sysmld"]);
+        const file = await find(deep, "m.sysml");
+        assert.deepStrictEqual((await kids(file)).map(label), ["Deep"], "files still expand to elements");
+        assert.strictEqual(api.provider.getTreeItem(file).contextValue, "sysmlFile");
+        const leaf = await find(deep, "d.sysmld");
+        const item = api.provider.getTreeItem(leaf);
+        assert.strictEqual(item.description, "Interconnection");
+        assert.strictEqual(item.contextValue, "sysmlDiagram");
+        assert.strictEqual(api.provider.getParent(leaf)?.id, deep.id);
+        await vscode.commands.executeCommand(item.command!.command, ...(item.command!.arguments ?? []));
+        await waitFor(() => {
+          const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+          return input instanceof vscode.TabInputCustom && input.viewType === "sysml.diagram" && input.uri.fsPath === dir("Nest", "deep", "d.sysmld");
+        }, 20000, "the diagram opens in the diagram editor");
+        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+
+        // search: element name, .sysml file name and diagram name
+        api.search.post({ type: "query", text: "DEEP" });
+        let d = await find(await find(await find(root, "tmp-tree"), "Nest"), "deep");
+        assert.deepStrictEqual((await kids(d)).map(label), ["m.sysml"], "the element Deep matches m.sysml's content");
+        api.search.post({ type: "query", text: "d.sysmld" });
+        d = await find(await find(await find(root, "tmp-tree"), "Nest"), "deep");
+        assert.deepStrictEqual((await kids(d)).map(label), ["d.sysmld"]);
+        api.search.post({ type: "query", text: "b.sysml" });
+        assert.deepStrictEqual((await kids(await find(root, "tmp-tree"))).map(label), ["b.sysml"]);
+        api.search.post({ type: "query", text: "qqqzzz" });
+        assert.deepStrictEqual((await kids()).map(label), ["No matches"]);
+        api.search.post({ type: "query", text: "" });
+      } finally {
+        api.search.post({ type: "query", text: "" });
+        rmSync(dir(), { recursive: true, force: true });
+        await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
+      }
+    })],
+    ["All view: follow-cursor reveals the element through its file and folders", withFilter("all", async () => {
+      const vehicleUri = vscode.Uri.joinPath(folder, "vehicle.sysml");
+      const root = (await kids())[0]!;
+      const file = await find(root, "vehicle.sysml");
+      const engine = await find(await find(await find(file, "Vehicle"), "Car"), "engine");
+      assert.strictEqual(api.provider.getParent(engine)?.id, (await find(await find(file, "Vehicle"), "Car")).id);
+      await vscode.commands.executeCommand("sysml.goToDefinition", await find(await find(file, "Vehicle"), "Car"));
+      const ed = vscode.window.activeTextEditor!;
+      assert.strictEqual(ed.document.uri.toString(), vehicleUri.toString());
+      const calls: ModelNode[] = [];
+      const reveals: Thenable<void>[] = [];
+      const view = api.view;
+      const orig = view.reveal.bind(view);
+      (view as { reveal: typeof view.reveal }).reveal = (n, o) => { calls.push(n); const r = orig(n, o); reveals.push(r); return r; };
+      try {
+        await sleep(800);
+        await vscode.commands.executeCommand("sysmlModel.focus");
+        await waitFor(() => view.visible, 3000, "view visible");
+        const line = ed.document.getText().split("\n").findIndex((l) => l.includes("part engine"));
+        ed.selection = new vscode.Selection(line, 11, line, 11);
+        await waitFor(() => calls.some((n) => n.id === engine.id), 3000, "reveal of engine in the All view");
+        await Promise.all(reveals);
+        await waitFor(() => view.selection[0]?.id === engine.id, 3000, "engine is selected in the view");
+      } finally {
+        (view as { reveal: typeof view.reveal }).reveal = orig;
+      }
     })],
     ["Delete File: cancel keeps the file; a referenced file's confirmation lists the count and file; confirming removes an unreferenced file from disk, tree and agent tools", withFolders(async () => {
       rmSync(dir(), { recursive: true, force: true });
