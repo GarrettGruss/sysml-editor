@@ -1,7 +1,8 @@
 /** Messages between the extension host and the diagram webview. No `vscode` import, no DOM. */
 import type { ViewModel } from "./view-model.js";
 
-export type PngTheme = "light";
+/** `light`: the fixed export theme. `editor-dark`: the editor appearance (selection handles included) in a fixed dark palette, for test artifacts. */
+export type PngTheme = "light" | "editor-dark";
 
 export interface NodeBox {
   id: string;
@@ -11,32 +12,103 @@ export interface NodeBox {
   h: number;
 }
 
+/** A change to a stored box, relative to the parent node (ports: to their owner). Size is written only when given. */
+export interface BoxPatch {
+  id: string;
+  x: number;
+  y: number;
+  w?: number;
+  h?: number;
+}
+
 export interface MetricsNode extends NodeBox {
   parent?: string;
   attachedTo?: string;
 }
 
+export interface EdgePoints {
+  id: string;
+  points: { x: number; y: number }[];
+}
+
+/** User edits from the webview. Each one is a single undoable edit of the diagram file only. */
+export type DiagramEdit =
+  | { kind: "layout"; label: "Move" | "Resize" | "Nudge"; boxes: BoxPatch[] }
+  | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
+  | { kind: "remove"; ids: string[] };
+
+export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
+
+/** Test-only gestures, replayed as DOM events so they take the code paths real input takes. */
+export type TestGesture =
+  | { kind: "select"; id: string; shift?: boolean }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
+  | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
+  | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
+  | { kind: "menu"; id: string; action: "remove" | "relink" }
+  | { kind: "drop"; names: string[] }
+  | { kind: "flush" };
+
 export type HostToWebview =
   | { type: "render"; viewModel: ViewModel }
   | { type: "exportPng"; requestId: number; theme: PngTheme }
-  | { type: "getMetrics"; requestId: number };
+  | { type: "getMetrics"; requestId: number }
+  | { type: "command"; name: DiagramCommand }
+  | { type: "select"; ids: string[] }
+  | { type: "testGesture"; requestId: number; gesture: TestGesture };
+
+/** Edges, in the metrics: absolute canvas coordinates. */
+export interface MetricsEdge {
+  id: string;
+  source: string;
+  target: string;
+  /** The polyline as drawn. */
+  points: { x: number; y: number }[];
+}
+
+export interface DiagramMetrics {
+  /** Absolute canvas coordinates. */
+  nodes: MetricsNode[];
+  edges: MetricsEdge[];
+  overlaps: number;
+  /** Text elements wider than their box. */
+  overflows: number;
+  /** Child nodes whose box is not inside their parent's box. */
+  outsideParent: number;
+  /** Edge segments that are neither horizontal nor vertical. */
+  diagonalSegments: number;
+  /** Edges with a segment through the interior of one of their own end nodes (an end that contains the other is skipped). */
+  edgesThroughEndNodes: number;
+  /** Edge labels whose box overlaps one of the edge's end nodes. */
+  labelsOverEndNodes: number;
+  /** Ports whose centre is more than 2 px from their owner's border. */
+  portsOffBorder: number;
+  selected: string[];
+  /** Selected nodes that carry an accessible name (aria-label). */
+  selectedNamed: number;
+  /** Resize handles drawn. */
+  handles: number;
+  focusable: boolean;
+  /** Zoom factor. */
+  zoom: number;
+}
 
 export type WebviewToHost =
   | { type: "ready" }
-  /** Positions the webview computed for nodes that had none; relative to the parent node. */
-  | { type: "layoutChanged"; nodes: NodeBox[]; edges: { id: string; points: { x: number; y: number }[] }[] }
+  /** Positions the webview computed for nodes that had none (relative to the parent node), and routes for edges. */
+  | { type: "layoutChanged"; nodes: NodeBox[]; edges: EdgePoints[] }
+  | { type: "edit"; edit: DiagramEdit }
+  | { type: "selection"; ids: string[] }
+  | { type: "relink"; id: string }
+  | { type: "showElement" }
+  /** Qualified names dropped from the tree onto the diagram. */
+  | { type: "dropElements"; names: string[] }
   | { type: "pngResult"; requestId: number; base64: string; error?: string }
-  | {
-      type: "metricsResult";
-      requestId: number;
-      /** Absolute canvas coordinates. */
-      nodes: MetricsNode[];
-      edges: { id: string; source: string; target: string }[];
-      overlaps: number;
-      /** Text elements wider than their box. */
-      overflows: number;
-      /** Child nodes whose box is not inside their parent's box. */
-      outsideParent: number;
-    }
+  | ({ type: "metricsResult"; requestId: number } & DiagramMetrics)
+  | { type: "gestureResult"; requestId: number; error?: string }
   | { type: "openAsText" }
   | { type: "error"; message: string };
+
+/** MIME type the tree puts its dragged element references under. The payload is a JSON array of qualified names. */
+export const ELEMENT_MIME = "application/vnd.sysml-editor.elements";

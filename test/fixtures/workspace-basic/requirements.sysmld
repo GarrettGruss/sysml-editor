@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "kind": "requirements",
+  "root": "Requirements",
+  "sources": [
+    "requirements.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Requirements"
+    },
+    {
+      "id": "n2",
+      "ref": "Requirements::VehicleMass",
+      "parent": "n1"
+    },
+    {
+      "id": "n3",
+      "ref": "Requirements::EngineMass",
+      "parent": "n1"
+    },
+    {
+      "id": "n4",
+      "ref": "Requirements::vehicle",
+      "parent": "n1"
+    },
+    {
+      "id": "n5",
+      "ref": "Requirements::MassTest",
+      "parent": "n1"
+    },
+    {
+      "id": "n6",
+      "ref": "Requirements::vehicle::engine",
+      "parent": "n4"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "locator": {
+        "owner": "Requirements",
+        "kind": "satisfy",
+        "ends": [
+          "VehicleMass",
+          "vehicle"
+        ]
+      },
+      "source": "n4",
+      "target": "n2"
+    },
+    {
+      "id": "e2",
+      "locator": {
+        "owner": "Requirements",
+        "kind": "satisfy",
+        "ends": [
+          "EngineMass",
+          "vehicle.engine"
+        ]
+      },
+      "source": "n4",
+      "target": "n3"
+    },
+    {
+      "id": "e3",
+      "locator": {
+        "owner": "Requirements",
+        "kind": "connection",
+        "ends": []
+      },
+      "source": "n3",
+      "target": "n2"
+    },
+    {
+      "id": "e4",
+      "locator": {
+        "owner": "Requirements::MassTest",
+        "kind": "verify",
+        "ends": [
+          "VehicleMass"
+        ]
+      },
+      "source": "n5",
+      "target": "n2"
+    }
+  ]
+}

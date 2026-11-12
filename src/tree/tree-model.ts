@@ -113,6 +113,33 @@ export function resolveNode(index: ModelIndex, node: ModelNode): Element | undef
   return found;
 }
 
+/** The tree node for an element, or undefined when it is not shown in the tree (library, hidden kinds, gone). */
+export function nodeForElement(index: ModelIndex, el: Element): ModelNode | undefined {
+  const doc = index.getDocument(el.uri);
+  if (!doc || isLibraryUri(el.uri)) return undefined;
+  const chain: Element[] = [];
+  for (let e: Element | undefined = el; e; e = e.owner) chain.unshift(e);
+  let siblings: readonly Element[] = doc.model.roots.filter(isVisible);
+  const path: string[] = [];
+  for (const e of chain) {
+    const seg = segments(siblings).get(e);
+    if (seg === undefined) return undefined;
+    path.push(seg);
+    siblings = visibleChildren(e);
+  }
+  return { uri: el.uri, id: makeId(el.uri, path) };
+}
+
+/** Qualified names of the elements the tree nodes stand for, for dragging them. */
+export function elementNames(index: ModelIndex, nodes: readonly ModelNode[]): string[] {
+  const out: string[] = [];
+  for (const n of nodes) {
+    const qn = resolveNode(index, n)?.qualifiedName;
+    if (qn !== undefined && !out.includes(qn)) out.push(qn);
+  }
+  return out;
+}
+
 export function nodeOf(uri: string, id: string): ModelNode {
   return { uri, id };
 }

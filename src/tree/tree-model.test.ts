@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import {
-  affectedNodes, childNodes, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
+  affectedNodes, childNodes, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -151,5 +151,24 @@ describe("files that never parsed cleanly", () => {
     const roots = rootNodes(ix);
     expect(roots.every((n) => !isErrorNode(n))).toBe(true);
     expect(info(ix, roots[0]!).label).toBe("P");
+  });
+});
+
+describe("elements and tree nodes", () => {
+  it("finds the node of an element, also among same-named siblings, and lists names for dragging", () => {
+    const ix = setup();
+    const p = rootNodes(ix)[0]!;
+    const deep = ix.findByQualifiedName("P::Inner::Deep")[0]!;
+    const node = nodeForElement(ix, deep)!;
+    expect(resolveNode(ix, node)).toBe(deep);
+    const engine = ix.findByQualifiedName("P::engine")[0]!;
+    const n2 = nodeForElement(ix, engine)!;
+    expect(kids(ix, p).map((k) => k.id)).toContain(n2.id);
+    expect(elementNames(ix, [node, n2, node])).toEqual(["P::Inner::Deep", "P::engine"]);
+  });
+  it("has no node for library elements", () => {
+    const ix = setup();
+    ix.setDocument(`${LIBRARY_URI_SCHEME}:///Lib.sysml`, "package Lib { part def X; }");
+    expect(nodeForElement(ix, ix.findByQualifiedName("Lib::X")[0]!)).toBeUndefined();
   });
 });
