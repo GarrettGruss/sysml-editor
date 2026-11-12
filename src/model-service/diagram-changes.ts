@@ -25,6 +25,10 @@ export interface DiagramChange {
   revert(doc: DiagramDocument, ctx: ChangeContext): DiagramDocument;
   /** Reference keys of items this change created (for session tracking). */
   createdKeys?(): string[];
+  /** Declaring document of each created item (reference key to URI). */
+  createdIn?(): Map<string, string>;
+  /** The items this change removed from the diagram file `uri` (to see whether they can come back). */
+  removedItems?(uri: string): { nodes: DiagramNode[]; edges: DiagramEdge[] } | undefined;
 }
 
 export interface Placement {
@@ -41,6 +45,7 @@ export interface Placement {
 export function placeElementChange(index: ModelIndex, element: () => Element | undefined, placement: Placement, label: string): DiagramChange {
   const added = new Map<string, string[]>();
   const keys: string[] = [];
+  const declared = new Map<string, string>();
   return {
     target: { uri: placement.diagram },
     label,
@@ -51,7 +56,10 @@ export function placeElementChange(index: ModelIndex, element: () => Element | u
       const r = addElement(doc, index, el, parent, { sourceOf: ctx.sourceOf });
       if (!r.added || !r.id) return r.doc;
       const ref = referenceFor(el);
-      if (ref) keys.push(referenceKey(ref));
+      if (ref) {
+        keys.push(referenceKey(ref));
+        declared.set(referenceKey(ref), el.uri);
+      }
       added.set(ctx.uri, [r.id]);
       let next = r.doc;
       const isNode = next.nodes.some((n) => n.id === r.id);
@@ -65,6 +73,7 @@ export function placeElementChange(index: ModelIndex, element: () => Element | u
       return ids.length ? removeItems(doc, ids) : doc;
     },
     createdKeys: () => keys,
+    createdIn: () => declared,
   };
 }
 
@@ -106,5 +115,31 @@ export function removeEntriesChange(qns: string[], label: string): DiagramChange
       const items = removed.get(ctx.uri);
       return items ? restoreItems(doc, items) : doc;
     },
+  };
+}
+
+/**
+ * Entries of items this session created whose element vanished from a clean model (design D6): an ordinary forced
+ * change, so it can be reverted when the element comes back at the same qualified name.
+ */
+export function dropEntriesChange(keys: readonly string[], label: string): DiagramChange {
+  const set = new Set(keys);
+  const removed = new Map<string, { nodes: DiagramNode[]; edges: DiagramEdge[] }>();
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      const ids = [...doc.nodes, ...doc.edges].filter((i) => set.has(referenceKey(i))).map((i) => i.id);
+      if (!ids.length) return doc;
+      const next = removeItems(doc, ids);
+      const kept = new Set([...next.nodes, ...next.edges].map((i) => i.id));
+      removed.set(ctx.uri, { nodes: doc.nodes.filter((n) => !kept.has(n.id)), edges: doc.edges.filter((e) => !kept.has(e.id)) });
+      return next;
+    },
+    revert(doc, ctx) {
+      const items = removed.get(ctx.uri);
+      return items ? restoreItems(doc, items) : doc;
+    },
+    removedItems: (uri) => removed.get(uri),
   };
 }

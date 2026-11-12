@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ModelIndex } from "../model/index.js";
 import { serializeDiagram, type DiagramDocument } from "./format.js";
+import { dropEntriesChange } from "../model-service/diagram-changes.js";
 import { DiagramState, dropKeys, forceChange, forceOnText, refresh, unforceChange } from "./session.js";
 import { referenceKey } from "./resolve.js";
 
@@ -70,5 +71,64 @@ describe("items created in this session that vanish from the text", () => {
     expect(r.vanished).toEqual(["ref:P::fresh"]);
     const dropped = dropKeys(s.doc!, r.vanished!);
     expect(dropped.nodes.map((n) => n.id)).toEqual(["n1", "n2"]);
+  });
+});
+
+describe("vanished items: only a clean parse of the declaring document drops them", () => {
+  const URI = "file:///w/a.sysml";
+  const model = (t: string, into?: ModelIndex) => {
+    const i = into ?? new ModelIndex();
+    i.setDocument(URI, t);
+    return i;
+  };
+  const fresh = () => {
+    const s = new DiagramState(text(doc([{ id: "n1", ref: "P::A", x: 1, y: 1 }, { id: "n9", ref: "P::fresh", x: 70, y: 80 }])));
+    s.created.add(referenceKey({ ref: "P::fresh" }));
+    s.createdIn.set(referenceKey({ ref: "P::fresh" }), URI);
+    return s;
+  };
+  const CTX = { uri: "file:///w/d.sysmld", sourceOf: (() => undefined) as never };
+
+  test("a document with a syntax error never drops anything (even though its model lacks the element), and fixing it keeps the node", () => {
+    const s = fresh();
+    const ix = model("package P { part def A; part "); // never parsed cleanly: empty model
+    expect(ix.getDocument(URI)!.errors.length).toBeGreaterThan(0);
+    expect(refresh(s, ix)!.vanished).toBeUndefined();
+    model("package P { part def A; part fresh; }", ix);
+    const r = refresh(s, ix)!;
+    expect(r.vanished).toBeUndefined();
+    expect(s.doc!.nodes.some((n) => n.id === "n9")).toBe(true);
+  });
+
+  test("an item that rename detection matched is not dropped", () => {
+    const s = fresh();
+    const ix = model("package P { part def A; part fresh; }");
+    refresh(s, ix); // snapshot
+    model("package P { part def A; part fresher; }", ix);
+    const r = refresh(s, ix)!;
+    expect(r.vanished).toBeUndefined();
+    expect(r.updates?.some((u) => u.itemId === "n9")).toBe(true);
+  });
+
+  test("Undo in the text editor (clean parse, element gone) drops the node; Redo brings it back at its position", () => {
+    const s = fresh();
+    const ix = model("package P { part def A; part fresh; }");
+    expect(refresh(s, ix)!.vanished).toBeUndefined();
+    model("package P { part def A; }", ix);
+    const gone = refresh(s, ix)!;
+    expect(gone.vanished).toEqual(["ref:P::fresh"]);
+    const change = dropEntriesChange(gone.vanished!, "drop");
+    forceChange(s, change, (d) => change.apply(d, CTX), s.disk);
+    s.dropped.push({ change, uri: CTX.uri });
+    for (const k of gone.vanished!) s.created.delete(k);
+    expect(s.doc!.nodes.map((n) => n.id)).toEqual(["n1"]);
+    expect(refresh(s, ix)!.restore).toBeUndefined();
+    // the element returns at the same qualified name
+    model("package P { part def A; part fresh; }", ix);
+    const back = refresh(s, ix)!;
+    expect(back.restore).toEqual([change]);
+    unforceChange(s, change, (d) => change.revert(d, CTX), s.disk);
+    expect(s.doc!.nodes.find((n) => n.id === "n9")).toMatchObject({ ref: "P::fresh", x: 70, y: 80 });
+    expect(s.forced.some((f) => f.token === change)).toBe(false);
   });
 });

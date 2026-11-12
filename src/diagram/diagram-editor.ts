@@ -20,8 +20,8 @@ import { listElements, relinkCandidates } from "./new-diagram.js";
 import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
 import { relink } from "./reconcile.js";
 import { makeSourceMapper, referenceKey, resolveReference } from "./resolve.js";
-import { DiagramState, decideSave, dropKeys, followRename, forceChange, hashViewModel, noteExternalChange, refresh, unforceChange } from "./session.js";
-import type { DiagramChange } from "../model-service/diagram-changes.js";
+import { DiagramState, decideSave, followRename, forceChange, hashViewModel, noteExternalChange, refresh, unforceChange } from "./session.js";
+import { dropEntriesChange, type DiagramChange } from "../model-service/diagram-changes.js";
 import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, DiagramProblem } from "./format.js";
 
 export const VIEW_TYPE = "sysml.diagram";
@@ -371,7 +371,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       mode === "apply"
         ? forceChange(doc.state, change, (d) => change.apply(d, ctx), disk)
         : unforceChange(doc.state, change, (d) => change.revert(d, ctx), disk);
-    if (mode === "apply") for (const k of change.createdKeys?.() ?? []) doc.state.created.add(k);
+    if (mode === "apply") {
+      for (const k of change.createdKeys?.() ?? []) doc.state.created.add(k);
+      for (const [k, u] of change.createdIn?.() ?? []) doc.state.createdIn.set(k, u);
+    }
     doc.state.snapshot = undefined;
     if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
     this.rerender(doc);
@@ -650,6 +653,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (!r) return;
     if (r.updates && !doc.renderOnly) void this.followRename(doc, r.updates);
     if (r.vanished && !doc.renderOnly) void this.dropVanished(doc, r.vanished);
+    if (r.restore && !doc.renderOnly) void this.restoreDropped(doc, r.restore);
     for (const p of this.panels.get(doc.key) ?? []) {
       if (!p.ready) continue;
       // The generation is part of the key: after a reload the webview must learn the new one even if the drawing is the same.
@@ -665,18 +669,40 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     }
   }
 
-  /** Entries this session created for elements that have since disappeared from the text are removed (no placeholder). */
+  /**
+   * Entries this session created for elements that have since disappeared from a CLEAN parse of their document are
+   * removed (no placeholder). The removal is an ordinary forced change: if the element comes back at the same
+   * qualified name in this session, the entries are restored at their previous position.
+   */
   private async dropVanished(doc: SysmlDiagramDocument, keys: string[]): Promise<void> {
+    // Synchronously, so a second refresh before the first finishes does not drop twice.
+    for (const k of keys) doc.state.created.delete(k);
     try {
-      const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
       // A later undo of an unrelated edit must not bring the dropped placement back.
       doc.state.forced = doc.state.forced.filter((f) => !((f.token as Partial<DiagramChange>).createdKeys?.() ?? []).some((k) => keys.includes(k)));
-      const r = forceChange(doc.state, {}, (d) => dropKeys(d, keys), disk);
-      for (const k of keys) doc.state.created.delete(k);
-      if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
-      this.rerender(doc);
+      const change = dropEntriesChange(keys, "Remove entries of vanished elements");
+      doc.state.dropped.push({ change, uri: doc.uri.toString() });
+      await this.forceOpen(doc, change, "apply");
     } catch (e) {
       this.log(`diagram: dropping vanished entries failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** The element of dropped entries is back: put the entries back where they were (and track them as session-created again). */
+  private async restoreDropped(doc: SysmlDiagramDocument, changes: DiagramChange[]): Promise<void> {
+    const mine = doc.state.dropped.filter((d) => changes.includes(d.change));
+    doc.state.dropped = doc.state.dropped.filter((d) => !changes.includes(d.change));
+    for (const d of mine) {
+      try {
+        const items = d.change.removedItems?.(d.uri);
+        await this.forceOpen(doc, d.change, "revert");
+        for (const i of [...(items?.nodes ?? []), ...(items?.edges ?? [])]) {
+          const k = referenceKey(i);
+          doc.state.created.add(k);
+        }
+      } catch (e) {
+        this.log(`diagram: restoring dropped entries failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 
