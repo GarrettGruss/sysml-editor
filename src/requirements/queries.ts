@@ -4,13 +4,15 @@
  */
 import type { Element, ModelIndex } from "../model/index.js";
 import { unescapeTerminator } from "../edit/comment.js";
-import { allDerivations, isRequirement, verificationCaseOf } from "./relations.js";
+import { allDerivations, isNegatedSatisfy, isRequirement, isVerifyStatement, satisfyParts, verificationCaseOf, verifiedRequirement } from "./relations.js";
 
 export interface SatisfyRel {
   statement: Element;
   /** The satisfying element as written. */
   by: string;
   byElement?: Element;
+  /** `not satisfy R by x;`: stated NOT to be satisfied; not counted as satisfied. */
+  negated: boolean;
 }
 export interface VerifyRel {
   statement: Element;
@@ -22,6 +24,8 @@ export interface DerivationRel {
   /** The other requirement of the relation (the original for `derivedFrom`, a derived one for `derives`). */
   other: Element | undefined;
   otherRef: string;
+  /** Why this derivation cannot be removed one requirement at a time (a hand-written form with several derived ends). */
+  removeBlocked?: string;
 }
 
 export interface RequirementInfo {
@@ -37,6 +41,8 @@ export interface RequirementInfo {
   owner?: string;
   line: number;
   satisfiedBy: SatisfyRel[];
+  /** `not satisfy R by x;` statements. */
+  notSatisfiedBy: SatisfyRel[];
   verifiedBy: VerifyRel[];
   /** This requirement is derived from these. */
   derivedFrom: DerivationRel[];
@@ -61,14 +67,13 @@ const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => {
 export function buildRelations(index: ModelIndex): Relations {
   const rel: Relations = { satisfy: new Map(), verify: new Map(), derivedFrom: new Map(), derives: new Map() };
   const walk = (e: Element) => {
-    if (e.kind === "satisfy" && e.ends.length >= 2) {
-      const r = e.owner ? index.resolve(e.ends[0]!, e.owner) : undefined;
-      if (r && isRequirement(r)) {
-        const by = e.owner ? index.resolve(e.ends[1]!, e.owner) : undefined;
-        push(rel.satisfy, r, { statement: e, by: e.ends[1]!, ...(by ? { byElement: by } : {}) });
+    if (e.kind === "satisfy") {
+      const p = satisfyParts(index, e);
+      if (p?.requirement && isRequirement(p.requirement)) {
+        push(rel.satisfy, p.requirement, { statement: e, by: p.by, ...(p.byElement ? { byElement: p.byElement } : {}), negated: isNegatedSatisfy(index, e) });
       }
-    } else if (e.kind === "verify" && e.ends.length >= 1) {
-      const r = e.owner ? index.resolve(e.ends[0]!, e.owner) : undefined;
+    } else if (isVerifyStatement(e)) {
+      const r = verifiedRequirement(index, e);
       const v = verificationCaseOf(e);
       if (r && isRequirement(r) && v) push(rel.verify, r, { statement: e, verifier: v });
     }
@@ -77,9 +82,11 @@ export function buildRelations(index: ModelIndex): Relations {
   for (const u of index.uris()) if (!index.isReadOnly(u)) index.getDocument(u)?.model.roots.forEach(walk);
   for (const d of allDerivations(index)) {
     const o = d.original?.target;
+    const blocked = d.form !== "hash" && d.derived.length > 1 ? "This derivation is written by hand (metadata or a typed connection); edit its text to change it." : undefined;
+    const b = blocked ? { removeBlocked: blocked } : {};
     for (const x of d.derived) {
-      if (x.target && isRequirement(x.target)) push(rel.derivedFrom, x.target, { connection: d.connection, other: o, otherRef: d.original?.ref ?? "" });
-      if (o && isRequirement(o)) push(rel.derives, o, { connection: d.connection, other: x.target, otherRef: x.ref });
+      if (x.target && isRequirement(x.target)) push(rel.derivedFrom, x.target, { connection: d.connection, other: o, otherRef: d.original?.ref ?? "", ...b });
+      if (o && isRequirement(o)) push(rel.derives, o, { connection: d.connection, other: x.target, otherRef: x.ref, ...b });
     }
   }
   return rel;
@@ -96,7 +103,8 @@ export function describeRequirement(e: Element, rel: Relations): RequirementInfo
     text: unescapeTerminator(e.documentation ?? ""),
     ...(e.owner?.qualifiedName !== undefined ? { owner: e.owner.qualifiedName } : {}),
     line: e.range.start.line,
-    satisfiedBy: rel.satisfy.get(e) ?? [],
+    satisfiedBy: (rel.satisfy.get(e) ?? []).filter((s) => !s.negated),
+    notSatisfiedBy: (rel.satisfy.get(e) ?? []).filter((s) => s.negated),
     verifiedBy: rel.verify.get(e) ?? [],
     derivedFrom: rel.derivedFrom.get(e) ?? [],
     derives: rel.derives.get(e) ?? [],

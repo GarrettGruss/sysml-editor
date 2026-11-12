@@ -11,6 +11,8 @@ export interface RelationVM {
   /** For derivations: the key of the connection and the qualified name of the derived requirement to remove. */
   connectionKey?: string;
   derivedQn?: string;
+  /** Why removing this relation is not offered (a hand-written derivation that cannot be edited safely). */
+  removeBlocked?: string;
 }
 
 export interface RequirementRowVM {
@@ -23,6 +25,8 @@ export interface RequirementRowVM {
   satisfy: number;
   verify: number;
   satisfiedBy: RelationVM[];
+  /** `not satisfy R by x;` statements: shown as "not satisfied by x", not counted. */
+  notSatisfiedBy: RelationVM[];
   verifiedBy: RelationVM[];
   derivedFrom: RelationVM[];
   derives: RelationVM[];

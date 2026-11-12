@@ -12,8 +12,8 @@ const label = (e: Element | undefined, fallback: string) => (e ? [e.shortName, e
 export type Editable = (uri: string) => boolean;
 
 function rowOf(i: RequirementInfo, editable: Editable): RequirementRowVM {
-  const rel = (list: { statement?: Element; connection?: Element; label: string; derivedQn?: string }[]): RelationVM[] =>
-    list.map((r) => ({ key: statementKey((r.statement ?? r.connection)!), label: r.label, ...(r.connection ? { connectionKey: statementKey(r.connection) } : {}), ...(r.derivedQn ? { derivedQn: r.derivedQn } : {}) }));
+  const rel = (list: { statement?: Element; connection?: Element; label: string; derivedQn?: string; removeBlocked?: string }[]): RelationVM[] =>
+    list.map((r) => ({ key: statementKey((r.statement ?? r.connection)!), label: r.label, ...(r.connection ? { connectionKey: statementKey(r.connection) } : {}), ...(r.derivedQn ? { derivedQn: r.derivedQn } : {}), ...(r.removeBlocked ? { removeBlocked: r.removeBlocked } : {}) }));
   return {
     qn: i.qualifiedName,
     kind: i.kind,
@@ -24,9 +24,10 @@ function rowOf(i: RequirementInfo, editable: Editable): RequirementRowVM {
     satisfy: i.satisfiedBy.length,
     verify: i.verifiedBy.length,
     satisfiedBy: rel(i.satisfiedBy.map((s) => ({ statement: s.statement, label: label(s.byElement, s.by) }))),
+    notSatisfiedBy: rel(i.notSatisfiedBy.map((s) => ({ statement: s.statement, label: label(s.byElement, s.by) }))),
     verifiedBy: rel(i.verifiedBy.map((v) => ({ statement: v.statement, label: v.verifier.qualifiedName ?? v.verifier.name ?? "verification" }))),
-    derivedFrom: rel(i.derivedFrom.map((d) => ({ connection: d.connection, label: label(d.other, d.otherRef), derivedQn: i.qualifiedName }))),
-    derives: rel(i.derives.map((d) => ({ connection: d.connection, label: label(d.other, d.otherRef), ...(d.other?.qualifiedName ? { derivedQn: d.other.qualifiedName } : {}) }))),
+    derivedFrom: rel(i.derivedFrom.map((d) => ({ connection: d.connection, label: label(d.other, d.otherRef), derivedQn: i.qualifiedName, ...(d.removeBlocked ? { removeBlocked: d.removeBlocked } : {}) }))),
+    derives: rel(i.derives.map((d) => ({ connection: d.connection, label: label(d.other, d.otherRef), ...(d.other?.qualifiedName ? { derivedQn: d.other.qualifiedName } : {}), ...(d.removeBlocked ? { removeBlocked: d.removeBlocked } : {}) }))),
     editable: editable(i.uri),
   };
 }

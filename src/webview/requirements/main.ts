@@ -150,7 +150,7 @@ function ask(anchor: HTMLElement, placeholder: string, testid: string, done: (va
 
 function relList(title: string, items: RelationVM[], testid: string, remove: (r: RelationVM) => void, add?: { label: string; onClick: () => void }): HTMLElement {
   const ul = h("ul", { class: "rel-list", "data-testid": testid });
-  for (const r of items) ul.append(h("li", {}, h("span", { class: "rel-label" }, r.label), button("Remove", testid + "-remove", () => remove(r), { title: `Remove ${r.label}`, className: "icon" })));
+  for (const r of items) ul.append(h("li", {}, h("span", { class: "rel-label" }, r.label), button("Remove", testid + "-remove", () => remove(r), { title: r.removeBlocked ?? `Remove ${r.label}`, className: "icon", disabled: r.removeBlocked !== undefined })));
   if (!items.length) ul.append(h("li", { class: "none" }, "none"));
   return h("div", { class: "rel" }, h("h4", {}, title), ul, add ? button(add.label, testid + "-add", add.onClick) : undefined);
 }
@@ -168,6 +168,7 @@ function detailPane(row: RequirementRowVM): HTMLElement {
   );
   pane.append(
     relList("Satisfied by", row.satisfiedBy, "rel-satisfy", (r) => intent({ type: "removeSatisfy", key: r.key }), { label: "Add satisfy...", onClick: () => intent({ type: "addSatisfy", qn: row.qn }) }),
+    ...(row.notSatisfiedBy.length ? [relList("Not satisfied by", row.notSatisfiedBy, "rel-not-satisfy", (r) => intent({ type: "removeSatisfy", key: r.key }))] : []),
     relList("Verified by", row.verifiedBy, "rel-verify", (r) => intent({ type: "removeVerify", key: r.key }), { label: "Add verification...", onClick: () => intent({ type: "addVerify", qn: row.qn }) }),
     relList("Derived from", row.derivedFrom, "rel-derived-from", (r) => intent({ type: "removeDerivation", connectionKey: r.connectionKey!, ...(r.derivedQn ? { derivedQn: r.derivedQn } : {}) }), { label: "Derived from...", onClick: () => intent({ type: "addDerivedFrom", qn: row.qn }) }),
     relList("Derives", row.derives, "rel-derives", (r) => intent({ type: "removeDerivation", connectionKey: r.connectionKey!, ...(r.derivedQn ? { derivedQn: r.derivedQn } : {}) }), { label: "Add derived...", onClick: () => intent({ type: "addDerives", qn: row.qn }) }),
