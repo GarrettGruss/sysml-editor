@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { ModelNode } from "./index.js";
@@ -505,6 +505,43 @@ export function foldersTests(c: Ctx): Test[] {
       const before = api.provider.ioCalls;
       await sleep(5000);
       assert.strictEqual(api.provider.ioCalls, before, "no search or directory read while idle");
+    })],
+    ["Delete File: cancel keeps the file; a referenced file's confirmation lists the count and file; confirming removes an unreferenced file from disk, tree and agent tools", withFolders(async () => {
+      rmSync(dir(), { recursive: true, force: true });
+      mkdirSync(dir(), { recursive: true });
+      writeFileSync(dir("dfa.sysml"), "package DfaLib { part def DfaEngine; }\n");
+      writeFileSync(dir("dfb.sysml"), "package DfaUse { part def DfaCar { part e : DfaLib::DfaEngine; } }\n");
+      writeFileSync(dir("dfc.sysml"), "package DfaLone { part def DfaZ; }\n");
+      const asked: { message: string; detail: string }[] = [];
+      let answer = false;
+      api.diagram.setUi({ confirm: async (message, detail) => { asked.push({ message, detail }); return answer; } });
+      try {
+        await waitFor(() => indexed("dfa.sysml") && indexed("dfb.sysml") && indexed("dfc.sysml"), 30000, "the files are indexed");
+        const root = (await vkids())[0]!;
+        const tmp = await vfind(root, "tmp-tree");
+        const nodeA = await vfind(tmp, "dfa.sysml");
+        assert.strictEqual(api.provider.getTreeItem(nodeA).contextValue, "sysmlFile");
+        await vscode.commands.executeCommand("sysml.tree.deleteFile", nodeA);
+        assert.strictEqual(asked.length, 1);
+        assert.ok(asked[0]!.message.includes("dfa.sysml"), asked[0]!.message);
+        assert.ok(/1 reference in dfb\.sysml will no longer resolve/.test(asked[0]!.detail), asked[0]!.detail);
+        assert.ok(readFileSync(dir("dfa.sysml"), "utf8").includes("DfaLib"), "cancel leaves the file");
+        assert.ok(indexed("dfa.sysml"));
+        asked.length = 0;
+        answer = true;
+        const nodeC = await vfind(tmp, "dfc.sysml");
+        await vscode.commands.executeCommand("sysml.tree.deleteFile", nodeC);
+        assert.strictEqual(asked.length, 1);
+        assert.ok(!asked[0]!.detail.includes("no longer resolve"), asked[0]!.detail);
+        await waitFor(() => !indexed("dfc.sysml"), 20000, "the file leaves the index");
+        assert.ok(!existsSync(dir("dfc.sysml")), "gone from disk");
+        await waitFor(async () => !(await vkids(tmp)).some((k) => label(k) === "dfc.sysml"), 20000, "the node leaves the tree");
+        const r = await api.agent.testCallToolOverMcp("sysml_list_files", {});
+        assert.ok(!r.text.includes("dfc.sysml") && r.text.includes("dfa.sysml"), r.text);
+      } finally {
+        api.diagram.setUi(undefined);
+        rmSync(dir(), { recursive: true, force: true });
+      }
     })],
   ];
 
