@@ -74,5 +74,6 @@ export function processDocComment(raw: string): string {
     if (i === 0) return l.replace(/^[ \t]+/, "");
     return /^[ \t]*\*/.test(l) ? l.replace(/^[ \t]*\*[ \t]?/, "") : l.replace(/^[ \t]+/, "");
   });
-  return lines.join("\n").trim();
+  // Only blank lines at the start and whitespace at the end are dropped; the indentation of the first text line is kept.
+  return lines.join("\n").replace(/^(?:[ \t]*\n)+/, "").trimEnd();
 }

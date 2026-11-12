@@ -11,10 +11,13 @@ import { detectEol, isBlockComment, lineIndent, tokenize } from "./text.js";
 import { fail, type PlanResult } from "./types.js";
 import { validatePlan } from "./validate.js";
 
-/** Text as it is stored in a comment: `*` `/` becomes `*\/`. */
-export const escapeTerminator = (s: string): string => s.replace(/\*\//g, "*\\/");
-/** Text as it is shown: `*\/` becomes `*` `/`. */
-export const unescapeTerminator = (s: string): string => s.replace(/\*\\\//g, "*/");
+/**
+ * Text as it is stored in a comment. A bijection on runs of backslashes between `*` and `/`: each such run gets one more
+ * backslash (`*` `/` becomes `*\/`, `*\/` becomes `*\\/`), so that reading (which removes one) restores the original.
+ */
+export const escapeTerminator = (s: string): string => s.replace(/\*(\\*)\//g, "*\\$1/");
+/** Text as it is shown: one backslash is removed from each run of backslashes between `*` and `/`. */
+export const unescapeTerminator = (s: string): string => s.replace(/\*\\(\\*)\//g, "*$1/");
 
 /** The shown text of a raw comment token (`/* ... *\/`): margins stripped, `*\/` unescaped. */
 export function commentBodyText(raw: string): string {
@@ -38,9 +41,14 @@ export function commentStyle(raw: string): CommentStyle {
 export function buildComment(body: string, eol: string, indent: string, style: CommentStyle, keyword: string): string {
   const lines = body.split("\n");
   if (!style.multi && lines.length === 1) return style.tight ? `${keyword}/*${body}*/` : `${keyword}/* ${body} */`;
-  if (style.multi && !style.margin) return [`${keyword}/*`, ...lines.map((l) => (l === "" ? "" : indent + l)), `${indent}*/`].join(eol);
+  // Without margins a line that starts with `*` or whitespace would not survive `processDocComment`: use margins.
+  const needsMargin = lines.some((l) => /^[\s*]/.test(l));
+  if (style.multi && !style.margin && !needsMargin) return [`${keyword}/*`, ...lines.map((l) => (l === "" ? "" : indent + l)), `${indent}*/`].join(eol);
   return [`${keyword}/*`, ...lines.map((l) => (l === "" ? `${indent} *` : `${indent} * ${l}`)), `${indent} */`].join(eol);
 }
+
+/** `body` with LF line ends, without blank lines at the start and without trailing whitespace; the first line's indentation stays. */
+export const trimBlankLines = (body: string): string => body.replace(/\r\n/g, "\n").replace(/^(?:[ \t]*\n)+/, "").trimEnd();
 
 const SHORT = 72;
 
@@ -57,8 +65,8 @@ export function planSetCommentBody(index: ModelIndex, comment: Element, body: st
   if (comment.kind !== "doc" && comment.kind !== "comment") return fail(`${describeElement(comment)} is not a doc or comment element.`);
   const text = c.state.text;
   const label = comment.kind === "doc" ? "documentation" : "comment";
-  const clean = body.replace(/\r\n/g, "\n").trim();
-  if (clean === "") {
+  const clean = trimBlankLines(body);
+  if (clean.trim() === "") {
     const r = deleteEdit(index, comment);
     if (!r.ok) return r;
     return validatePlan(index, { ok: true, edits: [r.edit], description: `Remove a ${label} paragraph` });
