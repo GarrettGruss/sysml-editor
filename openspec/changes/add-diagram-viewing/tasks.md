@@ -2,12 +2,12 @@
 
 ## 1. Diagram files
 
-- [ ] 1.1 Define the `.sysmld` schema (design D5) with a versioned, deterministic serializer and parser, and publish it as a JSON Schema; verify a unit test that open and save is byte-identical and all test diagrams validate
+- [x] 1.1 Define the `.sysmld` schema (design D5) with a versioned, deterministic serializer and parser, and publish it as a JSON Schema; verify a unit test that open and save is byte-identical and all test diagrams validate
 - [ ] 1.2 Implement the `CustomEditorProvider` and `CustomDocument` for `.sysmld` with dirty state, save, revert, backup, and an edit stack; verify an integration test for save and revert
-- [ ] 1.3 Implement reference resolution (design D3): qualified names for named elements and structural locators for unnamed ones; verify the "Reference by qualified name" and "Unnamed connection" scenarios
+- [x] 1.3 Implement reference resolution (design D3): qualified names for named elements and structural locators for unnamed ones; verify the "Reference by qualified name" and "Unnamed connection" scenarios
 - [ ] 1.4 Implement unresolved placeholders with "Remove from diagram" and "Re-link…", and rename detection for renames typed in the text editor; verify the "External deletion" and "Rename typed in the text editor" scenarios
 - [ ] 1.5 Implement "New Diagram…" pre-populated from a root element; verify it produces a valid file showing the element's direct members
-- [ ] 1.6 Document the format, the locator rules, and the JSON Schema in `docs/diagram-format.md`
+- [x] 1.6 Document the format, the locator rules, and the JSON Schema in `docs/diagram-format.md`
 
 ## 2. Diagram canvas
 
