@@ -135,7 +135,8 @@ function ask(anchor: HTMLElement, placeholder: string, testid: string, done: (va
     box.remove();
     done(v);
   };
-  input.addEventListener("keydown", (ev) => {
+  input.addEventListener("keydown", (e: Event) => {
+    const ev = e as KeyboardEvent;
     if (ev.key === "Enter" && !(multiline && ev.shiftKey)) {
       ev.preventDefault();
       submit();
