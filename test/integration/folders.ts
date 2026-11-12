@@ -135,10 +135,8 @@ export function foldersTests(c: Ctx): Test[] {
       assert.strictEqual(api.provider.getParent(file)?.id, root.id);
       assert.strictEqual(api.provider.getParent(root), undefined);
 
-      await vscode.commands.executeCommand("sysml.goToDefinition", car);
-      const ed = vscode.window.activeTextEditor!;
+      const ed = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vehicleUri));
       assert.strictEqual(ed.document.uri.toString(), vehicleUri.toString());
-      assert.strictEqual(ed.document.getText(ed.selection), "Car");
 
       const calls: ModelNode[] = [];
       const reveals: Thenable<void>[] = [];
@@ -150,6 +148,7 @@ export function foldersTests(c: Ctx): Test[] {
         await vscode.commands.executeCommand("sysmlModel.focus");
         await waitFor(() => view.visible, 3000, "view visible");
         const line = ed.document.getText().split("\n").findIndex((l) => l.includes("part engine"));
+        ed.selection = new vscode.Selection(0, 0, 0, 0);
         ed.selection = new vscode.Selection(line, 11, line, 11);
         await waitFor(() => calls.some((n) => n.id === engine.id), 3000, "reveal of engine through file and folders");
         await Promise.all(reveals);
@@ -565,8 +564,7 @@ export function foldersTests(c: Ctx): Test[] {
       const file = await find(root, "vehicle.sysml");
       const engine = await find(await find(await find(file, "Vehicle"), "Car"), "engine");
       assert.strictEqual(api.provider.getParent(engine)?.id, (await find(await find(file, "Vehicle"), "Car")).id);
-      await vscode.commands.executeCommand("sysml.goToDefinition", await find(await find(file, "Vehicle"), "Car"));
-      const ed = vscode.window.activeTextEditor!;
+      const ed = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vehicleUri));
       assert.strictEqual(ed.document.uri.toString(), vehicleUri.toString());
       const calls: ModelNode[] = [];
       const reveals: Thenable<void>[] = [];
@@ -578,6 +576,7 @@ export function foldersTests(c: Ctx): Test[] {
         await vscode.commands.executeCommand("sysmlModel.focus");
         await waitFor(() => view.visible, 3000, "view visible");
         const line = ed.document.getText().split("\n").findIndex((l) => l.includes("part engine"));
+        ed.selection = new vscode.Selection(0, 0, 0, 0);
         ed.selection = new vscode.Selection(line, 11, line, 11);
         await waitFor(() => calls.some((n) => n.id === engine.id), 3000, "reveal of engine in the All view");
         await Promise.all(reveals);
@@ -622,6 +621,27 @@ export function foldersTests(c: Ctx): Test[] {
         api.diagram.setUi(undefined);
         rmSync(dir(), { recursive: true, force: true });
       }
+    })],
+    ["Deleting a folder that holds an indexed .sysml file (open in an editor, via fs.rmSync and via the VS Code API) drops it from the index, the tree and sysml_list_files", withFolders(async () => {
+      for (const how of ["rmSync", "vscodeApi"]) {
+        const name = `gone-${how}`;
+        rmSync(dir(), { recursive: true, force: true });
+        mkdirSync(dir(name), { recursive: true });
+        writeFileSync(dir(name, "gone.sysml"), `package Gone${how} { part def GoneThing${how}; }\n`);
+        await waitFor(() => indexed(name, "gone.sysml"), 30000, `${how}: the file is indexed`);
+        await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(dir(name, "gone.sysml"))));
+        const root = (await vkids())[0]!;
+        const tmp = await vfind(root, "tmp-tree");
+        await vfind(tmp, name);
+        if (how === "rmSync") rmSync(dir(name), { recursive: true, force: true });
+        else await vscode.workspace.fs.delete(vscode.Uri.file(dir(name)), { recursive: true });
+        await waitFor(() => !indexed(name, "gone.sysml"), 20000, `${how}: the deleted folder's open file leaves the index`);
+        await waitFor(async () => !(await vkids(tmp)).some((k) => label(k) === name), 20000, `${how}: the folder leaves the tree`);
+        const r = await api.agent.testCallToolOverMcp("sysml_list_files", {});
+        assert.ok(!r.text.includes(`${name}/gone.sysml`), r.text);
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      }
+      rmSync(dir(), { recursive: true, force: true });
     })],
   ];
 

@@ -84,7 +84,8 @@ export class WorkspaceModel implements vscode.Disposable {
     if (deleted) {
       const prefix = key + "/";
       if (this.hasUriWithPrefix(prefix)) {
-        const open = new Set(vscode.workspace.textDocuments.filter((d) => !d.isClosed).map((d) => uriKey(d.uri)));
+        // Only unsaved edits are protected: a clean editor of a deleted file stays open in VS Code but its model must go.
+        const open = new Set(vscode.workspace.textDocuments.filter((d) => !d.isClosed && d.isDirty).map((d) => uriKey(d.uri)));
         for (const u of this.index.uris()) if (u.startsWith(prefix) && !open.has(u)) this.index.removeDocument(u);
       }
     } else {
@@ -245,7 +246,10 @@ export class WorkspaceModel implements vscode.Disposable {
   private remove(uri: vscode.Uri): void {
     const key = uriKey(uri);
     this.tracker.touch(key);
-    if (vscode.workspace.textDocuments.some((d) => uriKey(d.uri) === key && !d.isClosed)) return;
+    // Only unsaved edits are protected: a clean editor of a deleted file stays open in VS Code but its model must go.
+    if (vscode.workspace.textDocuments.some((d) => uriKey(d.uri) === key && !d.isClosed && d.isDirty)) return;
+    clearTimeout(this.timers.get(key));
+    this.timers.delete(key);
     this.index.removeDocument(key);
   }
 

@@ -716,17 +716,26 @@ export async function goToDefinition(index: ModelIndex, node: ModelNode | undefi
 
 /** Cursor-to-tree sync. Never reveals while the view is hidden or while the index lags the editor text. */
 export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<ModelNode>, provider: ModelTreeProvider, log?: (m: string) => void): vscode.Disposable {
-  return vscode.window.onDidChangeTextEditorSelection((e) => {
+  // The selection lags a reveal still in flight, so equality with it alone must not suppress the next reveal.
+  let requested: string | undefined;
+  const follow = (editor: vscode.TextEditor | undefined): void => {
+    if (!editor) return;
     if (!vscode.workspace.getConfiguration("sysml").get<boolean>("tree.followCursor", true)) return;
     if (!view.visible) return;
-    const doc = e.textEditor.document;
+    const doc = editor.document;
     const key = uriKey(doc.uri);
     // A debounce is pending: offsets in the index would not match the editor.
     if (index.getDocument(key)?.text !== doc.getText()) return;
-    const node = nodeAtOffset(index, key, doc.offsetAt(e.selections[0]!.active));
-    if (!node || view.selection[0]?.id === node.id) return;
+    const node = nodeAtOffset(index, key, doc.offsetAt(editor.selections[0]!.active));
+    if (!node || (requested === node.id && view.selection[0]?.id === node.id)) return;
+    requested = node.id;
     void provider.revealNode(view, node, log);
-  });
+  };
+  // Switching to an editor (opening a file from the Explorer restores its cursor without a selection event) follows too.
+  return vscode.Disposable.from(
+    vscode.window.onDidChangeTextEditorSelection((e) => follow(e.textEditor)),
+    vscode.window.onDidChangeActiveTextEditor((e) => follow(e)),
+  );
 }
 
 /** Create `model.sysml` (or `modelN.sysml`) in the folder node, else in the workspace folder (asking which when there are several). */
