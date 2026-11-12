@@ -4,7 +4,7 @@
  */
 import type { MetricsNode } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
-import { absoluteBoxes, countOverlaps, type Box, type Measure } from "./geometry.js";
+import { absoluteBoxes, countOutsideParent, countOverlaps, type Box, type Measure } from "./geometry.js";
 import type { LayoutResult } from "./layout.js";
 import { LIGHT_PALETTE, buildSvg, wrapStandalone } from "./svg.js";
 
@@ -13,6 +13,7 @@ export interface Metrics {
   edges: { id: string; source: string; target: string }[];
   overlaps: number;
   overflows: number;
+  outsideParent: number;
 }
 
 export interface DiagramRenderer {
@@ -109,7 +110,7 @@ export class SvgRenderer implements DiagramRenderer {
 
   getMetrics(): Metrics {
     const vm = this.vm;
-    if (!vm) return { nodes: [], edges: [], overlaps: 0, overflows: 0 };
+    if (!vm) return { nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0 };
     const abs = absoluteBoxes(vm, this.rel);
     const nodes: MetricsNode[] = vm.nodes.flatMap((n) => {
       const b = abs.get(n.id);
@@ -123,7 +124,7 @@ export class SvgRenderer implements DiagramRenderer {
       if (!box || g.getAttribute("data-shape") === "port") continue;
       for (const t of g.querySelectorAll<SVGTextElement>("text")) if (t.getBBox().width > box.w + 0.5) overflows++;
     }
-    return { nodes, edges: vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })), overlaps: countOverlaps(vm, abs), overflows };
+    return { nodes, edges: vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target })), overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs) };
   }
 
   toSvgString(_theme: "light"): string {

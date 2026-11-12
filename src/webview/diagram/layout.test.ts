@@ -5,7 +5,7 @@ import { ModelIndex } from "../../model/index.js";
 import { parseDiagram } from "../../diagram/format.js";
 import { resolveDiagram } from "../../diagram/resolve.js";
 import { buildViewModel } from "../../diagram/view-model.js";
-import { absoluteBoxes, clipToBox, countOverlaps, describeBox, headPoints, wrapText, type Measure } from "./geometry.js";
+import { absoluteBoxes, clipToBox, countOutsideParent, countOverlaps, describeBox, headPoints, wrapText, type Measure } from "./geometry.js";
 import { layoutDiagram, type ElkLike } from "./layout.js";
 import { LIGHT_PALETTE, buildSvg, wrapStandalone } from "./svg.js";
 
@@ -100,5 +100,16 @@ describe("layout", () => {
     expect(svg).toContain("«part»");
     expect(svg).not.toContain("class=");
     expect(svg).not.toContain(" style=");
+  });
+});
+
+describe("containers enclose their children", () => {
+  it("a stored child at negative coordinates is drawn inside its parent", async () => {
+    const vm = vmOf("drivetrain-interconnection.sysmld");
+    const moved = { ...vm, nodes: vm.nodes.map((n) => (n.id === "n2" ? { ...n, geometry: { x: -50, y: -30 } } : n)) };
+    const l = await layoutDiagram(moved, elk, measure);
+    expect(countOutsideParent(moved, absoluteBoxes(moved, l.boxes))).toBe(0);
+    const l0 = await layoutDiagram(vm, elk, measure);
+    expect(countOutsideParent(vm, absoluteBoxes(vm, l0.boxes))).toBe(0);
   });
 });

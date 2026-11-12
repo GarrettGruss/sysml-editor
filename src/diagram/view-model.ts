@@ -125,7 +125,10 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       if (n.parent !== undefined) out.parent = n.parent;
       return out;
     }
-    const shape = shapeOf(el, doc.kind);
+    let shape = shapeOf(el, doc.kind);
+    // A port whose owner is not on the diagram has nothing to sit on: draw a small labelled box instead.
+    const portOwner = n.parent ?? (el.owner ? nodeOfElement.get(el.owner) : undefined);
+    if (shape === "port" && (portOwner === undefined || !doc.nodes.some((x) => x.id === portOwner))) shape = "usage";
     out.shape = shape;
     out.label = labelOf(el, shape);
     if (!isPackage(el)) out.keyword = `«${el.kind}»`;
@@ -135,8 +138,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       if (c.length) out.compartments = c;
     }
     if (shape === "port") {
-      const owner = n.parent ?? (el.owner ? nodeOfElement.get(el.owner) : undefined);
-      if (owner !== undefined) out.attachedTo = owner;
+      if (portOwner !== undefined) out.attachedTo = portOwner;
     } else if (n.parent !== undefined) out.parent = n.parent;
     return out;
   });

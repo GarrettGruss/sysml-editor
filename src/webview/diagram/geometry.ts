@@ -177,3 +177,15 @@ export function boundsOf(boxes: Iterable<Box>, margin = 0): Box {
   if (!Number.isFinite(x0)) return { x: 0, y: 0, w: 100, h: 100 };
   return { x: x0 - margin, y: y0 - margin, w: x1 - x0 + 2 * margin, h: y1 - y0 + 2 * margin };
 }
+
+/** Number of child nodes (not ports) whose box is not inside their parent's box. */
+export function countOutsideParent(vm: ViewModel, abs: ReadonlyMap<string, Box>): number {
+  let count = 0;
+  for (const n of vm.nodes) {
+    if (n.parent === undefined || n.attachedTo !== undefined) continue;
+    const b = abs.get(n.id);
+    const p = abs.get(n.parent);
+    if (b && p && (b.x < p.x - 0.5 || b.y < p.y - 0.5 || b.x + b.w > p.x + p.w + 0.5 || b.y + b.h > p.y + p.h + 0.5)) count++;
+  }
+  return count;
+}

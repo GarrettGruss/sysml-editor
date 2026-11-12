@@ -43,23 +43,32 @@ async function render(vm: ViewModel): Promise<void> {
   }
 }
 
+const MAX_SIDE = 16_000;
+const MAX_PIXELS = 16_000_000;
+
 async function exportPng(): Promise<string> {
   const svg = renderer.toSvgString("light");
   const m = /width="(\d+)" height="(\d+)"/.exec(svg);
   const w = Number(m?.[1] ?? 800);
   const h = Number(m?.[2] ?? 600);
-  const scale = Math.min(2, 1600 / w);
+  // Cap by width, height and total pixels so the canvas is never too large to encode.
+  const scale = Math.min(2, 1600 / w, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_PIXELS / (w * h)));
+  const cw = Math.max(1, Math.floor(w * scale));
+  const ch = Math.max(1, Math.floor(h * scale));
   const img = new Image();
   img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
   await img.decode();
   const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(w * scale));
-  canvas.height = Math.max(1, Math.round(h * scale));
-  const c = canvas.getContext("2d")!;
+  canvas.width = cw;
+  canvas.height = ch;
+  const c = canvas.getContext("2d");
+  if (!c) throw new Error("PNG export failed: no canvas context");
   c.fillStyle = "#ffffff";
-  c.fillRect(0, 0, canvas.width, canvas.height);
-  c.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/png").split(",")[1] ?? "";
+  c.fillRect(0, 0, cw, ch);
+  c.drawImage(img, 0, 0, cw, ch);
+  const b64 = canvas.toDataURL("image/png").split(",")[1] ?? "";
+  if (!b64) throw new Error(`PNG export failed: the ${cw}x${ch} canvas produced no image`);
+  return b64;
 }
 
 const fail = (e: unknown) => post({ type: "error", message: e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e) });
@@ -76,7 +85,9 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       queue = queue.then(() => post({ type: "metricsResult", requestId: m.requestId, ...renderer.getMetrics() })).catch(fail);
       break;
     case "exportPng":
-      queue = queue.then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng() })).catch(fail);
+      queue = queue
+        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng() }))
+        .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
   }
 });

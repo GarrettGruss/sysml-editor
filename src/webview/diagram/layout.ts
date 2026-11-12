@@ -93,7 +93,10 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const loose = kids.filter((k) => !hasPos(k));
     for (const k of fixed) {
       const s = sizes.get(k.id)!;
-      boxes.set(k.id, { x: k.geometry?.x ?? 0, y: k.geometry?.y ?? 0, ...s });
+      // A stored position left of or above the container's content area is drawn at its edge: a child never leaves its parent.
+      const x = k.geometry?.x ?? 0;
+      const y = k.geometry?.y ?? 0;
+      boxes.set(k.id, { x: pid === undefined ? x : Math.max(x, PAD), y: pid === undefined ? y : Math.max(y, originY), ...s });
     }
     if (loose.length) {
       const pos = await place(pid, loose, sizes);
