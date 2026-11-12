@@ -32,6 +32,50 @@
           "name": "SysML Model"
         }
       ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "sysmlModel",
+        "contents": "No SysML files were found in this workspace.\n[New SysML File](command:sysml.newFile)",
+        "when": "sysml.workspaceEmpty"
+      }
+    ],
+    "commands": [
+      {
+        "command": "sysml.goToDefinition",
+        "title": "Go to Definition",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.newFile",
+        "title": "New SysML File",
+        "category": "SysML"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "sysml.goToDefinition",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "navigation"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sysml.goToDefinition",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SysML",
+      "properties": {
+        "sysml.tree.followCursor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reveal and select the tree node for the declaration under the text cursor."
+        }
+      }
     }
   },
   "scripts": {
