@@ -415,7 +415,10 @@ function metrics(): RequirementsMetrics {
     if (e instanceof HTMLTextAreaElement || e instanceof HTMLInputElement || e.closest(".table-scroll") === e) continue;
     if (e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX !== "visible" && !e.matches(".table-scroll")) over.push(`${e.tagName.toLowerCase()}.${e.className}`);
   }
+  // A cell squeezed to nothing is as unreadable as clipped text.
+  for (const td of document.querySelectorAll<HTMLElement>("td[data-cell=text], td[data-cell=name]")) if (td.clientWidth < 110) over.push(`narrow cell ${td.dataset.cell}: ${td.clientWidth}px`);
   const sc = document.scrollingElement!;
+  const tableScroll = document.querySelector<HTMLElement>(".table-scroll");
   return {
     view,
     theme: lightTheme() ? "light" : "dark",
@@ -442,7 +445,7 @@ function metrics(): RequirementsMetrics {
       rootBlocks: document.querySelectorAll(".document > [data-testid=paragraph], .document > [data-testid=item], .document > [data-testid=elements]").length,
     },
     pendingEdits: [...pending.keys()],
-    overflow: { count: over.length, horizontalScroll: sc.scrollWidth > sc.clientWidth + 1, samples: over.slice(0, 5) },
+    overflow: { count: over.length, horizontalScroll: sc.scrollWidth > sc.clientWidth + 1 || (!!tableScroll && tableScroll.scrollWidth > tableScroll.clientWidth + 1), samples: over.slice(0, 5) },
     ...(notice ? { notice } : {}),
     errors,
     size: { width: window.innerWidth, height: window.innerHeight },
