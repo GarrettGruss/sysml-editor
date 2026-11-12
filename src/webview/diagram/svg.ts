@@ -207,7 +207,14 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
       drawn.push({ e, pts: fixedPts.map((p) => ({ x: p.x, y: p.y })), ends: [s, t] });
       continue;
     }
-    if (!s || !t || e.source === e.target) continue;
+    if (!s || !t) continue;
+    if (e.source === e.target) {
+      // A transition from a state to itself: a loop outside the right border.
+      const loop: Pt[] = [{ x: s.x + s.w, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.7 }, { x: s.x + s.w, y: s.y + s.h * 0.7 }];
+      routes.set(e.id, loop);
+      drawn.push({ e, pts: loop, ends: [s, t] });
+      continue;
+    }
     const related = (id: string) => {
       // The end itself, what it sits in and what sits in it: a route may cross those.
       const set = new Set<string>();

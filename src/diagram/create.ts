@@ -97,7 +97,9 @@ export function createDiagram(index: ModelIndex, rootQualifiedName: string, kind
   if (kind === "actionFlow" || kind === "stateTransition") return createBehavior(doc, index, root, kind, sourceOf);
   if (kind === "sequence") return createSequence(doc, index, root, sourceOf);
   const rootId = doc.nodes[0]!.id;
-  for (const m of members.filter((m) => !isRelationship(m))) doc = addElement(doc, index, m, rootId, { sourceOf }).doc;
+  // A use case is an oval: its subject, actors and included use cases stand beside it, connected by lines, not inside it.
+  const beside = kind === "general" && (root.kind === "use case" || root.kind === "use case def") ? undefined : rootId;
+  for (const m of members.filter((m) => !isRelationship(m))) doc = addElement(doc, index, m, beside, { sourceOf }).doc;
   if (kind === "requirements") {
     // Requirements the root's relationships refer to, wherever they are declared.
     for (const m of members.filter(isRelationship)) {

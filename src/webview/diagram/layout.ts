@@ -19,6 +19,8 @@ export interface ElkGraph {
     id: string;
     sources: string[];
     targets: string[];
+    /** Edge labels, given only so that the layered layout leaves room for them. */
+    labels?: { id: string; text?: string; width: number; height: number }[];
     sections?: { startPoint: { x: number; y: number }; endPoint: { x: number; y: number }; bendPoints?: { x: number; y: number }[] }[];
   }[];
 }
@@ -137,6 +139,17 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
       w = Math.max(w, b.x + b.w);
       h = Math.max(h, b.y + b.h);
     }
+    // Edge labels of a top-to-bottom view sit beside the edges: the container is wide enough that they stay inside it.
+    if (flowsDown(vm) && pid !== undefined) {
+      const labelW = Math.max(0, ...vm.edges.filter((e) => e.label !== undefined && liftTo(e.source, pid) !== undefined && liftTo(e.target, pid) !== undefined).map((e) => measure(e.label!, "small") + 12));
+      if (labelW > 0) w = Math.max(w, ...kids.map((k) => boxes.get(k.id)!.x + boxes.get(k.id)!.w / 2 + labelW + 8));
+      // A transition from a state to itself loops outside its right border, with its label beside the loop.
+      for (const e of vm.edges) {
+        const k = liftTo(e.source, pid);
+        if (e.source !== e.target || k === undefined || !boxes.has(k)) continue;
+        w = Math.max(w, boxes.get(k)!.x + boxes.get(k)!.w + 30 + (e.label ? measure(e.label, "small") + 12 : 0));
+      }
+    }
     // The extent is measured from the container's top-left; the caller adds the right and bottom padding.
     return kids.length ? { w: w + side, h: h + PAD } : { w: 0, h: 0 };
   };
@@ -152,7 +165,7 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
       const key = `${s}\u0000${t}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      edges.push({ id: e.id, sources: [s], targets: [t] });
+      edges.push({ id: e.id, sources: [s], targets: [t], ...(flowsDown(vm) && e.label ? { labels: [{ id: `${e.id}:label`, text: e.label, width: Math.ceil(measure(e.label, "small")) + 8, height: 14 }] } : {}) });
     }
     const graph: ElkGraph = {
       id: "root",

@@ -17,7 +17,7 @@ import { startMcpServer, tokenMatches, type RunningMcpServer } from "./server.js
 
 const ROOT = "file:///w/";
 const index = new ModelIndex();
-const M_TEXT = "package P { part def Engine; part def Car { part engine : Engine; part gearbox; } requirement def Req; requirement def Req2; requirement ua; requirement ub; }";
+const M_TEXT = "package P { part def Engine; part def Car { part engine : Engine; part gearbox; } requirement def Req; requirement def Req2; requirement ua; requirement ub; state def S { state off; state on; transition t1 first off then on; } action def Act { action a1; action a2; } part def Pt { part x; part y; } }";
 index.setDocument(ROOT + "m.sysml", M_TEXT);
 index.setDocument(ROOT + "bad.sysml", "package Q { part x : Nope; }");
 index.setDocument(ROOT + "ports.sysml", fixtureText("ports.sysml"));
@@ -51,6 +51,7 @@ const INPUTS: Record<string, unknown> = {
   sysml_set_element_properties: { element: "P::Car::engine", multiplicity: "2" },
   sysml_create_relationship: { kind: "connection", owner: "P::Car", source: "P::Car::engine", target: "P::Car::gearbox" },
   sysml_read_requirements_document: { package: "P" },
+  sysml_set_transition: { element: "P::S::t1", trigger: "Go", guard: "ready" },
   sysml_create_requirement: { owner: "P", name: "massLimit", id: "R1", documentation: "The mass shall be low." },
 };
 /** More inputs of tools above: the relationship kinds of the requirements editor, over both channels. */
@@ -58,6 +59,10 @@ const MORE: [string, unknown][] = [
   ["sysml_create_relationship", { kind: "satisfy", requirement: "P::Req", by: "P::Car" }],
   ["sysml_create_relationship", { kind: "verify", requirement: "P::Req", newVerificationCase: "check" }],
   ["sysml_create_relationship", { kind: "derivation", original: "P::ua", derived: ["P::ub"] }],
+  // The behaviour statements: the same text over MCP and directly.
+  ["sysml_create_relationship", { kind: "succession", owner: "P::Act", source: "a1", target: "a2", guard: "x > 1" }],
+  ["sysml_create_relationship", { kind: "transition", owner: "P::S", source: "on", target: "off", trigger: "Stop", effect: "action log" }],
+  ["sysml_create_relationship", { kind: "message", owner: "P::Pt", from: "x", to: "y", name: "hello" }],
 ];
 
 let home: string;

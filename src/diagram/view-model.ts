@@ -351,7 +351,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       if (el.isUsage && el.owner?.isDefinition) {
         const owner = nodeOfElement.get(el.owner);
         const useCase = USE_CASE_KINDS.has(el.owner.kind) || el.owner.kind === "use case";
-        if (owner !== undefined && nodeParent !== owner) {
+        if (owner !== undefined && nodeParent !== owner && el.kind !== "include use case") {
           if (useCase && (el.kind === "actor" || el.kind === "subject")) add("association", owner, id, el.kind === "subject" ? "«subject»" : undefined);
           else add("composition", owner, id, el.name ? el.name + (el.multiplicity ? ` ${el.multiplicity}` : "") : undefined);
         }

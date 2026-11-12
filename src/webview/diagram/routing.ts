@@ -270,11 +270,15 @@ const grow = (b: Box, m: number): Box => ({ x: b.x - m, y: b.y - m, w: b.w + 2 *
 export function placeLabel(pts: readonly Pt[], w: number, h: number, avoid: readonly Box[], ctx: LabelContext = {}): Rect {
   const segs = pts.slice(1).map((q, i) => ({ p: pts[i]!, q, len: Math.abs(q.x - pts[i]!.x) + Math.abs(q.y - pts[i]!.y) })).sort((s, t) => t.len - s.len);
   const cands: Rect[] = [];
-  for (const s of segs) {
-    for (const t of [0.5, 0.3, 0.7, 0.15, 0.85]) {
-      const mx = s.p.x + (s.q.x - s.p.x) * t, my = s.p.y + (s.q.y - s.p.y) * t;
-      if (eq(s.p.y, s.q.y)) cands.push({ x: mx - w / 2, y: my - h - 3, w, h }, { x: mx - w / 2, y: my + 3, w, h });
-      else cands.push({ x: mx + 4, y: my - h / 2, w, h }, { x: mx - w - 4, y: my - h / 2, w, h });
+  // Closest to the line first; further rings (a row or two away, clearly still beside the edge) only when the near spots are taken.
+  for (const ring of [0, 1, 2]) {
+    const extra = ring * (h + 2);
+    for (const s of segs) {
+      for (const t of [0.5, 0.3, 0.7, 0.15, 0.85]) {
+        const mx = s.p.x + (s.q.x - s.p.x) * t, my = s.p.y + (s.q.y - s.p.y) * t;
+        if (eq(s.p.y, s.q.y)) cands.push({ x: mx - w / 2, y: my - h - 3 - extra, w, h }, { x: mx - w / 2, y: my + 3 + extra, w, h });
+        else cands.push({ x: mx + 4 + (ring ? Math.min(extra, 8) : 0), y: my - h / 2 + (ring ? (ring % 2 ? extra : -extra) : 0), w, h }, { x: mx - w - 4 - (ring ? Math.min(extra, 8) : 0), y: my - h / 2 + (ring ? (ring % 2 ? -extra : extra) : 0), w, h });
+      }
     }
   }
   const off = cands.filter((c) => !labelOnRoute(c, pts));

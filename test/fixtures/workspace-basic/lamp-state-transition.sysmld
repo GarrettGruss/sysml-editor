@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "kind": "stateTransition",
+  "root": "Lamp::lamp",
+  "sources": [
+    "states.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Lamp::lamp"
+    },
+    {
+      "id": "n2",
+      "ref": "Lamp::lamp::off",
+      "parent": "n1"
+    },
+    {
+      "id": "n3",
+      "ref": "Lamp::lamp::operating",
+      "parent": "n1"
+    },
+    {
+      "id": "n4",
+      "ref": "Lamp::lamp::operating::low",
+      "parent": "n3"
+    },
+    {
+      "id": "n5",
+      "ref": "Lamp::lamp::operating::high",
+      "parent": "n3"
+    },
+    {
+      "id": "n6",
+      "locator": {
+        "owner": "Lamp::lamp",
+        "kind": "start",
+        "ends": []
+      },
+      "parent": "n1"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "locator": {
+        "owner": "Lamp::lamp",
+        "kind": "succession",
+        "ends": [
+          "start",
+          "off"
+        ]
+      },
+      "source": "n6",
+      "target": "n2"
+    },
+    {
+      "id": "e2",
+      "ref": "Lamp::lamp::off_to_on",
+      "source": "n2",
+      "target": "n3"
+    },
+    {
+      "id": "e3",
+      "ref": "Lamp::lamp::on_to_off",
+      "source": "n3",
+      "target": "n2"
+    },
+    {
+      "id": "e4",
+      "ref": "Lamp::lamp::operating::low_to_high",
+      "source": "n4",
+      "target": "n5"
+    }
+  ]
+}
