@@ -313,3 +313,4 @@ export { buildDocumentModel, documentFromParse, mapSyntaxErrors } from "./antlr-
 export { antlrDocumentParser, DETAILS_PENDING_MESSAGE } from "./antlr-parser.js";
 export { serializeModel, deserializeModel, type SerializedModel } from "./serialize.js";
 export { quoteName, unquoteName, splitQualified } from "./names.js";
+export { inheritedMembers, inheritedFrom, isInheritedIn, supertypesOf, locate, type InheritedMember, type Located } from "./inherited.js";

@@ -541,11 +541,13 @@ class Builder {
 
   private bodyRangeOf(body: ParserRuleContext): SourceRange | undefined {
     let open: Token | undefined;
-    for (const c of body.children) {
+    for (const c of body.children ?? []) {
       if (c instanceof TerminalNode && c.symbol.text === "{") {
         open = c.symbol;
         break;
       }
+      // A usage body wraps the definition body (`usageBody: definitionBody`).
+      if (c instanceof ParserRuleContext && ruleName(c).endsWith("Body")) return this.bodyRangeOf(c);
     }
     return open ? this.map.range(open, body.stop) : undefined;
   }

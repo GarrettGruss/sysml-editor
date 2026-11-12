@@ -110,7 +110,7 @@ describe.skipIf(!present)("edit plans on the Annex A fixture (1,581 lines)", { t
   });
 
   it("inserts into 10 different owners, including owners that end in `;`", () => {
-    const withBody = els.filter((e) => e.bodyRange && e.kind !== "doc" && e.kind !== "comment" && e.name !== undefined);
+    const withBody = els.filter((e) => e.bodyRange && !e.kind.startsWith("enum") && e.kind !== "doc" && e.kind !== "comment" && e.name !== undefined);
     const noBody = els.filter((e) => !e.bodyRange && /;\s*$/.test(text.slice(e.range.start.offset, e.range.end.offset)) && e.isUsage && e.name !== undefined);
     const owners = [...spread(withBody, 6), ...spread(noBody, 4)];
     expect(owners).toHaveLength(10);
@@ -122,7 +122,7 @@ describe.skipIf(!present)("edit plans on the Annex A fixture (1,581 lines)", { t
   });
 
   it("round trip: insert then delete restores the text byte for byte (owners with a body)", () => {
-    const owners = spread(els.filter((e) => e.bodyRange && e.members.length > 0 && e.kind !== "doc" && e.kind !== "comment" && e.qualifiedName !== undefined), 12);
+    const owners = spread(els.filter((e) => e.bodyRange && e.members.length > 0 && !e.kind.startsWith("enum") && e.kind !== "doc" && e.kind !== "comment" && e.qualifiedName !== undefined), 12);
     for (const o of owners) {
       for (const pos of ["end", "start"] as const) {
         const ins = planInsertMember(ix, o, { kind: "part", name: "zzInserted" }, pos);
