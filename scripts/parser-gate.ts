@@ -106,7 +106,8 @@ for (const e of excusedList) {
 }
 const gatedTotal = gated - expectedInvalid.length;
 const overallClean = pct(gatedTotal - gatedErr, gatedTotal);
-const pass = overallClean >= 99 && rejoinFailures.length === 0 && problems.length === 0;
+// Excused files are an explicit list, so any other file with syntax errors is a regression.
+const pass = gatedErr === 0 && rejoinFailures.length === 0 && problems.length === 0;
 const topErrors = [...msgCounts].sort((a, b) => b[1] - a[1]).slice(0, 10);
 const result = {
   date: new Date().toISOString(),
@@ -140,3 +141,4 @@ for (const p of problems) console.log(`  PROBLEM ${p}`);
 for (const o of otherFailures) console.log(`  UNEXCUSED FAILURE ${o.file} [${o.errors}] ${o.first}`);
 for (const o of suspicious) console.log(`  STRAY ${o.file}:${o.line} ${o.message}`);
 console.log(pass ? "GATE: PASS" : "GATE: FAIL");
+process.exitCode = pass ? 0 : 1;
