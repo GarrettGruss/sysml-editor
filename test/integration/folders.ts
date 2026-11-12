@@ -246,7 +246,10 @@ export function foldersTests(c: Ctx): Test[] {
         // deleting the only diagrams marks the folders again
         rmSync(dir("Nest", "deep", "d.sysmld"));
         rmSync(dir("Nest", "deep", "bad.sysmld"));
-        await waitFor(async () => api.provider.getTreeItem(await find(tmp, "Nest")).description === "no diagrams", 20000, "Nest is marked once its diagrams are gone");
+        // a folder with no diagrams below it has no children (spec), so Nest is reached by its URI, not through tmp-tree
+        await waitFor(() => api.provider.getTreeItem(folderAt(tmp, "Nest")).description === "no diagrams", 20000, "Nest is marked once its diagrams are gone")
+          .catch(async (e) => { throw new Error(`${(e as Error).message}\n${(await dump(root, 4)).join("\n")}`); });
+        assert.strictEqual(api.provider.getTreeItem(tmp).description, "no diagrams", "and so is tmp-tree");
       } finally {
         rmSync(dir(), { recursive: true, force: true });
         await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});

@@ -380,8 +380,9 @@ export function editingTests(c: Ctx): Test[] {
     ["Tree: Add Child, Rename and Delete (with confirmation) edit the text and the tree", scenario("EdTree", { "tmp-edtree.sysmld": gen("EdTree") }, async ({ model }) => {
       const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
       const child = (p: ModelNode | undefined, l: string) => api.provider.getChildren(p).find((n) => label(n) === l.replace(/ .*$/, "") || label(n) === l);
-      const root = () => child(undefined, "EdTree")!;
-      await waitFor(() => !!root(), 10000, "the tree has the package");
+      let rootNode: ModelNode | undefined;
+      const root = () => rootNode!;
+      await waitFor(async () => !!(rootNode = (await elementRoots(api)).find((r) => label(r) === "EdTree")), 10000, "the tree has the package");
       const original = MODEL("EdTree");
       // Add Child: pick "Part", then a name
       script.pick = "Part"; script.input = "treechild";
@@ -536,9 +537,10 @@ export function editingTests(c: Ctx): Test[] {
       const original = MODEL("EdPar");
       const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
       const child = (p: ModelNode | undefined, l: string) => api.provider.getChildren(p).find((n) => label(n) === l);
-      await waitFor(() => !!child(undefined, "EdPar"), 10000, "tree");
+      let par: ModelNode | undefined;
+      await waitFor(async () => !!(par = (await elementRoots(api)).find((r) => label(r) === "EdPar")), 10000, "tree");
       script.pick = "Port"; script.input = "px";
-      await vscode.commands.executeCommand("sysml.tree.addChild", child(child(undefined, "EdPar"), "vehicle1"));
+      await vscode.commands.executeCommand("sysml.tree.addChild", child(par, "vehicle1"));
       await waitFor(() => onDisk(model).includes("port px;"), 15000, "GUI edit");
       const gui = onDisk(model);
       writeFileSync(uriOf(model).fsPath, original);
