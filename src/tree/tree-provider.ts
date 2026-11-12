@@ -251,7 +251,10 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   getChildren(node?: ModelNode): ModelNode[] | Promise<ModelNode[]> {
     const track = (kids: ModelNode[]) => {
-      for (const k of kids) if (isFolderNode(k)) this.rendered.add(k.id);
+      for (const k of kids) {
+        if (isFolderNode(k)) this.rendered.add(k.id);
+        else if (isFileNode(k)) this.shownFiles.add(k.uri);
+      }
       return kids;
     };
     if (this.filterValue === "diagrams") {
@@ -267,6 +270,29 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     if (isFolderNode(node)) return folderChildren(this.index, this.env, node).then(track);
     if (isFileNode(node)) return fileChildren(this.index, node);
     return childNodes(this.index, node);
+  }
+
+  /** File nodes handed to VS Code by getChildren; a file not in here is not in its cache of the tree. */
+  private shownFiles = new Set<string>();
+
+  /**
+   * Select a node. VS Code resolves it through getParent/getChildren and, when it holds a stale list
+   * of the folders above (a file created a moment ago; a refresh of named nodes can go unserved), it
+   * neither selects nor rejects. So when the file was never handed out, do a full refresh and wait
+   * until VS Code asks for it; then reveal once. Failures and no-ops are logged.
+   */
+  async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void): Promise<void> {
+    const say = log ?? ((m: string) => console.warn(m));
+    try {
+      if (this.filterValue === "elements" && !this.shownFiles.has(node.uri)) {
+        this.emitter.fire(undefined);
+        for (let i = 0; i < 100 && !this.shownFiles.has(node.uri); i++) await new Promise((r) => setTimeout(r, 50));
+        if (!this.shownFiles.has(node.uri)) say(`SysML tree: ${node.uri} was not requested by the tree after a refresh`);
+      }
+      await view.reveal(node, { select: true, focus: false, expand: false });
+    } catch (e) {
+      say(`SysML tree: reveal of ${node.id} failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   getParent(node: ModelNode): ModelNode | undefined {
@@ -380,7 +406,7 @@ export async function goToDefinition(index: ModelIndex, node: ModelNode | undefi
 }
 
 /** Cursor-to-tree sync. Never reveals while the view is hidden or while the index lags the editor text. */
-export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<ModelNode>): vscode.Disposable {
+export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<ModelNode>, provider: ModelTreeProvider, log?: (m: string) => void): vscode.Disposable {
   return vscode.window.onDidChangeTextEditorSelection((e) => {
     if (!vscode.workspace.getConfiguration("sysml").get<boolean>("tree.followCursor", true)) return;
     if (!view.visible) return;
@@ -390,7 +416,7 @@ export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<Mode
     if (index.getDocument(key)?.text !== doc.getText()) return;
     const node = nodeAtOffset(index, key, doc.offsetAt(e.selections[0]!.active));
     if (!node || view.selection[0]?.id === node.id) return;
-    void Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {});
+    void provider.revealNode(view, node, log);
   });
 }
 

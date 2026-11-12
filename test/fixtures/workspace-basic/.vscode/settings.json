@@ -1,3 +1,6 @@
 {
-  "sysml.exclude": ["**/node_modules/**", "ignored/**"]
+  "sysml.exclude": [
+    "**/node_modules/**",
+    "ignored/**"
+  ]
 }

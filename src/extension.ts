@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   void agent.apply();
   diagrams.revealInTree = (el) => {
     const node = nodeForElement(model.index, el);
-    if (node && view.selection[0]?.id !== node.id) void Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {});
+    if (node && view.selection[0]?.id !== node.id) void provider.revealNode(view, node, (m) => log.warn(m));
   };
 
   requirements.revealInTree = diagrams.revealInTree;
@@ -85,7 +85,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     agent,
     provider,
     view,
-    registerCursorSync(model.index, view),
+    registerCursorSync(model.index, view, provider, (m) => log.warn(m)),
     diagrams,
     requirements,
     files,
