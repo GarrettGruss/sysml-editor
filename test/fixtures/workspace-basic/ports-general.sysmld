@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "kind": "general",
+  "root": "Ports",
+  "sources": [
+    "ports.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Ports::Power",
+      "x": 520,
+      "y": 40
+    },
+    {
+      "id": "n2",
+      "ref": "Ports::Battery",
+      "x": 40,
+      "y": 260
+    },
+    {
+      "id": "n3",
+      "ref": "Ports::Motor",
+      "x": 300,
+      "y": 260
+    },
+    {
+      "id": "n4",
+      "ref": "Ports::Drivetrain",
+      "x": 40,
+      "y": 40,
+      "w": 220,
+      "h": 150
+    },
+    {
+      "id": "n5",
+      "ref": "Ports::Drivetrain::battery",
+      "x": 380,
+      "y": 60
+    }
+  ],
+  "edges": []
+}
