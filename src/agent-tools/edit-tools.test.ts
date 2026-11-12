@@ -242,3 +242,27 @@ describe("edit tools: inherited rule below inherited members", () => {
     });
   }
 });
+
+describe("edit tools: failed saves and kinds", () => {
+  it("an applied edit whose save failed reports success with exactly which files are unsaved, never 'No files were changed'", async () => {
+    const { host, ctx } = setup();
+    host.failSave = true;
+    const r = await call(ctx, "sysml_create_element", { owner: "VehicleModel::Car", kind: "part", name: "wheel" });
+    expect(r.isError).toBeUndefined();
+    expect(r.json.filesChanged).toEqual(["m.sysml"]);
+    expect(r.json.filesNotSaved).toEqual(["m.sysml"]);
+    expect(r.json.filesSaved).toEqual([]);
+    expect(r.text).not.toMatch(/No files were changed/);
+    expect(r.json.note).toMatch(/WAS applied/);
+    expect(host.buffers.get(URI)).toContain("part wheel;");
+  });
+
+  it("a kind that is not allowed for the owner is refused (and so is arbitrary text)", async () => {
+    const { host, ctx } = setup();
+    for (const kind of ["package", "part def", "connect", "part; part x"]) {
+      const r = await invokeTool("sysml_create_element", { owner: "VehicleModel::Car", kind, name: "z" }, ctx);
+      expect(r.isError, kind).toBe(true);
+    }
+    expect(host.applied).toHaveLength(0);
+  });
+});

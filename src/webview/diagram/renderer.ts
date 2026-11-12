@@ -334,6 +334,13 @@ export class SvgRenderer implements DiagramRenderer {
       const box = id !== undefined ? this.scene.get(id)?.abs : undefined;
       const owner = id !== undefined && this.scene.get(id)?.owner === undefined ? id : undefined;
       if (id !== undefined && owner === undefined) return; // a port cannot contain anything
+      const target = owner !== undefined ? this.vm?.nodes.find((x) => x.id === owner) : undefined;
+      const locked = target?.props?.locked;
+      if (locked !== undefined) {
+        // Up front, not after a round trip: inherited, library and read-only elements cannot receive new members.
+        this.tools.notice(locked === "inherited" ? `'${target!.props?.name ?? "This element"}' is inherited from ${target!.inherited?.from ?? "its definition"}; add to the usage itself or change the definition.` : locked === "readonly" ? (target!.props?.lockedReason ?? "This element's file cannot be edited.") : "Standard library content is read-only.");
+        return;
+      }
       this.setTool(undefined);
       this.cb.onModel({ kind: "add", paletteKind: tool.item.kind, ...(owner !== undefined ? { ownerId: owner } : {}), x: Math.round(p.x - (box?.x ?? 0)), y: Math.round(p.y - (box?.y ?? 0)) });
       return;
@@ -363,7 +370,7 @@ export class SvgRenderer implements DiagramRenderer {
     if (!n || !box) return;
     this.closeEditor();
     if (!n.resolved || !n.props || n.props.locked !== undefined || n.props.name === undefined) {
-      this.tools.notice(!n.resolved ? "An unresolved item cannot be renamed." : n.props?.locked === "inherited" ? `'${n.props.name}' is inherited from ${n.inherited?.from ?? "its definition"} and cannot be renamed here.` : n.props?.locked === "library" ? "Standard library content is read-only." : "This element has no name to edit.");
+      this.tools.notice(!n.resolved ? "An unresolved item cannot be renamed." : n.props?.locked === "inherited" ? `'${n.props.name}' is inherited from ${n.inherited?.from ?? "its definition"} and cannot be renamed here.` : n.props?.locked === "library" ? "Standard library content is read-only." : n.props?.locked === "readonly" ? (n.props.lockedReason ?? "This element's file cannot be edited.") : "This element has no name to edit.");
       return;
     }
     const original = n.props.name;

@@ -5,7 +5,7 @@
  */
 import { isLibraryUri, type Element } from "../model/index.js";
 import type { OpFailure, OpOk, OpResult, Properties, Target } from "../model-service/service.js";
-import { USAGE_KINDS, DEFINITION_KINDS } from "../model-service/service.js";
+import { ALL_KINDS } from "../model-service/kinds.js";
 import { ToolError, type EditContext, type ToolContext, type ToolDefinition } from "./types.js";
 
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
@@ -44,12 +44,21 @@ async function diagramTarget(ctx: ToolContext, ed: EditContext, input: Record<st
 }
 
 function summary(ctx: ToolContext, r: OpOk, extra: Record<string, unknown> = {}) {
+  const unsaved = r.saveError?.unsaved ?? [];
+  const saved = r.files.filter((u) => !unsaved.includes(u));
+  const problems = r.diagramProblems;
+  const notUpdated = [...(problems?.failed ?? []), ...(problems?.skipped ?? []), ...(r.diagramsChangedMeanwhile ?? [])];
+  const paths = (us: readonly string[]) => us.map((u) => pathOf(ctx, u));
   return json({
     description: r.description,
-    filesChanged: r.files.map((u) => pathOf(ctx, u)),
-    ...(r.diagramFiles.length ? { diagramFilesChanged: r.diagramFiles.map((u) => pathOf(ctx, u)) } : {}),
+    filesChanged: paths(r.files),
+    ...(unsaved.length ? { filesSaved: paths(saved), filesNotSaved: paths(unsaved) } : {}),
+    ...(r.diagramFiles.length ? { diagramFilesChanged: paths(r.diagramFiles) } : {}),
+    ...(notUpdated.length ? { diagramFilesNotUpdated: paths(notUpdated) } : {}),
     ...extra,
-    note: "The .sysml files were changed and saved. The user can undo the edit in one step with Ctrl+Z.",
+    note: unsaved.length
+      ? `The edit WAS applied to ${paths(r.files).join(", ")}, but ${paths(unsaved).join(", ")} could not be saved and still ${unsaved.length === 1 ? "has" : "have"} the change as unsaved edits in VS Code${saved.length ? `; ${paths(saved).join(", ")} ${saved.length === 1 ? "was" : "were"} saved` : ""}. The file${unsaved.length === 1 ? "" : "s"} on disk ${unsaved.length === 1 ? "does" : "do"} not contain the change yet. The user was told and can save with Save All; do not repeat the edit. The user can undo it with Ctrl+Z.`
+      : "The .sysml files were changed and saved. The user can undo the edit in one step with Ctrl+Z.",
   });
 }
 
@@ -57,7 +66,8 @@ function placementNote(ctx: ToolContext, r: OpOk, target: { path: string } | und
   return target ? { diagram: { path: target.path, placed: r.diagramFiles.some((u) => pathOf(ctx, u) === target.path) || r.diagramChange !== undefined } } : {};
 }
 
-const KINDS = [...DEFINITION_KINDS, ...USAGE_KINDS];
+/** Every kind that can be added somewhere; the service checks the kind against the owner (`allowedChildKinds`). */
+const KINDS = [...ALL_KINDS];
 
 const diagramProp = { type: "string" as const, description: "Optional workspace-relative path of a .sysmld diagram to place the new element on (as a node, or an edge for a relationship). The diagram file is updated on top of its last saved state; pending layout in an open diagram stays unsaved." };
 

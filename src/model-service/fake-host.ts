@@ -4,7 +4,7 @@ import { ModelIndex } from "../model/index.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument } from "../diagram/format.js";
 import { makeSourceMapper } from "../diagram/resolve.js";
 import type { DiagramChange } from "./diagram-changes.js";
-import type { ApplyOutcome, ModelHost, OpOk } from "./service.js";
+import type { ApplyOutcome, ForceOutcome, ModelHost, OpOk } from "./service.js";
 
 export class FakeHost implements ModelHost {
   readonly index: ModelIndex;
@@ -25,7 +25,13 @@ export class FakeHost implements ModelHost {
   readonly entries: { origin: string; result: OpOk }[] = [];
   /** Runs once before the next apply (to simulate a change between planning and applying). */
   beforeApply?: () => void;
-  failSave = false;
+  /** Saving fails for every document (true) or for the listed ones. */
+  failSave: boolean | Set<string> = false;
+  /** Documents the host refuses to edit, with the reason. */
+  readonly blocked = new Map<string, string>();
+  readonly warnings: { message: string; action?: { label: string; command: string } }[] = [];
+  /** Diagram files whose forced change throws. */
+  readonly failDiagrams = new Set<string>();
 
   addDocument(uri: string, text: string): void {
     this.buffers.set(uri, text);
@@ -68,12 +74,24 @@ export class FakeHost implements ModelHost {
       this.buffers.set(uri, applyEdits(this.buffers.get(uri)!, es));
       this.index.setDocument(uri, this.buffers.get(uri)!);
     }
+    const unsaved: string[] = [];
     for (const uri of new Set(edits.map((e) => e.uri))) {
-      if (this.failSave) return { ok: false, reason: "disk full" };
+      if (this.failSave === true || (this.failSave && this.failSave.has(uri))) {
+        unsaved.push(uri);
+        continue;
+      }
       this.disk.set(uri, this.buffers.get(uri)!);
       this.saves.push(uri);
     }
-    return { ok: true };
+    return unsaved.length ? { ok: true, unsaved } : { ok: true };
+  }
+
+  editBlocker(uri: string): string | undefined {
+    return this.blocked.get(uri);
+  }
+
+  warn(message: string, action?: { label: string; command: string }): void {
+    this.warnings.push({ message, ...(action ? { action } : {}) });
   }
 
   async closedDiagrams(): Promise<LoadedDiagram[]> {
@@ -90,13 +108,20 @@ export class FakeHost implements ModelHost {
     for (const u of updates) this.diagramDisk.set(u.uri, u.text);
   }
 
-  async forceDiagramChange(change: DiagramChange, mode: "apply" | "revert"): Promise<string[]> {
+  async forceDiagramChange(change: DiagramChange, mode: "apply" | "revert"): Promise<ForceOutcome> {
     const written: string[] = [];
+    const failed: string[] = [];
+    const skipped: string[] = [];
     for (const uri of this.diagramDisk.keys()) {
       if (change.target !== "all" && change.target.uri !== uri) continue;
+      if (this.failDiagrams.has(uri)) {
+        failed.push(uri);
+        continue;
+      }
       const ctx = { uri, sourceOf: makeSourceMapper("file:///w") };
       const f = mode === "apply" ? change.apply : change.revert;
       const saved = parseDiagram(this.diagramDisk.get(uri)!);
+      if (!saved.ok) skipped.push(uri);
       if (saved.ok) {
         const next = f.call(change, saved.doc, ctx);
         const text = serializeDiagram(next);
@@ -108,7 +133,7 @@ export class FakeHost implements ModelHost {
       const mem = this.diagramMemory.get(uri);
       if (mem) this.diagramMemory.set(uri, f.call(change, mem, ctx));
     }
-    return written;
+    return { written, failed, skipped };
   }
 
   recordUndoEntry(origin: string, result: OpOk): void {

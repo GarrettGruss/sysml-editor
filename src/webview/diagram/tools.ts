@@ -133,6 +133,7 @@ export class Tools {
     let goto = false;
     if (!node.resolved || !p) reason = `This item is unresolved (${node.unresolvedRef ?? "unknown"}), so it has no properties to edit. Use Re-link… to point it at an element.`;
     else if (p.locked === "library") reason = "This is standard library content and is read-only.";
+    else if (p.locked === "readonly") reason = p.lockedReason ?? "This element's file cannot be edited.";
     else if (p.locked === "inherited") {
       reason = `Inherited from ${node.inherited?.from ?? "its definition"}: it cannot be changed from here. Change it in the definition, which changes every usage.`;
       goto = true;

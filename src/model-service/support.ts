@@ -2,7 +2,7 @@
 import { referencesAfterDelete } from "../edit/delete.js";
 import type { SourceLocation } from "../edit/types.js";
 import { isLibraryUri, type Element, type ModelIndex } from "../model/index.js";
-import { DEFINITION_KINDS, USAGE_KINDS } from "./service.js";
+import { ALL_KINDS, USAGE_KINDS } from "./kinds.js";
 
 export interface KindChoice {
   kind: string;
@@ -102,4 +102,4 @@ export function typeCandidates(index: ModelIndex, el: Element, query: string, li
   return out.slice(0, limit);
 }
 
-export const ADD_KINDS: KindChoice[] = [...DEFINITION_KINDS, ...USAGE_KINDS].map((kind) => ({ kind, label: kindLabel(kind) }));
+export const ADD_KINDS: KindChoice[] = ALL_KINDS.map((kind) => ({ kind, label: kindLabel(kind) }));

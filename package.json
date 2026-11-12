@@ -107,22 +107,22 @@
       "view/item/context": [
         {
           "command": "sysml.goToDefinition",
-          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
           "group": "navigation"
         },
         {
           "command": "sysml.newDiagram",
-          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
           "group": "diagram@1"
         },
         {
           "command": "sysml.showInDiagram",
-          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
           "group": "diagram@2"
         },
         {
           "command": "sysml.addToActiveDiagram",
-          "when": "view == sysmlModel && viewItem == sysmlElement && sysml.diagramActive",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/ && sysml.diagramActive",
           "group": "diagram@3"
         },
         {

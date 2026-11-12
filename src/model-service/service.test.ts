@@ -78,7 +78,9 @@ describe("ModelService operations", () => {
     expect(u2.textReverted).toBe(false);
     expect(u2.warning).toMatch(/changed after the edit/);
     expect(host.buffers.get(URI)).toContain("// typed");
-    expect(host.diagramOnDisk("file:///w/d.sysmld").nodes.some((n) => n.ref?.endsWith("wheel"))).toBe(false);
+    // the text revert was refused: the diagram part is NOT reverted either, and the user is warned
+    expect(host.diagramOnDisk("file:///w/d.sysmld").nodes.some((n) => n.ref?.endsWith("wheel"))).toBe(true);
+    expect(host.warnings.some((w) => /Undo: .*Nothing was undone/.test(w.message))).toBe(true);
   });
 
   test("undo after the text was already reverted in the text editor still undoes the diagram part, without a warning", async () => {
@@ -211,14 +213,6 @@ describe("staleness and failures", () => {
     expect(host.applied).toHaveLength(0);
   });
 
-  test("a failed save is reported and the documents stay as they are", async () => {
-    const { host, svc, q } = setup();
-    host.failSave = true;
-    const r = await svc.addElement(q("Model::Vehicle"), { kind: "part", name: "wheel" });
-    expect(r).toMatchObject({ ok: false, reason: "disk full" });
-    expect(host.buffers.get(URI)).toContain("part wheel;");
-  });
-
   test("a file with a syntax error is refused with a Go to error location", async () => {
     const host = new FakeHost();
     host.addDocument(URI, "package P { part def A { part }\n");
@@ -306,5 +300,169 @@ describe("inherited rule below inherited members (depths 1 to 3)", () => {
     const t = svc.find("M::Vehicle::engine::cylinder::bolt")!;
     expect(t.context).toBeUndefined();
     ok(await svc.rename(t, "screw"));
+  });
+});
+
+const URI2 = "file:///w/n.sysml";
+
+describe("a save that fails after the edit was applied", () => {
+  function two() {
+    const host = new FakeHost();
+    host.addDocument(URI, MODEL);
+    host.addDocument(URI2, "package Other {\n  part def Wheel;\n}\n");
+    host.addDiagram("file:///w/d.sysmld", DIAGRAM(`[{"id":"n1","ref":"Model::Vehicle"},{"id":"n2","ref":"Model::Vehicle::engine","parent":"n1"}]`), true);
+    host.addDiagram("file:///w/closed.sysmld", DIAGRAM(`[{"id":"n1","ref":"Model::Vehicle::engine"}]`));
+    return { host, svc: new ModelService(host), q: (qn: string) => host.index.findByQualifiedName(qn)[0]! };
+  }
+
+  test("is a success with saveError per document; diagrams, closed diagrams and the undo entry are still handled", async () => {
+    const { host, svc, q } = two();
+    host.failSave = new Set([URI]);
+    const r = ok(await svc.deleteElement({ element: q("Model::Vehicle::engine") }, { diagram: "file:///w/d.sysmld" }));
+    expect(r.saveError?.unsaved).toEqual([URI]);
+    expect(host.buffers.get(URI)).not.toContain("part engine");
+    expect(host.disk.get(URI)).toBe(MODEL); // not saved
+    expect(host.diagramOnDisk("file:///w/closed.sysmld").nodes).toHaveLength(0);
+    expect(host.diagramOnDisk("file:///w/d.sysmld").nodes.map((n) => n.id)).toEqual(["n1"]);
+    expect(host.entries).toHaveLength(1);
+    const w = host.warnings.find((x) => /could not be saved/.test(x.message))!;
+    expect(w.message).toContain("m.sysml");
+    expect(w.action).toEqual({ label: "Save All", command: "workbench.action.files.saveAll" });
+  });
+
+  test("one of two documents fails: the result names exactly the unsaved one and the saved one is on disk", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, "package Model {\n  part def Engine;\n}\n");
+    host.addDocument(URI2, "package Other {\n  part e : Model::Engine;\n}\n");
+    const svc = new ModelService(host);
+    host.failSave = new Set([URI2]);
+    const r = ok(await svc.rename({ element: host.index.findByQualifiedName("Model::Engine")[0]! }, "Motor"));
+    expect([...r.files].sort()).toEqual([URI, URI2]);
+    expect(r.saveError?.unsaved).toEqual([URI2]);
+    expect(host.disk.get(URI)).toContain("part def Motor");
+    expect(host.disk.get(URI2)).toContain("Model::Engine"); // not saved
+    expect(host.buffers.get(URI2)).toContain("Model::Motor");
+    expect(r.saveError?.message).toContain("n.sysml");
+    expect(r.saveError?.message).not.toContain("m.sysml");
+  });
+});
+
+describe("kinds", () => {
+  test("a kind outside allowedChildKinds(owner) is refused, whatever its form", async () => {
+    const { host, svc, q } = setup();
+    for (const kind of ["package", "part def", "connect", "part; part x", "", "   ", "x".repeat(100)]) {
+      const r = await svc.addElement(q("Model::Vehicle"), { kind, name: "z" });
+      expect(r.ok, kind).toBe(false);
+    }
+    const r = await svc.addElement(q("Model::Vehicle"), { kind: "part def", name: "z" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/Allowed: part, port/);
+    expect((await svc.addElement(q("Model"), { kind: "part def", name: "Z" })).ok).toBe(true);
+    expect(host.applied).toHaveLength(1);
+  });
+
+  test("the tree list, the palette and the agent enum are all drawn from one list", async () => {
+    const { ADD_KINDS } = await import("./support.js");
+    const { paletteFor } = await import("../diagram/palette.js");
+    const { ALL_KINDS } = await import("./kinds.js");
+    expect(ADD_KINDS.map((k) => k.kind)).toEqual([...ALL_KINDS]);
+    for (const dk of ["general", "interconnection", "requirements"] as const)
+      for (const p of paletteFor(dk)) if (p.kind !== "connection") expect(ALL_KINDS, p.kind).toContain(p.kind);
+  });
+});
+
+describe("read-only guard in the service", () => {
+  test("library, non-file and host-blocked documents are refused for every operation", async () => {
+    const host = new FakeHost();
+    host.addDocument("sysml-library:///Lib.sysml", "package Lib { part def Thing { part x; } }");
+    host.addDocument("untitled:Untitled-1", "package U { part def A { part y; } }");
+    host.addDocument(URI, MODEL);
+    host.blocked.set(URI, "m.sysml is excluded by sysml.exclude, so it is not edited.");
+    const svc = new ModelService(host);
+    const q = (qn: string) => host.index.findByQualifiedName(qn)[0]!;
+    for (const qn of ["Lib::Thing", "U::A", "Model::Vehicle"]) {
+      const t = { element: q(qn) };
+      for (const r of [await svc.deleteElement(t), await svc.rename(t, "Q"), await svc.setProperties(t, { documentation: "d" }), await svc.addElement(t.element, { kind: "part", name: "n" })]) {
+        expect(r.ok, qn).toBe(false);
+        if (!r.ok) expect(r.reason, qn).toMatch(/read-only|not a file|excluded/);
+      }
+    }
+    expect(host.applied).toHaveLength(0);
+    expect(svc.blockedReason("sysml-library:///Lib.sysml")).toMatch(/read-only/);
+    expect(svc.blockedReason(URI)).toMatch(/excluded/);
+    expect(svc.blockedReason(URI2)).toBeUndefined();
+  });
+
+  test("a plan that would edit a blocked document is refused", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, MODEL);
+    host.addDocument(URI2, "package Other { part def Wheel; }");
+    host.blocked.set(URI2, "n.sysml lies outside every workspace folder, so it is not edited.");
+    const svc = new ModelService(host);
+    const q = (qn: string) => host.index.findByQualifiedName(qn)[0]!;
+    // typing the usage with a type from the blocked file would only edit m.sysml (allowed)
+    expect((await svc.addElement(q("Model::Vehicle"), { kind: "part", name: "w", type: "Other::Wheel" })).ok).toBe(true);
+    // renaming Wheel edits n.sysml
+    const r = await svc.rename({ element: q("Other::Wheel") }, "Tyre");
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("diagram follow-up problems", () => {
+  test("failed and skipped diagrams are reported in the result and warned about", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, MODEL);
+    host.addDiagram("file:///w/ok.sysmld", DIAGRAM(`[{"id":"n1","ref":"Model::Vehicle::engine"}]`));
+    host.addDiagram("file:///w/bad.sysmld", "{ not json");
+    host.addDiagram("file:///w/throws.sysmld", DIAGRAM(`[{"id":"n1","ref":"Model::Vehicle::engine"}]`));
+    host.failDiagrams.add("file:///w/throws.sysmld");
+    const svc = new ModelService(host);
+    const r = ok(await svc.deleteElement({ element: host.index.findByQualifiedName("Model::Vehicle::engine")[0]! }));
+    expect(r.diagramProblems).toEqual({ failed: ["file:///w/throws.sysmld"], skipped: ["file:///w/bad.sysmld"] });
+    expect(r.diagramFiles).toEqual(["file:///w/ok.sysmld"]);
+    const w = host.warnings.find((x) => /could not be updated/.test(x.message))!;
+    expect(w.message).toMatch(/bad.sysmld/);
+    expect(w.message).toMatch(/throws.sysmld/);
+  });
+});
+
+describe("closed diagrams are read inside the plan and checked before writing", () => {
+  test("a closed diagram that changed after planning is not overwritten; the user is warned", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, MODEL);
+    const diag = DIAGRAM(`[{"id":"n1","ref":"Model::Vehicle::engine"}]`);
+    host.addDiagram("file:///w/c.sysmld", diag);
+    const svc = new ModelService(host);
+    const orig = host.writeDiagramFiles.bind(host);
+    // the file changes on disk between applying the text and writing the diagram
+    const origApply = host.applyAndSave.bind(host);
+    const changed = diag.replace('"n1"', '"n7"');
+    host.applyAndSave = async (e, s) => {
+      const r = await origApply(e, s);
+      host.diagramDisk.set("file:///w/c.sysmld", changed);
+      return r;
+    };
+    host.writeDiagramFiles = orig;
+    const r = ok(await svc.rename({ element: host.index.findByQualifiedName("Model::Vehicle::engine")[0]! }, "motor"));
+    expect(host.diagramDisk.get("file:///w/c.sysmld")).toBe(changed);
+    expect(r.diagramsChangedMeanwhile).toEqual(["file:///w/c.sysmld"]);
+    expect(host.warnings.some((w) => /changed on disk/.test(w.message))).toBe(true);
+  });
+
+  test("a re-plan reads the closed diagrams again", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, MODEL);
+    host.addDiagram("file:///w/c.sysmld", DIAGRAM(`[{"id":"n1","ref":"Model::Vehicle::engine"}]`));
+    const svc = new ModelService(host);
+    let reads = 0;
+    const orig = host.closedDiagrams.bind(host);
+    host.closedDiagrams = async () => {
+      reads++;
+      return orig();
+    };
+    host.beforeApply = () => host.buffers.set(URI, "// header\n" + host.buffers.get(URI)!);
+    ok(await svc.rename({ element: host.index.findByQualifiedName("Model::Vehicle::engine")[0]! }, "motor"));
+    expect(reads).toBe(2);
+    expect(host.diagramOnDisk("file:///w/c.sysmld").nodes[0]!.ref).toBe("Model::Vehicle::motor");
   });
 });

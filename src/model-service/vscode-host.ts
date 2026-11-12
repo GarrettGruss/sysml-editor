@@ -10,7 +10,8 @@ import { writeDiagramFile } from "../diagram/write-uri.js";
 import { uriKey } from "../workspace/uri-key.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import type { DiagramChange } from "./diagram-changes.js";
-import type { ApplyOutcome, ModelHost, ModelService, OpFailure, OpOk } from "./service.js";
+import { makeExcludeFilter } from "../workspace/exclude.js";
+import type { ApplyOutcome, ForceOutcome, ModelHost, ModelService, OpFailure, OpOk } from "./service.js";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -81,7 +82,8 @@ export class VsCodeModelHost implements ModelHost {
       const changed = [...docs].some(([uri, d]) => !sourceMatches(source.get(uri)!, d.getText()));
       return changed ? { ok: false, stale: true } : { ok: false, reason: "VS Code refused the edit (the file may be read-only)." };
     }
-    const failed: string[] = [];
+    // The edit is applied from here on. A document that cannot be saved keeps it as an unsaved change; the caller reports which.
+    const unsaved: string[] = [];
     for (const [uri, doc] of docs) {
       let saved = false;
       try {
@@ -89,10 +91,26 @@ export class VsCodeModelHost implements ModelHost {
       } catch (e) {
         this.log(`saving ${uri} failed: ${String(e)}`);
       }
-      if (!saved) failed.push(nameOf(uri));
+      if (!saved) unsaved.push(uri);
     }
-    if (failed.length) return { ok: false, reason: `The edit was applied, but ${failed.join(", ")} could not be saved. The document${failed.length > 1 ? "s are" : " is"} left as VS Code has ${failed.length > 1 ? "them" : "it"}; save ${failed.length > 1 ? "them" : "it"} manually.` };
-    return { ok: true };
+    return unsaved.length ? { ok: true, unsaved } : { ok: true };
+  }
+
+  editBlocker(uri: string): string | undefined {
+    const u = vscode.Uri.parse(uri);
+    const folder = vscode.workspace.getWorkspaceFolder(u);
+    if (!folder) return `${nameOf(uri)} lies outside every workspace folder, so it is not edited.`;
+    const patterns = vscode.workspace.getConfiguration("sysml").get<string[]>("exclude", ["**/node_modules/**"]);
+    const rel = vscode.workspace.asRelativePath(u, false).replace(/\\/g, "/");
+    if (makeExcludeFilter(patterns)(rel)) return `${nameOf(uri)} is excluded by sysml.exclude, so it is not edited.`;
+    return undefined;
+  }
+
+  warn(message: string, action?: { label: string; command: string }): void {
+    void (async () => {
+      const pick = await vscode.window.showWarningMessage(message, ...(action ? [action.label] : []));
+      if (action && pick === action.label) await vscode.commands.executeCommand(action.command);
+    })();
   }
 
   async closedDiagrams(): Promise<LoadedDiagram[]> {
@@ -118,19 +136,26 @@ export class VsCodeModelHost implements ModelHost {
     }
   }
 
-  async forceDiagramChange(change: DiagramChange, mode: "apply" | "revert"): Promise<string[]> {
+  async forceDiagramChange(change: DiagramChange, mode: "apply" | "revert"): Promise<ForceOutcome> {
     await this.files.ready;
     const uris = change.target === "all" ? new Set([...this.files.index.allUris(), ...this.diagrams.openUris()]) : new Set([change.target.uri]);
     const written: string[] = [];
+    const failed: string[] = [];
+    const skipped: string[] = [];
     for (const key of uris) {
       const uri = vscode.Uri.parse(key);
       try {
         const open = this.diagrams.openDocument(uri);
         if (open) {
-          if (await this.diagrams.forceOpen(open, change, mode)) written.push(key);
+          if (!open.state.doc) skipped.push(key);
+          else if (await this.diagrams.forceOpen(open, change, mode)) written.push(key);
           continue;
         }
         const text = decoder.decode(await vscode.workspace.fs.readFile(uri));
+        if (!parseDiagram(text).ok) {
+          skipped.push(key);
+          continue;
+        }
         const ctx = { uri: key, sourceOf: makeSourceMapper(vscode.workspace.getWorkspaceFolder(uri)?.uri.toString()) };
         const next = forceOnText(text, (d) => (mode === "apply" ? change.apply(d, ctx) : change.revert(d, ctx)));
         if (next !== undefined) {
@@ -139,10 +164,11 @@ export class VsCodeModelHost implements ModelHost {
           written.push(key);
         }
       } catch (e) {
+        failed.push(key);
         this.log(`forcing a diagram change on ${key} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    return written;
+    return { written, failed, skipped };
   }
 
   recordUndoEntry(origin: string, result: OpOk): void {
@@ -151,14 +177,8 @@ export class VsCodeModelHost implements ModelHost {
     this.diagrams.recordModelEdit(
       vscode.Uri.parse(origin),
       result.description,
-      async () => {
-        const r = await svc.undo(result);
-        if (r.warning) void vscode.window.showWarningMessage(`Undo: ${r.warning} The diagram change was undone; the text was left as it is.`);
-      },
-      async () => {
-        const r = await svc.redo(result);
-        if (r.warning) void vscode.window.showWarningMessage(`Redo: ${r.warning} The diagram change was redone; the text was left as it is.`);
-      },
+      async () => void (await svc.undo(result)),
+      async () => void (await svc.redo(result)),
     );
   }
 }

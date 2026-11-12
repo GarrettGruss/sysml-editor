@@ -50,7 +50,9 @@ export interface NodeProps {
   multiplicity?: string;
   documentation?: string;
   /** The feature is inherited, the element is library content, or the element is a definition-less statement with no name. */
-  locked?: "inherited" | "library";
+  locked?: "inherited" | "library" | "readonly";
+  /** Why a `readonly` element cannot be edited (outside the workspace, excluded, not a file). */
+  lockedReason?: string;
   /** Whether the element can have a type and a multiplicity (usages). */
   isUsage: boolean;
 }
@@ -136,7 +138,8 @@ function edgeStyleOf(kind: string): EdgeStyle {
   return EDGE_STYLES[kind] ?? (kind.includes("connection") ? "connection" : "generic");
 }
 
-export function buildViewModel(doc: DiagramDocument, resolution: Resolution, index: ModelIndex): ViewModel {
+/** `readOnly` tells why an element's document must not be edited (see `ModelService.blockedReason`). */
+export function buildViewModel(doc: DiagramDocument, resolution: Resolution, index: ModelIndex, readOnly?: (uri: string) => string | undefined): ViewModel {
   const nodeOfElement = new Map<Element, string>();
   for (const n of doc.nodes) {
     const el = resolution.get(n.id);
@@ -190,6 +193,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     // A feature shown inside a usage that only inherits it (an Interconnection View of a usage shows its inherited parts and ports).
     const from = fromName;
     if (from !== undefined) out.inherited = { from };
+    const blocked = readOnly?.(el.uri);
     out.props = {
       kind: el.kind,
       isUsage: el.isUsage,
@@ -199,7 +203,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       ...(el.types.length ? { type: el.types.join(", ") } : {}),
       ...(el.multiplicity !== undefined ? { multiplicity: el.multiplicity } : {}),
       ...(el.documentation !== undefined ? { documentation: el.documentation } : {}),
-      ...(isLibraryUri(el.uri) ? { locked: "library" as const } : from ? { locked: "inherited" as const } : {}),
+      ...(isLibraryUri(el.uri) ? { locked: "library" as const } : from ? { locked: "inherited" as const } : blocked ? { locked: "readonly" as const, lockedReason: blocked } : {}),
     };
     if (shape === "port") {
       if (portOwner !== undefined) out.attachedTo = portOwner;

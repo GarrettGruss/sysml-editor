@@ -126,6 +126,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   ui: DiagramUi = defaultUi;
   /** Called when a node is selected in a diagram and the tree should follow (set by the extension). */
   revealInTree?: (element: Element) => void;
+  /** Why a document cannot be edited (library aside); nodes of such elements are locked in the view model. Set by the extension. */
+  editBlocker?: (uri: string) => string | undefined;
   /** Model edits (palette, connection tool, delete from model, rename, properties); set by the extension. */
   modelActions?: ModelActions;
 
@@ -644,7 +646,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   /** Re-resolve, write detected renames to the file, and send the view model to every ready panel. */
   private rerender(doc: SysmlDiagramDocument): void {
     for (const p of this.panels.get(doc.key) ?? []) this.syncPage(doc, p);
-    const r = refresh(doc.state, this.model.index, this.opts(doc));
+    const r = refresh(doc.state, this.model.index, this.opts(doc), this.editBlocker);
     if (!r) return;
     if (r.updates && !doc.renderOnly) void this.followRename(doc, r.updates);
     if (r.vanished && !doc.renderOnly) void this.dropVanished(doc, r.vanished);

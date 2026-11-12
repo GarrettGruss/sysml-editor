@@ -7,10 +7,11 @@
 import {
   buildDeclaration, planConnect, planDeleteElement, planInsertMember, planRename, planSatisfy, planSetDocumentation,
   planSetMultiplicity, planSetShortName, planSetType, validatePlan,
-  isPlanCurrent, sourceOf,
+  isPlanCurrent, sourceMatches, sourceOf,
   type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
 } from "../edit/index.js";
-import { inheritedVia, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
+import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
+import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
 import { placeElementChange, removeEntriesChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
 
@@ -57,13 +58,21 @@ export interface OpOk {
   diagramChange?: DiagramChange;
   /** URIs of the diagram files written to disk. */
   diagramFiles: string[];
-  /** Set when the first save failed: the documents are left as VS Code has them. */
-  saveError?: string;
+  /**
+   * Set when the edit was applied but some documents could not be saved: they keep the edit as unsaved changes in
+   * the editor. `unsaved` lists their URIs; the rest of `files` was saved.
+   */
+  saveError?: { unsaved: string[]; message: string };
+  /** Diagram files a forced change could not be written to (`failed`) or did not apply to (`skipped`, e.g. a diagram with parse errors). */
+  diagramProblems?: { failed: string[]; skipped: string[] };
+  /** Closed diagram files that changed on disk after the plan was made and so were not updated. */
+  diagramsChangedMeanwhile?: string[];
 }
 
 export type OpResult = OpOk | OpFailure;
 
-export type ApplyOutcome = { ok: true } | { ok: false; stale: true } | { ok: false; stale?: false; reason: string };
+/** `unsaved`: URIs of documents the edit was applied to but that could not be saved. */
+export type ApplyOutcome = { ok: true; unsaved?: string[] } | { ok: false; stale: true } | { ok: false; stale?: false; reason: string };
 
 /** What `ModelService` needs from its environment; the VS Code implementation is in `vscode-host.ts`. */
 export interface ModelHost {
@@ -80,10 +89,23 @@ export interface ModelHost {
   /** Saved state of the diagram files that are not open in an editor (open ones follow renames themselves). */
   closedDiagrams(): Promise<LoadedDiagram[]>;
   writeDiagramFiles(updates: readonly DiagramUpdate[]): Promise<void>;
-  /** Apply or revert a forced change on the matching diagram files; returns the URIs written. */
-  forceDiagramChange(change: DiagramChange, mode: "apply" | "revert"): Promise<string[]>;
+  /** Apply or revert a forced change on the matching diagram files. */
+  forceDiagramChange(change: DiagramChange, mode: "apply" | "revert"): Promise<ForceOutcome>;
+  /** Why a document must not be edited (outside every workspace folder, excluded by `sysml.exclude`, ...), or undefined. */
+  editBlocker?(uri: string): string | undefined;
+  /** Show the user a warning, with an optional action (a VS Code command). */
+  warn?(message: string, action?: { label: string; command: string }): void;
   /** A model edit was made from a diagram: record one undo entry there. */
   recordUndoEntry?(originDiagram: string, result: OpOk): void;
+}
+
+export interface ForceOutcome {
+  /** URIs written. */
+  written: string[];
+  /** URIs where writing or applying threw. */
+  failed: string[];
+  /** URIs the change could not be applied to (the diagram has parse errors). */
+  skipped: string[];
 }
 
 export interface Origin {
@@ -119,6 +141,9 @@ export interface Target {
 
 const nameOfUri = (uri: string) => decodeURIComponent(uri.split(/[?#]/, 1)[0]!.split("/").pop() ?? uri);
 
+const unsavedMessage = (unsaved: readonly string[]): string =>
+  `The edit was applied, but ${unsaved.map(nameOfUri).join(", ")} could not be saved. ${unsaved.length === 1 ? "It keeps" : "They keep"} the change as unsaved edits in the editor; save ${unsaved.length === 1 ? "it" : "them"} to keep the change on disk.`;
+
 const fail = (reason: string, extra: Partial<OpFailure> = {}): OpFailure => ({ ok: false, reason, ...extra });
 const info = (e: Element): ElementInfo => ({ uri: e.uri, kind: e.kind, ...(e.name !== undefined ? { name: e.name } : {}), ...(e.qualifiedName !== undefined ? { qualifiedName: e.qualifiedName } : {}) });
 
@@ -130,15 +155,7 @@ export function commonOwner(a: Element, b: Element): Element | undefined {
   return undefined;
 }
 
-export const DEFINITION_KINDS = ["package", "part def", "port def", "attribute def", "item def", "action def", "requirement def"];
-export const USAGE_KINDS = ["part", "port", "attribute", "item", "action", "requirement"];
-
-/** Declaration kinds that may be added under an element. */
-export function allowedChildKinds(owner: Element): string[] {
-  const isPackage = owner.kind === "package" || owner.kind.endsWith(" package");
-  if (isPackage) return [...DEFINITION_KINDS, ...USAGE_KINDS];
-  return owner.isDefinition || owner.isUsage ? USAGE_KINDS : [];
-}
+export { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds };
 
 export class ModelService {
   /** Operations are serialised: two edits never plan against the same text at once. */
@@ -180,18 +197,42 @@ export class ModelService {
     return fail(reason);
   }
 
+  /** Why `uri` must not be edited: library content, not a file on disk, or what the host says (outside the workspace, excluded). */
+  blockedReason(uri: string): string | undefined {
+    const n = nameOfUri(uri);
+    if (isLibraryUri(uri)) return `${n} is standard library content, which is read-only.`;
+    if (!uri.startsWith("file:")) return `${n} is not a file on disk, so it cannot be edited.`;
+    return this.host.editBlocker?.(uri);
+  }
+
+  private guard(uris: readonly string[]): OpFailure | undefined {
+    for (const u of new Set(uris)) {
+      const why = this.blockedReason(u);
+      if (why) return fail(why);
+    }
+    return undefined;
+  }
+
+  private warn(message: string, action?: { label: string; command: string }): void {
+    this.host.warn?.(message, action);
+  }
+
   /** Plan, apply, save and force diagram changes; re-plans once when the text changed in between. */
   private async run(
-    plan: () => PlanResult | OpFailure,
+    plan: () => PlanResult | OpFailure | Promise<PlanResult | OpFailure>,
     after: (plan: PlanOk, ctx: { before: ReadonlyMap<string, string> }) => { element?: () => Element | undefined; change?: () => DiagramChange | undefined; extra?: Partial<OpOk> },
     origin: Origin | undefined,
     touched: () => string[],
   ): Promise<OpResult> {
+    const blockedTarget = this.guard(touched());
+    if (blockedTarget) return blockedTarget;
     for (let attempt = 0; attempt < 2; attempt++) {
       await this.host.sync();
-      const p = plan();
+      const p = await plan();
       if (!p.ok) return this.failure(p.reason, touched());
       if (p.edits.length === 0) return fail("Nothing to change.");
+      const blocked = this.guard(p.edits.map((e) => e.uri));
+      if (blocked) return blocked;
       // The one staleness check: everything the plan read or edits must still have the text it was computed from.
       const sources = p.sources ?? [];
       // Documents that are written (and diagram files) are read from the host as they are now; the others
@@ -213,16 +254,36 @@ export class ModelService {
       const outcome = await this.host.applyAndSave(p.edits, sources);
       if (!outcome.ok && outcome.stale) continue;
       if (!outcome.ok) return fail(outcome.reason);
+      // From here the edit IS applied (documents that could not be saved keep it as unsaved changes): everything
+      // that belongs to the operation still happens, and the result says what was and was not saved.
+      const unsaved = outcome.unsaved ?? [];
       await this.host.sync();
-      if (p.diagramUpdates?.length) await this.host.writeDiagramFiles(p.diagramUpdates);
+      const diagramFiles: string[] = [];
+      const changedMeanwhile: string[] = [];
+      if (p.diagramUpdates?.length) {
+        // A closed diagram is only written when its file still has the text the update was computed from.
+        const fresh: DiagramUpdate[] = [];
+        for (const u of p.diagramUpdates) {
+          const src = sources.find((x) => x.uri === u.uri);
+          if (src && sourceMatches(src, await this.host.currentText(u.uri))) fresh.push(u);
+          else changedMeanwhile.push(u.uri);
+        }
+        if (fresh.length) await this.host.writeDiagramFiles(fresh);
+        diagramFiles.push(...fresh.map((u) => u.uri));
+      }
       const el = hooks.element?.();
       const change = hooks.change?.();
-      const diagramFiles = [...(p.diagramUpdates?.map((u) => u.uri) ?? [])];
-      if (change) diagramFiles.push(...(await this.host.forceDiagramChange(change, "apply")));
+      let diagramProblems: { failed: string[]; skipped: string[] } | undefined;
+      if (change) {
+        const f = await this.host.forceDiagramChange(change, "apply");
+        diagramFiles.push(...f.written);
+        if (f.failed.length || f.skipped.length) diagramProblems = { failed: f.failed, skipped: f.skipped };
+      }
+      const files = [...base.keys()];
       const result: OpOk = {
         ok: true,
         description: p.description,
-        files: [...base.keys()],
+        files,
         ...(el ? { element: info(el) } : {}),
         ...(p.unjudged ? { unjudged: p.unjudged } : {}),
         ...(p.remainingReferences ? { remainingReferences: p.remainingReferences } : {}),
@@ -230,12 +291,28 @@ export class ModelService {
         record,
         ...(change ? { diagramChange: change } : {}),
         diagramFiles,
+        ...(unsaved.length ? { saveError: { unsaved, message: unsavedMessage(unsaved) } } : {}),
+        ...(diagramProblems ? { diagramProblems } : {}),
+        ...(changedMeanwhile.length ? { diagramsChangedMeanwhile: changedMeanwhile } : {}),
         ...hooks.extra,
       };
       if (origin?.diagram) this.host.recordUndoEntry?.(origin.diagram, result);
+      this.noteUnsaved(unsaved);
+      if (diagramProblems) {
+        const names = [...diagramProblems.failed, ...diagramProblems.skipped].map(nameOfUri);
+        this.warn(`${p.description}: ${names.length} diagram file${names.length === 1 ? "" : "s"} could not be updated (${names.join(", ")}); ${names.length === 1 ? "it" : "they"} may not match the model.`);
+      }
+      if (changedMeanwhile.length) {
+        this.warn(`${p.description}: ${changedMeanwhile.map(nameOfUri).join(", ")} changed on disk while the edit was being made and ${changedMeanwhile.length === 1 ? "was" : "were"} not updated; ${changedMeanwhile.length === 1 ? "it" : "they"} may refer to the old name.`);
+      }
       return result;
     }
     return fail("The file changed while the edit was being prepared, twice. Nothing was changed; try again.");
+  }
+
+  /** The user is told which files could not be saved, with a "Save All" action. */
+  private noteUnsaved(unsaved: readonly string[]): void {
+    if (unsaved.length) this.warn(unsavedMessage(unsaved), { label: "Save All", command: "workbench.action.files.saveAll" });
   }
 
   // ---- inherited rule ------------------------------------------------------------------------
@@ -300,7 +377,8 @@ export class ModelService {
         () => {
           ownerNow = findOwner();
           if (!ownerNow) return fail("The element to add to is out of date; refresh and try again.");
-          if (!allowedChildKinds(ownerNow).includes(spec.kind) && !spec.kind.trim()) return fail("Choose what to add.");
+          const kindWrong = kindProblem(ownerNow, spec.kind);
+          if (kindWrong) return fail(kindWrong);
           pre.clear();
           for (const m of ownerNow.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
           let type: Element | string | undefined;
@@ -358,12 +436,13 @@ export class ModelService {
     return this.serial(async () => {
       const refusal = this.inheritedRefusal(t, "renamed");
       if (refusal) return refusal;
-      const closed = await this.host.closedDiagrams();
       let updated = 0;
       return this.run(
-        () => {
+        async () => {
           const el = this.fresh(t.element);
           if (!el) return fail("The element is out of date; refresh and try again.");
+          // Read inside the plan, so a re-plan sees the diagram files as they are now.
+          const closed = await this.host.closedDiagrams();
           const r = planRename(this.index, el, newName, { diagrams: closed });
           if (r.ok) updated = Math.max(0, r.edits.length - 1);
           return r;
@@ -387,14 +466,14 @@ export class ModelService {
       const what = props.name !== undefined ? "renamed" : props.type !== undefined ? "retyped" : "changed";
       const refusal = this.inheritedRefusal(t, what);
       if (refusal) return refusal;
-      const closed = props.name !== undefined ? await this.host.closedDiagrams() : [];
       let updated: number | undefined;
       return this.run(
-        () => {
+        async () => {
           const el = this.fresh(t.element);
           if (!el) return fail("The element is out of date; refresh and try again.");
           const plans: PlanResult[] = [];
           if (props.name !== undefined && props.name !== el.name) {
+            const closed = await this.host.closedDiagrams();
             const r = planRename(this.index, el, props.name, { diagrams: closed });
             if (r.ok) updated = Math.max(0, r.edits.length - 1);
             plans.push(r);
@@ -525,46 +604,54 @@ export class ModelService {
 
   // ---- undo and redo -------------------------------------------------------------------------
 
-  /** Reverse an operation: the inverse text edits (validated against the current text), then the diagram part. */
+  /**
+   * Reverse an operation: the inverse text edits (validated against the current text), then the diagram part.
+   * When the text cannot be reverted because it changed, NOTHING is reverted, a warning is shown and the entry is
+   * spent. When the text is already as it was before the edit (Undo in the text editor), only the diagram part is reverted.
+   */
   undo(result: OpOk): Promise<{ textReverted: boolean; warning?: string }> {
     return this.serial(async () => {
       await this.host.sync();
-      let warning: string | undefined;
-      let textReverted = false;
       const current = new Map<string, string | undefined>();
       for (const uri of result.record.after.keys()) current.set(uri, await this.host.currentText(uri));
       const plan = planUndo(result.record, current);
-      if (plan.ok && plan.edits.length === 0) textReverted = true;
-      else if (plan.ok) {
-        const base = new Map<string, string>([...result.record.after]);
-        const o = await this.host.applyAndSave(plan.edits, [...base].map(([u, t]) => sourceOf(u, t)));
-        if (o.ok) textReverted = true;
-        else warning = o.stale ? "The text changed while undoing; the edit was not reverted in the text." : o.reason;
-      } else warning = plan.reason;
+      let warning: string | undefined;
+      if (!plan.ok) warning = plan.reason;
+      else if (plan.edits.length > 0) {
+        const o = await this.host.applyAndSave(plan.edits, [...result.record.after].map(([u, t]) => sourceOf(u, t)));
+        if (!o.ok) warning = o.stale ? "The text changed while undoing; the edit was not reverted in the text." : o.reason;
+        else this.noteUnsaved(o.unsaved ?? []);
+      }
+      if (warning) {
+        this.warn(`Undo: ${warning} Nothing was undone.`);
+        return { textReverted: false, warning };
+      }
       await this.host.sync();
       if (result.diagramChange) await this.host.forceDiagramChange(result.diagramChange, "revert");
-      return { textReverted, ...(warning ? { warning } : {}) };
+      return { textReverted: true };
     });
   }
 
   redo(result: OpOk): Promise<{ textApplied: boolean; warning?: string }> {
     return this.serial(async () => {
       await this.host.sync();
-      let warning: string | undefined;
-      let textApplied = false;
       const current = new Map<string, string | undefined>();
       for (const uri of result.record.before.keys()) current.set(uri, await this.host.currentText(uri));
       const plan = planRedo(result.record, current);
-      if (plan.ok && plan.edits.length === 0) textApplied = true;
-      else if (plan.ok) {
+      let warning: string | undefined;
+      if (!plan.ok) warning = plan.reason;
+      else if (plan.edits.length > 0) {
         const o = await this.host.applyAndSave(plan.edits, [...result.record.before].map(([u, t]) => sourceOf(u, t)));
-        if (o.ok) textApplied = true;
-        else warning = o.stale ? "The text changed while redoing; the edit was not repeated in the text." : o.reason;
-      } else warning = plan.reason;
+        if (!o.ok) warning = o.stale ? "The text changed while redoing; the edit was not repeated in the text." : o.reason;
+        else this.noteUnsaved(o.unsaved ?? []);
+      }
+      if (warning) {
+        this.warn(`Redo: ${warning} Nothing was redone.`);
+        return { textApplied: false, warning };
+      }
       await this.host.sync();
       if (result.diagramChange) await this.host.forceDiagramChange(result.diagramChange, "apply");
-      return { textApplied, ...(warning ? { warning } : {}) };
+      return { textApplied: true };
     });
   }
 }
-

@@ -85,3 +85,15 @@ describe("nodes nested under an inherited node", () => {
     expect(nodes.find((n) => n.id === "n1")!.inherited).toBeUndefined();
   });
 });
+
+describe("elements in documents that cannot be edited", () => {
+  it("are locked with the reason the host gives, so the properties panel and menus disable up front", () => {
+    const doc: DiagramDocument = { version: 1, kind: "general", root: "M", sources: ["m.sysml"], nodes: [{ id: "n1", ref: "M::Vehicle" }], edges: [] };
+    const ix = new ModelIndex();
+    ix.setDocument("file:///w/m.sysml", MODEL);
+    const n = buildViewModel(doc, resolveDiagram(doc, ix), ix, (u) => (u.endsWith("m.sysml") ? "m.sysml is excluded by sysml.exclude, so it is not edited." : undefined)).nodes[0]!;
+    expect(n.props?.locked).toBe("readonly");
+    expect(n.props?.lockedReason).toMatch(/excluded/);
+    expect(buildViewModel(doc, resolveDiagram(doc, ix), ix).nodes[0]!.props?.locked).toBeUndefined();
+  });
+});

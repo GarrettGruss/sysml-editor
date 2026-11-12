@@ -272,7 +272,7 @@ export interface Refreshed {
 }
 
 /** Re-resolve against the model, keep the snapshot, and report renames as a proposed new document. */
-export function refresh(state: DiagramState, index: ModelIndex, opts: ResolveOptions = {}): Refreshed | undefined {
+export function refresh(state: DiagramState, index: ModelIndex, opts: ResolveOptions = {}, readOnly?: (uri: string) => string | undefined): Refreshed | undefined {
   const doc = state.doc;
   if (!doc) return undefined;
   const r = reconcile(doc, index, state.snapshot, opts);
@@ -282,9 +282,9 @@ export function refresh(state: DiagramState, index: ModelIndex, opts: ResolveOpt
   const extra = vanished.length ? { vanished } : {};
   if (r.updates.length) {
     const renamed = applyUpdates(doc, r.updates);
-    return { viewModel: (state.viewModel = buildViewModel(renamed, r.resolution, index)), renamed, updates: [...r.updates], ...extra };
+    return { viewModel: (state.viewModel = buildViewModel(renamed, r.resolution, index, readOnly)), renamed, updates: [...r.updates], ...extra };
   }
-  return { viewModel: (state.viewModel = buildViewModel(doc, r.resolution, index)), ...extra };
+  return { viewModel: (state.viewModel = buildViewModel(doc, r.resolution, index, readOnly)), ...extra };
 }
 
 export const MAX_COORD = 1_000_000;

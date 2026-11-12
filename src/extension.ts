@@ -35,6 +35,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   const modelHost = new VsCodeModelHost(model, diagrams, files, (m) => log.warn(m));
   const edit = new ModelService(modelHost);
   modelHost.service = edit;
+  provider.editBlocker = (uri) => edit.blockedReason(uri);
+  diagrams.editBlocker = (uri) => edit.blockedReason(uri);
   const actions = new ModelActions(edit, model.index, () => diagrams.ui);
   diagrams.modelActions = actions;
   const folders = () => (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));

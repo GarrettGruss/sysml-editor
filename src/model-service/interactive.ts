@@ -3,7 +3,8 @@ import * as vscode from "vscode";
 import type { Element, ModelIndex } from "../model/index.js";
 import type { DiagramUi } from "../diagram/diagram-editor.js";
 import { ADD_KINDS, confirmationText, deleteImpact, kindLabel, nameProblem, needsConfirmation, spot } from "./support.js";
-import { allowedChildKinds, type AddSpec, type ModelService, type Origin, type OpResult, type Target } from "./service.js";
+import { allowedChildKinds, kindProblem } from "./kinds.js";
+import { type AddSpec, type ModelService, type Origin, type OpResult, type Target } from "./service.js";
 import type { Placement } from "./diagram-changes.js";
 
 export class ModelActions {
@@ -47,6 +48,12 @@ export class ModelActions {
       const pick = await this.ui().pick(ADD_KINDS.filter((k) => allowed.has(k.kind)).map((k) => ({ label: k.label, description: k.kind, declKind: k.kind })), { title: `Add Child to ${owner.name ?? owner.kind}`, placeHolder: "Choose the kind of element" });
       if (!pick) return undefined;
       kind = pick.declKind;
+    }
+    // The kind is checked here (before asking for a name) and again by the service; a kind from a webview is never trusted.
+    const wrong = kindProblem(owner, kind);
+    if (wrong) {
+      void vscode.window.showWarningMessage(wrong);
+      return { ok: false, reason: wrong };
     }
     const name = await this.ui().input({
       title: `New ${kindLabel(kind)}`,
