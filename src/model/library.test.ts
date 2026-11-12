@@ -199,3 +199,24 @@ describe.skipIf(!have)("standard library", () => {
     expect(l?.uri.endsWith("ISQBase.sysml")).toBe(true);
   });
 });
+
+describe("loadLibraryChunked", () => {
+  it("loads the same documents as loadLibrary, one change event per chunk", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { ModelIndex } = await import("./index.js");
+    const { loadLibraryChunked } = await import("./library.js");
+    const dir = mkdtempSync(join(tmpdir(), "lib-"));
+    for (const n of ["A", "B", "C"]) writeFileSync(join(dir, `${n}.sysml`), `package ${n} { part def X; }`);
+    const ix = new ModelIndex();
+    let events = 0;
+    ix.onDidChange(() => events++);
+    let yields = 0;
+    const r = await loadLibraryChunked(ix, dir, { chunk: 2, yieldFn: async () => void yields++ });
+    expect(r.uris).toHaveLength(3);
+    expect(ix.uris()).toHaveLength(3);
+    expect(events).toBe(2);
+    expect(yields).toBe(2);
+  });
+});

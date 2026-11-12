@@ -70,6 +70,12 @@
     "configuration": {
       "title": "SysML",
       "properties": {
+        "sysml.exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["**/node_modules/**"],
+          "description": "Glob patterns (relative to the workspace folder) of .sysml files that are not indexed. Applied together with files.exclude and search.exclude."
+        },
         "sysml.tree.followCursor": {
           "type": "boolean",
           "default": true,

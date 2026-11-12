@@ -1,8 +1,9 @@
 /** VS Code adapter for the model tree: renders what tree-model.ts computes. */
 import * as vscode from "vscode";
+import { uriKey } from "../workspace/uri-key.js";
 import type { ModelIndex } from "../model/index.js";
 import {
-  affectedNodes, childNodes, firstErrorText, nodeAtOffset, nodeInfo, parentNode, resolveNode, rootNodes,
+  affectedNodes, childNodes, firstErrorPosition, firstErrorText, isErrorNode, nodeAtOffset, nodeInfo, parentNode, resolveNode, rootNodes,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -73,6 +74,12 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     item.iconPath = new vscode.ThemeIcon(ICONS[info.icon] ?? ICONS.element!);
     item.contextValue = "sysmlElement";
     item.command = { command: "sysml.goToDefinition", title: "Go to Definition", arguments: [node] };
+    if (isErrorNode(node)) {
+      item.contextValue = "sysmlSyntaxError";
+      item.iconPath = new vscode.ThemeIcon("error", new vscode.ThemeColor("problemsErrorIcon.foreground"));
+      item.tooltip = `Syntax error at ${firstErrorText(this.index, node.uri)}`;
+      return item;
+    }
     const error = info.isRoot ? firstErrorText(this.index, node.uri) : undefined;
     if (error) {
       item.iconPath = new vscode.ThemeIcon("error", new vscode.ThemeColor("problemsErrorIcon.foreground"));
@@ -90,6 +97,14 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 /** Open the element's file with its name (or whole declaration) selected. */
 export async function goToDefinition(index: ModelIndex, node: ModelNode | undefined): Promise<void> {
   if (!node) return;
+  if (isErrorNode(node)) {
+    const pos = firstErrorPosition(index, node.uri);
+    if (!pos) return;
+    const p = new vscode.Position(pos.line, pos.column);
+    const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(node.uri));
+    await vscode.window.showTextDocument(doc, { selection: new vscode.Range(p, p), preserveFocus: false });
+    return;
+  }
   const el = resolveNode(index, node);
   if (!el) return;
   const r = el.nameRange ?? el.range;
@@ -98,19 +113,18 @@ export async function goToDefinition(index: ModelIndex, node: ModelNode | undefi
   await vscode.window.showTextDocument(doc, { selection: range, preserveFocus: false });
 }
 
-/** Cursor-to-tree sync. Never reveals while the view is hidden. */
+/** Cursor-to-tree sync. Never reveals while the view is hidden or while the index lags the editor text. */
 export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<ModelNode>): vscode.Disposable {
-  let last: string | undefined;
   return vscode.window.onDidChangeTextEditorSelection((e) => {
     if (!vscode.workspace.getConfiguration("sysml").get<boolean>("tree.followCursor", true)) return;
     if (!view.visible) return;
     const doc = e.textEditor.document;
-    const node = nodeAtOffset(index, doc.uri.toString(), doc.offsetAt(e.selections[0]!.active));
-    if (!node || node.id === last) return;
-    last = node.id;
-    Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {
-      last = undefined;
-    });
+    const key = uriKey(doc.uri);
+    // A debounce is pending: offsets in the index would not match the editor.
+    if (index.getDocument(key)?.text !== doc.getText()) return;
+    const node = nodeAtOffset(index, key, doc.offsetAt(e.selections[0]!.active));
+    if (!node || view.selection[0]?.id === node.id) return;
+    void Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {});
   });
 }
 
