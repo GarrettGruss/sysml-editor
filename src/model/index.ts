@@ -71,6 +71,7 @@ export class ModelIndex {
   removeDocument(uri: string): boolean {
     const e = this.docs.get(uri);
     if (!e) return false;
+    this.resolver.clear();
     this.unindex(e.model);
     this.docs.delete(uri);
     this.emit([uri]);
@@ -109,6 +110,11 @@ export class ModelIndex {
     return this.resolver.resolve(nameText, from);
   }
 
+  /** All candidates for a name in priority order (see `Resolver.resolveAll`); more than one means ambiguity. */
+  resolveAll(nameText: string, from: Element): Element[] {
+    return this.resolver.resolveAll(nameText, from);
+  }
+
   onDidChange(listener: (e: ModelChangeEvent) => void): Disposable {
     this.listeners.add(listener);
     return { dispose: () => void this.listeners.delete(listener) };
@@ -117,6 +123,7 @@ export class ModelIndex {
   // ---------------------------------------------------------------- internals
 
   private apply(uri: string, text: string): boolean {
+    this.resolver.clear();
     const old = this.docs.get(uri);
     if (old && old.text === text) return false;
     let parsed;
@@ -170,7 +177,14 @@ export class ModelIndex {
   }
 
   private emit(uris: string[]): void {
-    for (const l of [...this.listeners]) l({ uris });
+    this.resolver.clear();
+    for (const l of [...this.listeners]) {
+      try {
+        l({ uris });
+      } catch (e) {
+        console.error("ModelIndex listener threw:", e);
+      }
+    }
   }
 }
 

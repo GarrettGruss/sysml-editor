@@ -28,15 +28,36 @@ export interface ResolveContext {
  * usages, redefinition-based scoping, import filters, and `$::` beyond "start from the roots".
  */
 export class Resolver {
+  /** Resolved import targets; must be cleared whenever the index changes. */
+  private readonly targetMemo = new Map<Element, Element[]>();
+  /** Bumped whenever a cycle guard cuts a path; results computed across a cut are not memoized. */
+  private cuts = 0;
+
   constructor(private readonly ctx: ResolveContext) {}
 
+  /** Drop memoized import targets (call when documents change). */
+  clear(): void {
+    this.targetMemo.clear();
+  }
+
+  /** The first candidate of `resolveAll`. */
   resolve(nameText: string, from: Element): Element | undefined {
+    return this.resolveAll(nameText, from)[0];
+  }
+
+  /**
+   * All candidates for a name, in priority order: the innermost lexical scope that yields any
+   * match wins (own members, then aliases, in source order; then the matches of each import of
+   * that scope in source order; then enclosing scopes, the document top level, and finally root
+   * packages of all documents). More than one result means the name is ambiguous.
+   */
+  resolveAll(nameText: string, from: Element): Element[] {
     const segs = splitQualified(nameText);
-    if (segs.length === 0) return undefined;
+    if (segs.length === 0) return [];
     let cands: Element[];
     if (segs[0] === "$") {
       segs.shift();
-      if (segs.length === 0) return undefined;
+      if (segs.length === 0) return [];
       cands = [...this.ctx.rootsNamed(segs[0]!)];
     } else {
       cands = this.lexical(segs[0]!, from, new Set());
@@ -47,26 +68,27 @@ export class Resolver {
       for (const c of cands) for (const m of this.exported(c, seg, new Set())) pushUnique(next, m);
       cands = next;
     }
-    return cands[0];
+    return cands;
   }
 
   // ---- lookups
 
-  private lexical(seg: string, from: Element, guard: Set<Element>): Element[] {
+  /** `noImportsAt`: a scope whose own imports must not be consulted (used to resolve its imports' targets). */
+  private lexical(seg: string, from: Element, guard: Set<Element>, noImportsAt?: Element): Element[] {
     for (let scope: Element | undefined = from; scope; scope = scope.owner) {
-      const r = this.inScope(this.equivalents(scope).flatMap((s) => s.members), seg, guard);
+      const r = this.inScope(this.equivalents(scope).flatMap((s) => s.members), seg, guard, scope === noImportsAt);
       if (r.length) return r;
     }
     const doc = this.ctx.modelOf(from.uri);
     if (doc) {
-      const r = this.inScope(doc.roots, seg, guard);
+      const r = this.inScope(doc.roots, seg, guard, from === noImportsAt);
       if (r.length) return r;
     }
     return [...this.ctx.rootsNamed(seg)];
   }
 
   /** Members visible by simple name inside a namespace: own members, aliases, then all imports. */
-  private inScope(members: readonly Element[], seg: string, guard: Set<Element>): Element[] {
+  private inScope(members: readonly Element[], seg: string, guard: Set<Element>, skipImports = false): Element[] {
     const out: Element[] = [];
     for (const m of members) {
       if (m.kind === "import" || m.kind === "expose") continue;
@@ -76,11 +98,10 @@ export class Resolver {
         if (t) pushUnique(out, t);
       } else pushUnique(out, m);
     }
-    if (out.length) return out;
+    if (out.length || skipImports) return out;
     for (const imp of members) {
       if (imp.kind !== "import" || !imp.importInfo) continue;
       for (const r of this.viaImport(imp, seg, guard)) pushUnique(out, r);
-      if (out.length) return out;
     }
     return out;
   }
@@ -89,7 +110,10 @@ export class Resolver {
   private exported(ns: Element, seg: string, guard: Set<Element>): Element[] {
     const out: Element[] = [];
     const key = ns;
-    if (guard.has(key)) return out;
+    if (guard.has(key)) {
+      this.cuts++;
+      return out;
+    }
     const g2 = new Set(guard).add(key);
     const members = this.equivalents(ns).flatMap((s) => s.members);
     for (const m of members) {
@@ -109,13 +133,13 @@ export class Resolver {
   }
 
   private viaImport(imp: Element, seg: string, guard: Set<Element>): Element[] {
-    if (guard.has(imp)) return [];
+    if (guard.has(imp)) {
+      this.cuts++;
+      return [];
+    }
     const g2 = new Set(guard).add(imp);
     const info = imp.importInfo!;
-    const scope = imp.owner;
-    const targets = scope
-      ? this.lexicalForImport(info.target, scope, g2)
-      : this.lexicalForImportRoot(info.target, imp, g2);
+    const targets = this.importTarget(imp, g2);
     const out: Element[] = [];
     for (const t of targets) {
       if (!info.wildcard) {
@@ -129,16 +153,32 @@ export class Resolver {
     return out;
   }
 
-  private lexicalForImport(target: string, scope: Element, guard: Set<Element>): Element[] {
-    return this.qualified(target, (first) => this.lexical(first, scope, guard), guard);
+  /**
+   * The namespaces an import names. The first segment is looked up among the importing
+   * namespace's own members (imports at that level are not consulted), then in enclosing
+   * scopes, then root packages. Memoized unless a cycle cut influenced the result.
+   */
+  private importTarget(imp: Element, guard: Set<Element>): Element[] {
+    const hit = this.targetMemo.get(imp);
+    if (hit) return hit;
+    const before = this.cuts;
+    const r = this.qualified(imp.importInfo!.target, (first) => this.lexicalNoOwnImports(first, imp, guard), guard);
+    if (this.cuts === before) this.targetMemo.set(imp, r);
+    return r;
   }
 
-  private lexicalForImportRoot(target: string, imp: Element, guard: Set<Element>): Element[] {
-    return this.qualified(target, (first) => {
-      const doc = this.ctx.modelOf(imp.uri);
-      const r = doc ? this.inScope(doc.roots, first, guard) : [];
-      return r.length ? r : [...this.ctx.rootsNamed(first)];
-    }, guard);
+  private lexicalNoOwnImports(first: string, imp: Element, guard: Set<Element>): Element[] {
+    const scope = imp.owner;
+    if (scope) return this.lexical(first, scope, guard, scope);
+    const doc = this.ctx.modelOf(imp.uri);
+    const r = doc ? this.inScope(doc.roots, first, guard, true) : [];
+    return r.length ? r : [...this.ctx.rootsNamed(first)];
+  }
+
+  private lexicalRootOf(first: string, el: Element, guard: Set<Element>): Element[] {
+    const doc = this.ctx.modelOf(el.uri);
+    const r = doc ? this.inScope(doc.roots, first, guard) : [];
+    return r.length ? r : [...this.ctx.rootsNamed(first)];
   }
 
   private aliasTarget(alias: Element, guard: Set<Element>): Element | undefined {
@@ -147,7 +187,7 @@ export class Resolver {
     const scope = alias.owner;
     const r = scope
       ? this.qualified(alias.aliasFor, (first) => this.lexical(first, scope, g2), g2)
-      : this.qualified(alias.aliasFor, (first) => this.lexicalForImportRoot(first, alias, g2), g2);
+      : this.qualified(alias.aliasFor, (first) => this.lexicalRootOf(first, alias, g2), g2);
     return r[0];
   }
 
