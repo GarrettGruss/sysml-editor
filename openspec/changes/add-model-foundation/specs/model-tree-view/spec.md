@@ -104,3 +104,22 @@ The view container SHALL show a single-line search box above the tree. Typing SH
 - **WHEN** the user clears the box or presses Escape in it
 - **THEN** the unfiltered tree returns, with previously expanded nodes still expanded
 
+### Requirement: Delete a SysML file from the tree
+A `.sysml` file node in the Elements view SHALL offer "Delete File" in its context menu. The command SHALL ask for confirmation, naming the file and, when elements in other workspace files reference its elements, how many references in which files will no longer resolve. On confirmation the file SHALL be moved to the trash (or deleted when the trash is unavailable), its open text editors closed, and the tree and model updated.
+
+#### Scenario: Delete an unreferenced file
+- **WHEN** the user chooses "Delete File" on `models/old.sysml` and confirms
+- **THEN** the file is moved to the trash, it disappears from the tree, and its elements are no longer in the model or the agent tools
+
+#### Scenario: Delete a referenced file
+- **WHEN** the user chooses "Delete File" on `vehicle.sysml`, whose `Engine` is used by `part engine : Engine;` in `system.sysml`
+- **THEN** the confirmation states that 1 reference in `system.sysml` will no longer resolve, and nothing is deleted unless the user confirms
+
+#### Scenario: Cancel
+- **WHEN** the user cancels the confirmation
+- **THEN** the file is unchanged
+
+#### Scenario: Unsaved changes
+- **WHEN** the file has unsaved changes in an open editor
+- **THEN** the confirmation says so, and confirming deletes the file without saving those changes
+
