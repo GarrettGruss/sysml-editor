@@ -56,3 +56,32 @@ describe("inherited features in the view model", () => {
     expect(c.find((x) => x.title === "ports")!.lines).toEqual(["drive : Pw"]);
   });
 });
+
+describe("nodes nested under an inherited node", () => {
+  const NESTED = `package M {
+  part def Vehicle {
+    part engine {
+      part cylinder { part bolt; }
+    }
+  }
+  part vehicle1 : Vehicle;
+}`;
+  it("an own member of an inherited feature, and its members, are marked inherited too", () => {
+    const doc: DiagramDocument = {
+      version: 1, kind: "interconnection", root: "M::vehicle1", sources: ["m.sysml"],
+      nodes: [
+        { id: "n1", ref: "M::vehicle1" },
+        { id: "n2", ref: "M::Vehicle::engine", parent: "n1" },
+        { id: "n3", ref: "M::Vehicle::engine::cylinder", parent: "n2" },
+        { id: "n4", ref: "M::Vehicle::engine::cylinder::bolt", parent: "n3" },
+      ],
+      edges: [],
+    };
+    const ix = new ModelIndex();
+    ix.setDocument("file:///w/m.sysml", NESTED);
+    const nodes = buildViewModel(doc, resolveDiagram(doc, ix), ix).nodes;
+    for (const id of ["n2", "n3", "n4"]) expect(nodes.find((n) => n.id === id)!.inherited, id).toEqual({ from: "M::Vehicle" });
+    expect(nodes.find((n) => n.id === "n3")!.props?.locked).toBe("inherited");
+    expect(nodes.find((n) => n.id === "n1")!.inherited).toBeUndefined();
+  });
+});

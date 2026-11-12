@@ -69,6 +69,8 @@ export class ModelIndex {
   private readonly inFlight = new Set<Promise<void>>();
   /** Set on forks: the key arrays that are still shared with the original index (copy before writing). */
   private shared?: { byQn: Set<string>; roots: Set<string> };
+  /** Bumped by every change of any document; derived caches (inherited members) are valid for one revision. */
+  revision = 0;
 
   constructor(
     private readonly parser: DocumentParser = defaultDocumentParser,
@@ -100,7 +102,7 @@ export class ModelIndex {
   removeDocument(uri: string): boolean {
     const e = this.docs.get(uri);
     if (!e) return false;
-    this.resolver.clear();
+    this.clearResolver();
     this.unindex(e.model);
     this.docs.delete(uri);
     this.syncResolved.delete(uri);
@@ -135,6 +137,11 @@ export class ModelIndex {
     f.shared = { byQn: new Set(this.byQn.keys()), roots: new Set(this.roots.keys()) };
     for (const [uri, text] of changes) f.apply(uri, text);
     return f;
+  }
+
+  private clearResolver(): void {
+    this.revision++;
+    this.resolver.clear();
   }
 
   /** The array for `key` in one of the maps, copied first when the original index still shares it. */
@@ -191,7 +198,7 @@ export class ModelIndex {
   // ---------------------------------------------------------------- internals
 
   private apply(uri: string, text: string): boolean {
-    this.resolver.clear();
+    this.clearResolver();
     const old = this.docs.get(uri);
     if (old && old.text === text) return false;
     let parsed;
@@ -250,7 +257,7 @@ export class ModelIndex {
   private onDetails(uri: string, version: number, r: DetailsReply | undefined): void {
     const e = this.docs.get(uri);
     if (!e || e.version !== version || !e.detailsPending) return;
-    this.resolver.clear();
+    this.clearResolver();
     if (!r) {
       // Details are unavailable: parse exactly, once, on this thread (a one-off slow path) so the
       // outcome is always correct.
@@ -321,7 +328,7 @@ export class ModelIndex {
   }
 
   private emit(uris: string[]): void {
-    this.resolver.clear();
+    this.clearResolver();
     for (const l of [...this.listeners]) {
       try {
         l({ uris });
@@ -341,4 +348,4 @@ export { buildDocumentModel, documentFromParse, mapSyntaxErrors } from "./antlr-
 export { antlrDocumentParser, DETAILS_PENDING_MESSAGE } from "./antlr-parser.js";
 export { serializeModel, deserializeModel, type SerializedModel } from "./serialize.js";
 export { quoteName, unquoteName, splitQualified } from "./names.js";
-export { inheritedMembers, inheritedFrom, isInheritedIn, supertypesOf, locate, type InheritedMember, type Located } from "./inherited.js";
+export { inheritedMembers, inheritedFrom, inheritedVia, isInheritedIn, supertypesOf, locate, type InheritedMember, type Located } from "./inherited.js";

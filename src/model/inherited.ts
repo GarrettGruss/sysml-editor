@@ -5,6 +5,7 @@
 import { splitQualified } from "./names.js";
 import type { Element } from "./types.js";
 import type { ModelIndex } from "./index.js";
+import { isLibraryUri } from "./library-uri.js";
 
 export interface InheritedMember {
   /** The inherited feature, as declared. */
@@ -50,6 +51,17 @@ function ownNames(index: ModelIndex, el: Element): Set<string> {
  * a nearer supertype already provides under the same name, is not listed.
  */
 export function inheritedMembers(index: ModelIndex, element: Element): InheritedMember[] {
+  let c = caches.get(index);
+  if (!c || c.revision !== index.revision) caches.set(index, (c = { revision: index.revision, byElement: new Map() }));
+  let r = c.byElement.get(element);
+  if (!r) c.byElement.set(element, (r = computeInherited(index, element)));
+  return r;
+}
+
+/** Per index and revision: inherited members per element. A new revision (any document change) drops everything. */
+const caches = new WeakMap<ModelIndex, { revision: number; byElement: Map<Element, InheritedMember[]> }>();
+
+function computeInherited(index: ModelIndex, element: Element): InheritedMember[] {
   const taken = ownNames(index, element);
   const seen = new Set<Element>([element]);
   const out: InheritedMember[] = [];
@@ -60,6 +72,8 @@ export function inheritedMembers(index: ModelIndex, element: Element): Inherited
     for (const t of level) {
       if (seen.has(t)) continue;
       seen.add(t);
+      // Standard library supertypes are not walked: their features are read-only anyway and would flood the result.
+      if (isLibraryUri(t.uri)) continue;
       for (const m of t.members) {
         if (!isFeature(m) || taken.has(m.name!)) continue;
         out.push({ member: m, declaredIn: t });
@@ -79,10 +93,23 @@ export function inheritedMembers(index: ModelIndex, element: Element): Inherited
   return out;
 }
 
-/** The declaring element when `element` reaches `context` by inheritance (and is not owned by it), else undefined. */
+/**
+ * The declaring element when `element` reaches `context` by inheritance, else undefined. Also true for an element
+ * that lies BENEATH an inherited member (an own member of an inherited feature): the nearest owner that
+ * `context` inherits decides.
+ */
 export function inheritedFrom(index: ModelIndex, element: Element, context: Element): Element | undefined {
-  if (element.owner === context) return undefined;
-  return inheritedMembers(index, context).find((i) => i.member === element)?.declaredIn;
+  return inheritedVia(index, element, context)?.declaredIn;
+}
+
+/** Like `inheritedFrom`, also naming the inherited member the path goes through (`element` itself, or an owner of it). */
+export function inheritedVia(index: ModelIndex, element: Element, context: Element): InheritedMember | undefined {
+  for (let e: Element | undefined = element, i = 0; e && e !== context && i < 200; e = e.owner, i++) {
+    if (e.owner === context) return undefined;
+    const hit = inheritedMembers(index, context).find((x) => x.member === e);
+    if (hit) return hit;
+  }
+  return undefined;
 }
 
 export function isInheritedIn(index: ModelIndex, element: Element, context: Element): boolean {
@@ -112,8 +139,8 @@ export function locate(index: ModelIndex, qualifiedName: string): Located | unde
     for (const name of segs.slice(n)) {
       const own: Element | undefined = cur.members.find((m) => m.name === name);
       if (own) {
+        // The context is kept: once a path has passed through an inherited member, everything below it is inherited too.
         cur = own;
-        context = undefined;
         continue;
       }
       const inh = inheritedMembers(index, cur).find((i) => i.member.name === name);

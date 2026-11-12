@@ -72,3 +72,39 @@ describe("usage bodies", () => {
     expect(q("M::vehicle1").bodyRange).toBeDefined();
   });
 });
+
+describe("inherited members: library supertypes and caching", () => {
+  const LIB = "sysml-library:/Lib.sysml";
+  function withLibrary() {
+    const index = new ModelIndex();
+    index.setDocument(LIB, "package Lib { part def Thing { part libFeature; } }");
+    index.setDocument("file:///m.sysml", "package M { part def Mine :> Lib::Thing { part own; } part mine : Mine; }");
+    return index;
+  }
+
+  test("standard library supertypes are not walked", () => {
+    const index = withLibrary();
+    const mine = index.findByQualifiedName("M::mine")[0]!;
+    expect(inheritedMembers(index, mine).map((i) => i.member.name)).toEqual(["own"]);
+  });
+
+  test("results are cached per index revision and dropped on any change", () => {
+    const { index, q } = setup();
+    const a = inheritedMembers(index, q("M::vehicle1"));
+    expect(inheritedMembers(index, q("M::vehicle1"))).toBe(a);
+    index.setDocument("file:///m.sysml", text.replace("part engine;", "part engine; part extra;"));
+    const v = index.findByQualifiedName("M::vehicle1")[0]!;
+    const b = inheritedMembers(index, v);
+    expect(b).not.toBe(a);
+    expect(b.map((i) => i.member.name)).toContain("extra");
+  });
+
+  test("a locate path keeps the inherited context for deeper own members", () => {
+    const index = new ModelIndex();
+    index.setDocument("file:///d.sysml", "package D { part def V { part engine { part piston; } } part v1 : V; }");
+    const l = locate(index, "D::v1::engine::piston")!;
+    expect(l.element.qualifiedName).toBe("D::V::engine::piston");
+    expect(l.context?.qualifiedName).toBe("D::v1");
+    expect(inheritedFrom(index, l.element, l.context!)?.qualifiedName).toBe("D::V");
+  });
+});

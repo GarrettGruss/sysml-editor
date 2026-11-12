@@ -426,11 +426,13 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const index = this.model.index;
     const element = resolveReference(node, d, index, this.opts(doc));
     if (!element) return undefined;
-    const vm = doc.state.viewModel?.nodes.find((n) => n.id === id);
-    const containerId = vm?.attachedTo ?? vm?.parent ?? node.parent;
-    const containerNode = containerId !== undefined ? d.nodes.find((n) => n.id === containerId) : undefined;
-    const container = containerNode ? resolveReference(containerNode, d, index, this.opts(doc)) : undefined;
-    return container && isInheritedIn(index, element, container) ? { element, context: container } : { element };
+    // Any container up the node ancestry that inherits the feature (or a feature it lies beneath) is its context.
+    for (const anc of this.ancestry(doc, id).slice(1)) {
+      const ancNode = d.nodes.find((n) => n.id === anc);
+      const ancEl = ancNode ? resolveReference(ancNode, d, index, this.opts(doc)) : undefined;
+      if (ancEl && isInheritedIn(index, element, ancEl)) return { element, context: ancEl };
+    }
+    return { element };
   }
 
   private notice(doc: SysmlDiagramDocument, message: string): void {

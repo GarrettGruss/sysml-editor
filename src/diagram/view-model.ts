@@ -3,7 +3,7 @@
  * document, its resolution and the model. No `vscode` import and no DOM.
  */
 import { inheritedFrom, inheritedMembers, isLibraryUri, type Element, type ModelIndex } from "../model/index.js";
-import type { DiagramDocument, DiagramKind, ElementReference, Point } from "./format.js";
+import type { DiagramDocument, DiagramKind, DiagramNode, ElementReference, Point } from "./format.js";
 import type { Resolution } from "./resolve.js";
 import { endElement, relationOf } from "./relations.js";
 
@@ -105,13 +105,16 @@ function labelOf(e: Element, shape: ShapeKind): string {
 }
 
 /** Direct members that are not shown as their own nodes, grouped by kind. */
-function compartmentsOf(e: Element, shown: Set<Element>, index: ModelIndex, withOwn: boolean): Compartment[] {
+function compartmentsOf(e: Element, shown: Set<Element>, index: ModelIndex, withOwn: boolean, inheritedOwner?: string): Compartment[] {
   const groups = new Map<string, { lines: string[]; inherited: Record<number, string> }>();
   const group = (kind: string) => groups.get(kind) ?? groups.set(kind, { lines: [], inherited: {} }).get(kind)!;
   if (withOwn) {
     for (const m of e.members) {
       if (shown.has(m) || m.name === undefined || !m.isUsage || m.ends.length >= 2) continue;
-      group(m.kind).lines.push(m.name + typed(m));
+      const g = group(m.kind);
+      // Lines of a node that is itself inherited (or lies beneath an inherited feature) are inherited too.
+      if (inheritedOwner !== undefined) g.inherited[g.lines.length] = inheritedOwner;
+      g.lines.push(m.name + typed(m));
     }
   }
   // Features inherited through typing and specialization, after the own ones.
@@ -142,6 +145,23 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
   const shown = new Set(nodeOfElement.keys());
   const general = doc.kind === "general";
 
+  /** Per node id: the declaring element when the node's feature is inherited by its container, or lies beneath such a node. */
+  const inheritedBy = new Map<string, string | undefined>();
+  const byNodeId = new Map(doc.nodes.map((x) => [x.id, x] as const));
+  const inheritedOf = (n: DiagramNode, depth = 0): string | undefined => {
+    if (inheritedBy.has(n.id)) return inheritedBy.get(n.id);
+    inheritedBy.set(n.id, undefined);
+    const el = resolution.get(n.id);
+    if (!el || depth > 50) return undefined;
+    const containerId = n.parent ?? (el.owner ? nodeOfElement.get(el.owner) : undefined);
+    const containerEl = containerId !== undefined ? resolution.get(containerId) : undefined;
+    const direct = containerEl ? inheritedFrom(index, el, containerEl) : undefined;
+    const container = containerId !== undefined ? byNodeId.get(containerId) : undefined;
+    const from = direct ? (direct.qualifiedName ?? direct.name ?? "") : container ? inheritedOf(container, depth + 1) : undefined;
+    inheritedBy.set(n.id, from);
+    return from;
+  };
+
   const nodes: VmNode[] = doc.nodes.map((n) => {
     const el = resolution.get(n.id);
     const geometry: NonNullable<VmNode["geometry"]> = {};
@@ -162,14 +182,14 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     out.label = labelOf(el, shape);
     if (!isPackage(el)) out.keyword = `«${el.kind}»`;
     if (shape === "requirement" && el.documentation) out.doc = el.documentation;
+    const fromName = inheritedOf(n);
     if (general && (shape === "definition" || shape === "usage")) {
-      const c = compartmentsOf(el, shown, index, shape === "definition");
+      const c = compartmentsOf(el, shown, index, shape === "definition", fromName);
       if (c.length) out.compartments = c;
     }
     // A feature shown inside a usage that only inherits it (an Interconnection View of a usage shows its inherited parts and ports).
-    const containerEl = portOwner !== undefined ? resolution.get(portOwner) : n.parent !== undefined ? resolution.get(n.parent) : undefined;
-    const from = containerEl ? inheritedFrom(index, el, containerEl) : undefined;
-    if (from) out.inherited = { from: from.qualifiedName ?? from.name ?? "" };
+    const from = fromName;
+    if (from !== undefined) out.inherited = { from };
     out.props = {
       kind: el.kind,
       isUsage: el.isUsage,

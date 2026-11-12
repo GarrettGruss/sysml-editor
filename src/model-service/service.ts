@@ -10,7 +10,7 @@ import {
   isPlanCurrent, sourceOf,
   type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
 } from "../edit/index.js";
-import { inheritedFrom, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
+import { inheritedVia, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { placeElementChange, removeEntriesChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
 
@@ -250,16 +250,21 @@ export class ModelService {
     return this.inheritedRefusal(t, what);
   }
 
-  /** Refuse an edit of a feature that `target.context` only inherits. */
+  /**
+   * Refuse an edit of a feature that `target.context` only inherits, or of anything beneath such a feature
+   * (an own member of an inherited feature is part of the definition that declares it).
+   */
   private inheritedRefusal(t: Target, what: string): OpFailure | undefined {
     if (!t.context) return undefined;
-    const from = inheritedFrom(this.index, t.element, t.context);
-    if (!from) return undefined;
+    const via = inheritedVia(this.index, t.element, t.context);
+    if (!via) return undefined;
+    const from = via.declaredIn;
     const def = from.name ?? from.kind;
     const name = t.element.name ?? t.element.kind;
+    const where = via.member === t.element ? `'${name}' is inherited` : `'${name}' lies beneath '${via.member.name ?? via.member.kind}', which is inherited`;
     const spot = { uri: from.uri, line: (from.nameRange ?? from.range).start.line, column: (from.nameRange ?? from.range).start.column, name: from.qualifiedName ?? def };
     return fail(
-      `'${name}' is inherited from ${def}${from.qualifiedName ? ` (${from.qualifiedName})` : ""}, so it cannot be ${what} from ${t.context.qualifiedName ?? t.context.name ?? "this element"}. Change it in ${def} instead (Go to Definition); that changes every usage of ${def}.`,
+      `${where} from ${def}${from.qualifiedName ? ` (${from.qualifiedName})` : ""}, so it cannot be ${what} from ${t.context.qualifiedName ?? t.context.name ?? "this element"}. Change it in ${def} instead (Go to Definition); that changes every usage of ${def}.`,
       { goToDefinition: spot },
     );
   }
@@ -276,8 +281,12 @@ export class ModelService {
 
   // ---- operations ----------------------------------------------------------------------------
 
-  addElement(owner: Element, spec: AddSpec, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+  addElement(owner: Element, spec: AddSpec, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string }; context?: Element } = {}): Promise<OpResult> {
     return this.serial(async () => {
+      if (opts.context) {
+        const refusal = this.inheritedRefusal({ element: owner, context: opts.context }, "extended");
+        if (refusal) return refusal;
+      }
       let created: Element | undefined;
       const ownerQn = owner.qualifiedName;
       const pre = new Map<string, number>();

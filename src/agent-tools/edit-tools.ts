@@ -90,7 +90,8 @@ const createElement: ToolDefinition = {
   async handler(input, ctx) {
     const ed = editing(ctx);
     const owner = locate(ctx, ed, input.owner as string, "owner element");
-    if (owner.context) throw refused(ed.service.refuseIfInherited(owner, "extended")!);
+    const refusal = owner.context ? ed.service.refuseIfInherited(owner, "extended") : undefined;
+    if (refusal) throw refused(refusal);
     const target = await diagramTarget(ctx, ed, input);
     const spec = {
       kind: input.kind as string,
@@ -100,7 +101,7 @@ const createElement: ToolDefinition = {
       ...(typeof input.shortName === "string" && input.shortName !== "" ? { shortName: input.shortName } : {}),
       ...(typeof input.documentation === "string" && input.documentation !== "" ? { documentation: input.documentation } : {}),
     };
-    const r = ok(await ed.service.addElement(owner.element, spec, target ? { diagram: target.uri, placement: { diagram: target.uri } } : {}));
+    const r = ok(await ed.service.addElement(owner.element, spec, { ...(owner.context ? { context: owner.context } : {}), ...(target ? { diagram: target.uri, placement: { diagram: target.uri } } : {}) }));
     return summary(ctx, r, { created: { qualifiedName: r.element?.qualifiedName, kind: spec.kind, name: spec.name }, ...placementNote(ctx, r, target) });
   },
 };

@@ -196,3 +196,49 @@ describe("parity: GUI path and agent path give identical text", () => {
     });
   }
 });
+
+describe("edit tools: inherited rule below inherited members", () => {
+  const DEEP = `package M {
+  part def Vehicle {
+    part engine {
+      part cylinder {
+        part bolt;
+      }
+    }
+  }
+  part vehicle1 : Vehicle;
+}
+`;
+  const deep = () => {
+    const host = new FakeHost();
+    host.addDocument(URI, DEEP);
+    const service = new ModelService(host);
+    const ctx: ToolContext = {
+      index: host.index,
+      uriToPath: (u) => (u.startsWith(ROOT) ? u.slice(ROOT.length) : undefined),
+      pathToUri: (p) => (host.index.getDocument(ROOT + p) ? ROOT + p : undefined),
+      edits: { service, isTrusted: () => true, diagramUri: async (p) => ROOT + p },
+    };
+    return { host, ctx };
+  };
+
+  for (const path of ["M::vehicle1::engine", "M::vehicle1::engine::cylinder", "M::vehicle1::engine::cylinder::bolt"]) {
+    it(`${path} is refused by all four tools, naming the declaring definition`, async () => {
+      const { host, ctx } = deep();
+      const calls: [string, unknown][] = [
+        ["sysml_delete_element", { element: path }],
+        ["sysml_rename_element", { element: path, newName: "other" }],
+        ["sysml_set_element_properties", { element: path, documentation: "x" }],
+        ["sysml_create_element", { owner: path, kind: "part", name: "extra" }],
+      ];
+      for (const [name, input] of calls) {
+        const r = await invokeTool(name, input, ctx);
+        expect(r.isError, `${name} ${path}`).toBe(true);
+        expect(r.text).toMatch(/inherited/);
+        expect(r.text).toMatch(/M::Vehicle/);
+      }
+      expect(host.applied).toHaveLength(0);
+      expect(host.buffers.get(URI)).toBe(DEEP);
+    });
+  }
+});

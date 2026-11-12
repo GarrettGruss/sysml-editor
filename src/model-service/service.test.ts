@@ -259,3 +259,52 @@ describe("review fixes surfaced by the service", () => {
     expect(host.diagramOnDisk("file:///w/q.sysmld").nodes[0]!.ref).toBe("Model::Motor");
   });
 });
+
+describe("inherited rule below inherited members (depths 1 to 3)", () => {
+  const DEEP = `package M {
+  part def Engine { part piston; }
+  part def Vehicle {
+    part engine : Engine {
+      part cylinder {
+        part bolt;
+      }
+    }
+  }
+  part vehicle1 : Vehicle;
+}
+`;
+  const paths = ["M::vehicle1::engine", "M::vehicle1::engine::cylinder", "M::vehicle1::engine::cylinder::bolt", "M::vehicle1::engine::piston"];
+
+  for (const path of paths) {
+    test(`${path}: delete, rename, set properties and add are refused and change nothing`, async () => {
+      const host = new FakeHost();
+      host.addDocument(URI, DEEP);
+      const svc = new ModelService(host);
+      const t = svc.find(path)!;
+      expect(t.context, path).toBeDefined();
+      for (const r of [
+        await svc.deleteElement(t),
+        await svc.rename(t, "other"),
+        await svc.setProperties(t, { documentation: "x" }),
+        await svc.setProperties(t, { name: "other" }),
+        await svc.addElement(t.element, { kind: "part", name: "extra" }, { context: t.context! }),
+      ]) {
+        expect(r.ok, path).toBe(false);
+        if (r.ok) continue;
+        expect(r.reason).toMatch(/inherited/);
+        expect(r.goToDefinition?.name).toMatch(/^M::(Vehicle|Engine)$/);
+      }
+      expect(host.applied).toHaveLength(0);
+      expect(host.buffers.get(URI)).toBe(DEEP);
+    });
+  }
+
+  test("the same elements reached through the definition are editable", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, DEEP);
+    const svc = new ModelService(host);
+    const t = svc.find("M::Vehicle::engine::cylinder::bolt")!;
+    expect(t.context).toBeUndefined();
+    ok(await svc.rename(t, "screw"));
+  });
+});
