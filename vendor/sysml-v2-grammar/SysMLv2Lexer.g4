@@ -251,8 +251,8 @@ REGULAR_COMMENT : '/*' .*? '*/' | '//*' .*? '*/' ;
 // SINGLE_LINE_NOTE: '//' followed by non-'*' content (to avoid consuming
 // //* ... */ block comments which are handled by REGULAR_COMMENT).
 // A bare '//' at end of line is handled by the second rule.
-SINGLE_LINE_NOTE : '//' ~[*\r\n] ~[\r\n]* -> skip ;
-BARE_LINE_COMMENT : '//' -> skip ;
+SINGLE_LINE_NOTE : '//' ~[*\r\n] ~[\r\n]* -> channel(HIDDEN) ;
+BARE_LINE_COMMENT : '//' -> channel(HIDDEN) ;
 
 // Whitespace
-WS : [ \t\r\n]+ -> skip ;
+WS : [ \t\r\n]+ -> channel(HIDDEN) ;

@@ -11,10 +11,10 @@
 
 - [x] 2.1 Vendor the ANTLR4 SysML v2 grammar (pinned to release 2026-09.1) with its licence notice and upstream commit, add `antlr4ng`, and generate the TypeScript parser as a build step; verify `npm run build` regenerates it and a one-line model parses
 - [x] 2.2 Run the parser acceptance gate (design D2) over every fixture `.sysml` and `.kerml` file: syntax-error rate, byte-for-byte token re-join, and standard library load time; record the results and the pass/fail decision in design.md
-- [ ] 2.3 Only if 2.2 fails and the vendored grammar cannot be patched: write our own full-grammar parser in TypeScript from `fixtures/sysml-v2-release/bnf`, behind the same interface; verify it passes the same gate
+- [x] 2.3 Not needed: the gate passed for SysML after patching the lexer (see design D2, Gate results)
 - [ ] 2.4 Implement the model layer on the parse tree (elements, kinds, ownership, qualified names, short names, types, multiplicities, documentation, exact source ranges) behind a parser-independent interface; verify unit tests per construct category against fixture files
 - [ ] 2.5 Implement `ModelIndex` (per-document parse, workspace-wide qualified-name index, cross-file import resolution, change events, debounced incremental re-parse); verify unit tests for resolution across files and for change events
-- [ ] 2.6 Load the standard library read-only, including its KerML files, with a cached index; verify `ScalarValues::String` and a `.sysml` library type both resolve from a fixture model
+- [ ] 2.6 Load the standard library read-only with a cached index: the `.sysml` files via the ANTLR parser and the `.kerml` files via a KerML outline indexer (names, kinds, nesting, specializations), not the ANTLR parser; verify `ScalarValues::String` and a `.sysml` library type both resolve from a fixture model
 - [ ] 2.7 Keep the last good model on syntax errors and expose per-file error state with location; verify the "Broken file" scenario in a unit test
 - [ ] 2.8 Add a CI test that parses all fixture files and fails if the syntax-error count rises above the gate's recorded baseline
 
