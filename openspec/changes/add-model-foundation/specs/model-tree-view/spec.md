@@ -1,15 +1,38 @@
 ## ADDED Requirements
 
 ### Requirement: Native tree view of model hierarchy
-The extension SHALL contribute a VS Code native tree view (not a webview) that displays the ownership hierarchy of all SysML v2 elements parsed from `.sysml` files in the workspace, rooted at top-level packages and namespaces.
+The extension SHALL contribute a VS Code native tree view (not a webview) that displays the ownership hierarchy of all SysML v2 elements parsed from `.sysml` files in the workspace. The view SHALL offer two layouts, switched by a title-bar action and remembered per workspace: Folders (the default), rooted at the workspace folders and showing folder, then file, then the file's elements; and Packages, rooted at top-level packages and namespaces.
 
-#### Scenario: Workspace with SysML files
-- **WHEN** the workspace contains `.sysml` files and the user opens the SysML Model view
-- **THEN** the tree lists each top-level package, and expanding a node shows its owned members in source order
+#### Scenario: Workspace with SysML files in folders
+- **WHEN** the workspace contains `fixtures/sysml-v2-models/SE_Models/Vehicle.sysml` and the user opens the SysML Model view in the Folders layout
+- **THEN** the tree shows `fixtures`, then `sysml-v2-models`, then `SE_Models`, then `Vehicle.sysml`, and expanding the file shows its top-level elements, whose owned members appear in source order
+
+#### Scenario: Multi-root workspace
+- **WHEN** the workspace has more than one workspace folder
+- **THEN** the Folders layout has one root node per workspace folder
+
+#### Scenario: Packages layout
+- **WHEN** the user switches to the Packages layout
+- **THEN** the tree lists each top-level package without folders or files, and expanding a node shows its owned members in source order
 
 #### Scenario: Empty workspace
 - **WHEN** the workspace contains no `.sysml` files
 - **THEN** the view shows a welcome message with an action to create a new SysML file
+
+### Requirement: Folders without SysML files
+In the Folders layout the tree SHALL show every workspace folder that is not excluded by `files.exclude` or `sysml.exclude`, including folders that contain no `.sysml` file at any depth. Such a folder SHALL be marked as empty (description "no SysML files" and a dimmed icon) and SHALL have no children. Folders appear before files, each sorted by name.
+
+#### Scenario: Folder with no SysML files
+- **WHEN** the workspace contains a folder `docs/` with no `.sysml` file below it
+- **THEN** `docs` appears in the tree, marked "no SysML files", and cannot be expanded
+
+#### Scenario: Excluded folder
+- **WHEN** a folder matches `files.exclude` or `sysml.exclude` (for example `node_modules`)
+- **THEN** it does not appear in the tree
+
+#### Scenario: Folder created or deleted
+- **WHEN** a folder is created, deleted or gains its first `.sysml` file
+- **THEN** the tree updates without collapsing unaffected expanded nodes
 
 ### Requirement: Element presentation
 Each tree item SHALL show the element's declared name (or short name / `<unnamed>` when absent), an icon distinguishing its kind (e.g. package, part def, part, port, action, requirement, connection), and a description showing its type (e.g. `: Engine`) when it is a typed usage.

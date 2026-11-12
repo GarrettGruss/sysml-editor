@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { makeExcludeFilter } from "../workspace/exclude.js";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import {
-  affectedNodes, childNodes, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
+  affectedFolderNodes, affectedNodes, childNodes, fileChildren, folderChildren, folderInfo, folderParent, folderRoots, hasSysmlBelow, fileNode, folderNode, type FolderEnv, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -170,5 +171,102 @@ describe("elements and tree nodes", () => {
     const ix = setup();
     ix.setDocument(`${LIBRARY_URI_SCHEME}:///Lib.sysml`, "package Lib { part def X; }");
     expect(nodeForElement(ix, ix.findByQualifiedName("Lib::X")[0]!)).toBeUndefined();
+  });
+});
+
+describe("Folders layout", () => {
+  // A fake disk: folder uri -> entries.
+  const disk: Record<string, { name: string; isDir: boolean }[]> = {
+    "file:///w": [
+      { name: "zeta", isDir: true }, { name: "Alpha", isDir: true }, { name: "docs", isDir: true }, { name: "node_modules", isDir: true }, { name: "top.sysml", isDir: false },
+      { name: "a.sysml", isDir: false }, { name: "readme.md", isDir: false }, { name: "hidden.sysml", isDir: false },
+    ],
+    "file:///w/Alpha": [{ name: "m.sysml", isDir: false }, { name: "sub", isDir: true }],
+    "file:///w/Alpha/sub": [{ name: "deep.sysml", isDir: false }],
+    "file:///w/zeta": [],
+    "file:///w/docs": [{ name: "guide.md", isDir: false }],
+    "file:///w/node_modules": [{ name: "x.sysml", isDir: false }],
+    "file:///v": [{ name: "o.sysml", isDir: false }],
+  };
+  const filter = makeExcludeFilter(["**/node_modules/**", "hidden.sysml"]);
+  const env: FolderEnv = {
+    roots: [{ name: "w", uri: "file:///w" }, { name: "v", uri: "file:///v" }],
+    list: async (u) => disk[u] ?? [],
+    child: (f, n) => `${f}/${n}`,
+    excluded: filter,
+  };
+  function ix() {
+    const i = new ModelIndex();
+    for (const u of ["file:///w/top.sysml", "file:///w/a.sysml", "file:///w/hidden.sysml", "file:///w/Alpha/m.sysml", "file:///w/Alpha/sub/deep.sysml", "file:///w/node_modules/x.sysml", "file:///v/o.sysml"])
+      i.setDocument(u, "package " + u.split("/").pop()!.replace(".sysml", "") + " { part def X; }");
+    return i;
+  }
+  const names = (ns: ModelNode[]) => ns.map((n) => n.id.split("/").pop());
+
+  it("has one root per workspace folder, and none while there are no files", () => {
+    expect(folderRoots(ix(), env).map((n) => n.id)).toEqual(["file:///w", "file:///v"]);
+    expect(folderRoots(new ModelIndex(), env)).toEqual([]);
+  });
+
+  it("lists folders before files, sorted by name, without excluded entries or non-SysML files", async () => {
+    const kids = await folderChildren(ix(), env, folderNode("file:///w"));
+    expect(names(kids)).toEqual(["Alpha", "docs", "zeta", "a.sysml", "top.sysml"]);
+    expect(kids.map((k) => k.kind)).toEqual(["folder", "folder", "folder", "file", "file"]);
+  });
+
+  it("marks folders with no SysML file below as empty, with no children", async () => {
+    const i = ix();
+    expect(folderInfo(i, env, folderNode("file:///w/docs"))).toEqual({ label: "docs", description: "no SysML files", empty: true });
+    expect(folderInfo(i, env, folderNode("file:///w/Alpha"))).toMatchObject({ empty: false, description: undefined });
+    expect(folderInfo(i, env, folderNode("file:///w"))).toMatchObject({ label: "w" });
+    expect(await folderChildren(i, env, folderNode("file:///w/docs"))).toEqual([]);
+    expect(hasSysmlBelow(i, "file:///w/Alpha")).toBe(true);
+    expect(hasSysmlBelow(i, "file:///w/zeta")).toBe(false);
+    // a file below an excluded folder does not count when it is not indexed
+    const j = new ModelIndex();
+    expect(folderInfo(j, env, folderNode("file:///w/Alpha")).empty).toBe(true);
+  });
+
+  it("walks down to the elements and keeps the element ids of the Packages layout", async () => {
+    const i = ix();
+    const sub = (await folderChildren(i, env, folderNode("file:///w/Alpha")))[0]!;
+    expect(sub.id).toBe("file:///w/Alpha/sub");
+    const file = (await folderChildren(i, env, sub))[0]!;
+    expect(file).toEqual(fileNode("file:///w/Alpha/sub/deep.sysml"));
+    const elements = fileChildren(i, file);
+    expect(elements.map((n) => n.id)).toEqual(rootNodes(i).filter((n) => n.uri === file.uri).map((n) => n.id));
+    expect(nodeInfo(i, elements[0]!)?.label).toBe("deep");
+    expect(childNodes(i, elements[0]!)).toHaveLength(1);
+  });
+
+  it("parents walk element, file, folders, workspace folder", () => {
+    const i = ix();
+    const el = fileChildren(i, fileNode("file:///w/Alpha/sub/deep.sysml"))[0]!;
+    const inner = childNodes(i, el)[0]!;
+    expect(folderParent(env, inner)).toEqual(el);
+    expect(folderParent(env, el)).toEqual(fileNode("file:///w/Alpha/sub/deep.sysml"));
+    expect(folderParent(env, fileNode("file:///w/Alpha/sub/deep.sysml"))).toEqual(folderNode("file:///w/Alpha/sub"));
+    expect(folderParent(env, folderNode("file:///w/Alpha/sub"))).toEqual(folderNode("file:///w/Alpha"));
+    expect(folderParent(env, folderNode("file:///w/Alpha"))).toEqual(folderNode("file:///w"));
+    expect(folderParent(env, folderNode("file:///w"))).toBeUndefined();
+  });
+
+  it("refreshes the folders above an added or removed file, and only the file for a content change", () => {
+    const i = ix();
+    const before = new Set(i.uris().filter((u) => !u.startsWith(LIBRARY_URI_SCHEME)));
+    i.setDocument("file:///w/Alpha/sub/new.sysml", "package N;");
+    expect(affectedFolderNodes(i, env, before, ["file:///w/Alpha/sub/new.sysml"]).map((n) => n.id)).toEqual(["file:///w", "file:///w/Alpha", "file:///w/Alpha/sub"]);
+    i.setDocument("file:///w/a.sysml", "package A2;");
+    expect(affectedFolderNodes(i, env, before, ["file:///w/a.sysml"])).toEqual([fileNode("file:///w/a.sysml")]);
+    expect(affectedFolderNodes(i, env, before, [`${LIBRARY_URI_SCHEME}:///Lib.sysml`])).toEqual([]);
+  });
+
+  it("keeps the error node under a file that never parsed", () => {
+    const i = new ModelIndex();
+    i.setDocument("file:///w/top.sysml", "package Broken {\n  part def\n");
+    const kids = fileChildren(i, fileNode("file:///w/top.sysml"));
+    expect(kids).toHaveLength(1);
+    expect(isErrorNode(kids[0]!)).toBe(true);
+    expect(folderParent(env, kids[0]!)).toEqual(fileNode("file:///w/top.sysml"));
   });
 });

@@ -112,3 +112,8 @@ table.grid { border-collapse: collapse; width: 100%; }
 .card h3 { margin: 0 0 6px; font-size: 14px; color: var(--accent); }
 .card p { margin: 0; color: var(--muted); }
 pre.code { background: var(--panel); border: 1px solid var(--border); padding: 10px; margin: 0; overflow: auto; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; color: var(--fg); }
+
+.ic.fld { background: transparent; color: #dcb67a; font-size: 13px; }
+.ic.file { background: #519aba; }
+.row.dim { color: var(--muted); opacity: .7; }
+.row.dim .ic.fld.empty { color: var(--muted); }

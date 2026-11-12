@@ -112,6 +112,18 @@
         "command": "sysml.copyDocumentAnnotations",
         "title": "Copy Document Annotations Library to Workspace",
         "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.showPackages",
+        "title": "Show Packages Layout",
+        "category": "SysML",
+        "icon": "$(symbol-package)"
+      },
+      {
+        "command": "sysml.tree.showFolders",
+        "title": "Show Folders Layout",
+        "category": "SysML",
+        "icon": "$(folder)"
       }
     ],
     "menus": {
@@ -155,6 +167,11 @@
           "command": "sysml.openRequirementsEditor",
           "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
           "group": "requirements@1"
+        },
+        {
+          "command": "sysml.newFile",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/",
+          "group": "edit@1"
         }
       ],
       "commandPalette": [
@@ -200,6 +217,18 @@
           "command": "sysml.openRequirementsEditor",
           "when": "resourceExtname == .sysml",
           "group": "navigation@9"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "sysml.tree.showPackages",
+          "when": "view == sysmlModel && sysml.treeLayout == folders",
+          "group": "navigation"
+        },
+        {
+          "command": "sysml.tree.showFolders",
+          "when": "view == sysmlModel && sysml.treeLayout == packages",
+          "group": "navigation"
         }
       ]
     },

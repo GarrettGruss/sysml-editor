@@ -35,6 +35,9 @@ export class WorkspaceModel implements vscode.Disposable {
   private readonly subs: vscode.Disposable[] = [];
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly tracker = new ScanTracker();
+  private readonly folderEmitter = new vscode.EventEmitter<string>();
+  /** A folder (or other non-`.sysml` path) was created or deleted; carries the key of its parent folder. */
+  readonly onDidChangeFolders = this.folderEmitter.event;
   private filterKey = "";
   private filter: (rel: string) => boolean = () => false;
   private disposed = false;
@@ -62,7 +65,26 @@ export class WorkspaceModel implements vscode.Disposable {
       watcher.onDidChange((u) => void this.fromDisk(u)),
       watcher.onDidDelete((u) => this.remove(u)),
     );
+    const all = vscode.workspace.createFileSystemWatcher("**/*", false, true, false);
+    this.subs.push(
+      all,
+      this.folderEmitter,
+      all.onDidCreate((u) => this.pathChanged(u, false)),
+      all.onDidDelete((u) => this.pathChanged(u, true)),
+    );
     this.ready = this.start(extensionPath);
+  }
+
+  /** Folder events: a deleted folder takes its indexed files with it (the `.sysml` watcher may not report them one by one). */
+  private pathChanged(uri: vscode.Uri, deleted: boolean): void {
+    if (isSysmlUri(uri) || uri.scheme !== "file") return;
+    const key = uriKey(uri);
+    if (deleted) {
+      const prefix = key + "/";
+      const open = new Set(vscode.workspace.textDocuments.filter((d) => !d.isClosed).map((d) => uriKey(d.uri)));
+      for (const u of this.index.uris()) if (u.startsWith(prefix) && !open.has(u)) this.index.removeDocument(u);
+    }
+    this.folderEmitter.fire(key.slice(0, key.lastIndexOf("/")));
   }
 
   private async start(extensionPath: string): Promise<void> {

@@ -7,15 +7,20 @@ import * as vscode from "vscode";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { behaviorTests } from "./behavior.js";
 import { interactionTests } from "./diagram-interaction.js";
+import { foldersTests } from "./folders.js";
 import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
-export interface ModelNode { id: string; uri: string }
+export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" }
 export interface TestApi {
   model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[]; pendingDetails(): string[] } };
   provider: {
+    /** An array in the Packages layout; the Folders layout may answer with a promise (await it). */
     getChildren(n?: ModelNode): ModelNode[];
+    getParent(n: ModelNode): ModelNode | undefined;
+    readonly layout: "folders" | "packages";
+    setLayout(layout: "folders" | "packages"): Promise<void>;
     getTreeItem(n: ModelNode): vscode.TreeItem;
     onDidChangeTreeData: vscode.Event<unknown>;
   };
@@ -129,6 +134,9 @@ export async function run(): Promise<void> {
   const api = (await ext.activate()) as TestApi;
   assert.strictEqual(ext.isActive, true, "extension activated");
   await api.model.ready;
+  // The Folders layout is the default; every suite below but the folder one reads package roots, so it runs in the Packages layout.
+  const defaultLayout = api.provider.layout;
+  await api.provider.setLayout("packages");
 
   const ix = api.model.index;
   const labelOf = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
@@ -339,6 +347,9 @@ export async function run(): Promise<void> {
   const TOOL_COUNT = 18; // four model read tools, six diagram tools, six model edit tools (one sets a transition) and two requirements tools
 
   const tests: Test[] = [
+    ["the tree starts in the Folders layout", async () => {
+      assert.strictEqual(defaultLayout, "folders");
+    }],
     ["roots are the workspace packages, not the library", async () => {
       assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Delivery", "Design", "Lamp", "Mobility", "Notes", "Ordering", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
       assert.ok(ix.uris().some((u) => ix.isReadOnly(u)), "library is loaded");
@@ -628,6 +639,7 @@ export async function run(): Promise<void> {
     ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...requirementsTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...foldersTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];

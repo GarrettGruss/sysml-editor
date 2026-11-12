@@ -6,9 +6,11 @@ import { isLibraryUri, type Element, type ModelIndex } from "../model/index.js";
 
 /** A lightweight handle: the element is looked up again from the index, so nodes survive re-parses. */
 export interface ModelNode {
-  /** Stable across re-parses: document URI plus a path of kind/name/occurrence segments. */
+  /** Stable across re-parses: document URI plus a path of kind/name/occurrence segments. Folder and file nodes use their URI. */
   id: string;
   uri: string;
+  /** Absent for element nodes (the Packages layout and everything below a file in the Folders layout). */
+  kind?: "folder" | "file";
 }
 
 export interface NodeInfo {
@@ -18,6 +20,18 @@ export interface NodeInfo {
   icon: string;
   isRoot: boolean;
   hasChildren: boolean;
+}
+
+/** The directory listing and exclusion rules the Folders layout needs; the VS Code adapter supplies them. */
+export interface FolderEnv {
+  /** Workspace folders as index keys (URI strings). */
+  roots: readonly { name: string; uri: string }[];
+  /** Entries of a folder, unsorted. */
+  list(folderUri: string): Promise<readonly { name: string; isDir: boolean }[]>;
+  /** URI string of the entry `name` inside the folder. */
+  child(folderUri: string, name: string): string;
+  /** True when the path (relative to its workspace folder, `/` separated) is excluded. */
+  excluded(relPath: string): boolean;
 }
 
 /** Element kinds that are not shown in the tree. */
@@ -248,4 +262,134 @@ export function affectedNodes(index: ModelIndex, previousRootIds: readonly strin
   const same = current.length === prev.size && current.every((n) => prev.has(n.id));
   if (!same) return { full: true, ids: [] };
   return { full: false, ids: current.filter((n) => rel.has(n.uri)).map((n) => n.id) };
+}
+
+// ---- Folders layout: workspace folder -> folder -> file -> elements ----
+
+export function isFolderNode(n: ModelNode): boolean {
+  return n.kind === "folder";
+}
+
+export function isFileNode(n: ModelNode): boolean {
+  return n.kind === "file";
+}
+
+export function folderNode(uri: string): ModelNode {
+  return { id: uri, uri, kind: "folder" };
+}
+
+export function fileNode(uri: string): ModelNode {
+  return { id: uri, uri, kind: "file" };
+}
+
+/** True when an indexed workspace `.sysml` file lives at any depth below the folder. */
+export function hasSysmlBelow(index: ModelIndex, folderUri: string): boolean {
+  const prefix = folderUri + "/";
+  return workspaceUris(index).some((u) => u.startsWith(prefix));
+}
+
+function rootOf(env: FolderEnv, uri: string): { name: string; uri: string } | undefined {
+  let best: { name: string; uri: string } | undefined;
+  for (const r of env.roots) if ((uri === r.uri || uri.startsWith(r.uri + "/")) && (!best || r.uri.length > best.uri.length)) best = r;
+  return best;
+}
+
+function relPath(root: string, uri: string): string {
+  return uri
+    .slice(root.length + 1)
+    .split("/")
+    .map((s) => {
+      try {
+        return decodeURIComponent(s);
+      } catch {
+        return s;
+      }
+    })
+    .join("/");
+}
+
+/**
+ * The roots of the Folders layout: one per workspace folder. Empty while the workspace has no `.sysml`
+ * file at all, so the view's welcome message (with its New SysML File action) shows.
+ */
+export function folderRoots(index: ModelIndex, env: FolderEnv): ModelNode[] {
+  if (workspaceUris(index).length === 0) return [];
+  return env.roots.map((r) => folderNode(r.uri));
+}
+
+/** Folders (by name), then files (by name), of a folder. Empty folders have no children. */
+export async function folderChildren(index: ModelIndex, env: FolderEnv, node: ModelNode): Promise<ModelNode[]> {
+  if (!hasSysmlBelow(index, node.uri)) return [];
+  const root = rootOf(env, node.uri);
+  if (!root) return [];
+  let entries: readonly { name: string; isDir: boolean }[];
+  try {
+    entries = await env.list(node.uri);
+  } catch {
+    return [];
+  }
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const shown = entries.filter((e) => {
+    const rel = relPath(root.uri, env.child(node.uri, e.name));
+    // `dir/**` patterns match what is inside a folder, not the folder itself: probe with a child path too.
+    return !(env.excluded(rel) || (e.isDir && env.excluded(rel + "/_")));
+  });
+  const folders = shown.filter((e) => e.isDir).sort(byName).map((e) => folderNode(env.child(node.uri, e.name)));
+  const indexed = new Set(workspaceUris(index));
+  const files = shown
+    .filter((e) => !e.isDir && e.name.toLowerCase().endsWith(".sysml"))
+    .sort(byName)
+    .map((e) => env.child(node.uri, e.name))
+    .filter((u) => indexed.has(u))
+    .map(fileNode);
+  return [...folders, ...files];
+}
+
+/** The elements shown below a file: its top-level elements, or the error placeholder. */
+export function fileChildren(index: ModelIndex, node: ModelNode): ModelNode[] {
+  return rootNodes(index).filter((n) => n.uri === node.uri);
+}
+
+export function folderInfo(index: ModelIndex, env: FolderEnv, node: ModelNode): { label: string; description?: string; empty: boolean } {
+  const root = env.roots.find((r) => r.uri === node.uri);
+  const empty = !hasSysmlBelow(index, node.uri);
+  return { label: root?.name ?? fileName(node.uri), description: empty ? "no SysML files" : undefined, empty };
+}
+
+/** Parent in the Folders layout: element -> file -> folders -> workspace folder. */
+export function folderParent(env: FolderEnv, node: ModelNode): ModelNode | undefined {
+  if (isFolderNode(node)) {
+    if (env.roots.some((r) => r.uri === node.uri)) return undefined;
+    return folderNode(node.uri.slice(0, node.uri.lastIndexOf("/")));
+  }
+  if (isFileNode(node)) return folderNode(node.uri.slice(0, node.uri.lastIndexOf("/")));
+  return parentNode(node) ?? fileNode(node.uri);
+}
+
+/** Folder nodes from the workspace folder down to the one containing `uri`. */
+export function folderChain(env: FolderEnv, uri: string): ModelNode[] {
+  const root = rootOf(env, uri);
+  if (!root) return [];
+  const out: ModelNode[] = [];
+  for (let u = uri.slice(0, uri.lastIndexOf("/")); u.length >= root.uri.length; u = u.slice(0, u.lastIndexOf("/"))) {
+    out.unshift(folderNode(u));
+    if (u === root.uri) break;
+  }
+  return out;
+}
+
+/**
+ * Nodes to refresh in the Folders layout when `uris` changed: when the set of workspace files changed,
+ * the folders from the workspace folder down to the changed files (children lists and empty markers);
+ * otherwise only the changed files themselves.
+ */
+export function affectedFolderNodes(index: ModelIndex, env: FolderEnv, previousFiles: ReadonlySet<string>, uris: readonly string[]): ModelNode[] {
+  const current = new Set(workspaceUris(index));
+  const out = new Map<string, ModelNode>();
+  for (const u of uris) {
+    if (isLibraryUri(u)) continue;
+    if (current.has(u) !== previousFiles.has(u)) for (const f of folderChain(env, u)) out.set(f.id, f);
+    else if (current.has(u)) out.set(u, fileNode(u));
+  }
+  return [...out.values()];
 }

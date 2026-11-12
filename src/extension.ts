@@ -30,7 +30,7 @@ export interface TestApi {
 export function activate(context: vscode.ExtensionContext): TestApi {
   const log = vscode.window.createOutputChannel("SysML", { log: true });
   const model = new WorkspaceModel(context.extensionPath, (m) => log.warn(m));
-  const provider = new ModelTreeProvider(model.index);
+  const provider = new ModelTreeProvider(model.index, undefined, context.workspaceState, model.onDidChangeFolders);
   const dnd = new ModelTreeDragAndDrop(model.index);
   const view = vscode.window.createTreeView<ModelNode>(VIEW_ID, { treeDataProvider: provider, dragAndDropController: dnd, canSelectMany: true });
 
@@ -98,6 +98,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     }),
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
+    vscode.commands.registerCommand("sysml.tree.showPackages", () => provider.setLayout("packages")),
+    vscode.commands.registerCommand("sysml.tree.showFolders", () => provider.setLayout("folders")),
   );
   return { model, provider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi };
 }
