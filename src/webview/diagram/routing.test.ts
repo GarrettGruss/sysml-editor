@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { edgeRoute, isOrthogonal, placeLabel, rectsOverlap, routeFits, routeOrthogonal, routeThroughBox, outwardSide } from "./routing.js";
+import { edgeRoute, isOrthogonal, labelOnRoute, placeLabel, rectsOverlap, routeFits, routeOrthogonal, routeThroughBox, outwardSide } from "./routing.js";
 
 const box = (x: number, y: number, w = 100, h = 60) => ({ x, y, w, h });
 
@@ -75,5 +75,39 @@ describe("placeLabel", () => {
     const blocker = { x: 60, y: 80, w: 80, h: 18 };
     const l = placeLabel(pts, 60, 13, [blocker]);
     expect(l.y).toBeGreaterThan(100);
+  });
+});
+
+describe("placeLabel against its own edge", () => {
+  it("never puts the label on a line of the same edge, even when a bend sits beside the longest segment", () => {
+    // The longest segment is the middle one; the segments after it run where a centred label would go.
+    const pts = [{ x: 0, y: 0 }, { x: 0, y: 40 }, { x: 200, y: 40 }, { x: 200, y: 50 }, { x: 80, y: 50 }, { x: 80, y: 90 }];
+    const l = placeLabel(pts, 70, 13, []);
+    expect(labelOnRoute(l, pts)).toBe(false);
+  });
+  it("is beside the longest segment, offset from it", () => {
+    const pts = [{ x: 0, y: 100 }, { x: 300, y: 100 }];
+    const l = placeLabel(pts, 60, 13, []);
+    expect(labelOnRoute(l, pts)).toBe(false);
+    expect(l.y + l.h).toBeLessThanOrEqual(100);
+  });
+});
+
+describe("route choice among candidates", () => {
+  it("prefers the fewest bends, then the shortest route, around obstacles on all four sides", () => {
+    // Positions of ports-general.sysmld after the move in the integration test (sizes as laid out).
+    const drivetrain = { x: 40, y: 40, w: 220, h: 150 };
+    const battery = { x: 40, y: 260, w: 200, h: 62 };
+    const motor = { x: 300, y: 260, w: 200, h: 62 };
+    const power = { x: 584, y: 88, w: 200, h: 62 };
+    const usage = { x: 380, y: 60, w: 180, h: 44 };
+    const r = edgeRoute({ box: usage }, { box: battery }, undefined, [drivetrain, motor, power]);
+    const last = r[r.length - 1]!, before = r[r.length - 2]!;
+    expect(isOrthogonal(r)).toBe(true);
+    expect(r.length - 2, "bends").toBeLessThanOrEqual(2);
+    expect(last.y === battery.y || last.x === battery.x || last.x === battery.x + battery.w, "enters from the top or a side").toBe(true);
+    expect(last.y === battery.y + battery.h, "not from below").toBe(false);
+    expect(before.y <= last.y || before.x !== last.x).toBe(true);
+    for (const o of [drivetrain, motor, power, usage, battery]) expect(routeThroughBox(r, o), JSON.stringify(o)).toBe(false);
   });
 });

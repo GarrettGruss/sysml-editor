@@ -2,9 +2,9 @@
 import type { DiagramDocument } from "./format.js";
 import type { BoxPatch, EdgePoints, NodeBox } from "./protocol.js";
 import type { ViewModel } from "./view-model.js";
-import { validBox } from "./session.js";
+import { MAX_COORD, validBox } from "./session.js";
 
-const finite = (v: unknown, max = 1_000_000): v is number => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= max;
+const finite = (v: unknown, max = MAX_COORD): v is number => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= max;
 
 /** Ids of the nodes under `ids` (children, and ports attached to them), by the stored parents and the view model. */
 export function withDescendants(doc: DiagramDocument, ids: Iterable<string>, vm?: ViewModel): Set<string> {

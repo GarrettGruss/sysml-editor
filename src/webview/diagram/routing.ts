@@ -4,6 +4,8 @@ import type { Box, Pt } from "./geometry.js";
 export type Side = "L" | "R" | "U" | "D";
 
 const STUB = 16;
+/** Distance of a route's middle segment from a box it passes (the obstacles are already inflated by a margin). */
+const LANE = 4;
 const horiz = (d: Side) => d === "L" || d === "R";
 const eq = (a: number, b: number) => Math.abs(a - b) < 0.01;
 
@@ -25,35 +27,35 @@ function clean(pts: Pt[]): Pt[] {
 const step = (p: Pt, d: Side, n: number): Pt => ({ x: p.x + (d === "R" ? n : d === "L" ? -n : 0), y: p.y + (d === "D" ? n : d === "U" ? -n : 0) });
 
 /** Path from `a` leaving in direction `da` to `b`, which is entered from the side its outward normal `db` faces. */
-function path(a: Pt, da: Side, b: Pt, db: Side): Pt[] {
+function path(a: Pt, da: Side, b: Pt, db: Side, mid?: number): Pt[] {
   if (horiz(da) && horiz(db)) {
     const facing = da === "R" && db === "L" ? a.x <= b.x : da === "L" && db === "R" ? a.x >= b.x : false;
     if (facing) {
       if (eq(a.y, b.y)) return [a, b];
-      const mx = (a.x + b.x) / 2;
+      const mx = mid ?? (a.x + b.x) / 2;
       return [a, { x: mx, y: a.y }, { x: mx, y: b.y }, b];
     }
     if (da === db) {
-      const x = da === "R" ? Math.max(a.x, b.x) + STUB : Math.min(a.x, b.x) - STUB;
+      const x = mid ?? (da === "R" ? Math.max(a.x, b.x) + STUB : Math.min(a.x, b.x) - STUB);
       return [a, { x, y: a.y }, { x, y: b.y }, b];
     }
     const sa = step(a, da, STUB), sb = step(b, db, STUB);
-    const my = (a.y + b.y) / 2 + (eq(a.y, b.y) ? STUB * 2 : 0);
+    const my = mid ?? (a.y + b.y) / 2 + (eq(a.y, b.y) ? STUB * 2 : 0);
     return [a, sa, { x: sa.x, y: my }, { x: sb.x, y: my }, sb, b];
   }
   if (!horiz(da) && !horiz(db)) {
     const facing = da === "D" && db === "U" ? a.y <= b.y : da === "U" && db === "D" ? a.y >= b.y : false;
     if (facing) {
       if (eq(a.x, b.x)) return [a, b];
-      const my = (a.y + b.y) / 2;
+      const my = mid ?? (a.y + b.y) / 2;
       return [a, { x: a.x, y: my }, { x: b.x, y: my }, b];
     }
     if (da === db) {
-      const y = da === "D" ? Math.max(a.y, b.y) + STUB : Math.min(a.y, b.y) - STUB;
+      const y = mid ?? (da === "D" ? Math.max(a.y, b.y) + STUB : Math.min(a.y, b.y) - STUB);
       return [a, { x: a.x, y }, { x: b.x, y }, b];
     }
     const sa = step(a, da, STUB), sb = step(b, db, STUB);
-    const mx = (a.x + b.x) / 2 + (eq(a.x, b.x) ? STUB * 2 : 0);
+    const mx = mid ?? (a.x + b.x) / 2 + (eq(a.x, b.x) ? STUB * 2 : 0);
     return [a, sa, { x: mx, y: sa.y }, { x: mx, y: sb.y }, sb, b];
   }
   // One horizontal, one vertical: a single bend when both directions agree with where the other end is.
@@ -98,16 +100,32 @@ export function routeOrthogonal(a: Box, b: Box, aSide?: Side, bSide?: Side, obst
   // Keep clear of other nodes by a margin, so a route does not run along a border.
   obstacles = obstacles.map((o) => ({ x: o.x - 8, y: o.y - 8, w: o.w + 16, h: o.h + 16 }));
   const nested = contains(a, b) || contains(b, a);
-  const cost = (r: Pt[]) =>
-    1000 * obstacles.filter((o) => routeThroughBox(r, o)).length + (nested ? 0 : 1000 * Number(routeThroughBox(r, a) || routeThroughBox(r, b))) +
-    r.reduce((n, p, i) => (i ? n + Math.abs(p.x - r[i - 1]!.x) + Math.abs(p.y - r[i - 1]!.y) : 0), 0) + 15 * (r.length - 2);
-  let best = first, bestCost = cost(first);
-  if (bestCost < 1000) return first;
+  /** Collisions first (each one disqualifies), then the fewest bends, then the shortest. */
+  const collisions = (r: Pt[]) => obstacles.filter((o) => routeThroughBox(r, o)).length + (nested ? 0 : Number(routeThroughBox(r, a) || routeThroughBox(r, b)));
+  const length = (r: Pt[]) => r.reduce((n, p, i) => (i ? n + Math.abs(p.x - r[i - 1]!.x) + Math.abs(p.y - r[i - 1]!.y) : 0), 0);
+  const better = (r: Pt[], than: Pt[]) => {
+    const [cr, ct] = [collisions(r), collisions(than)];
+    if (cr !== ct) return cr < ct;
+    if (r.length !== than.length) return r.length < than.length;
+    return length(r) < length(than) - 0.01;
+  };
+  if (collisions(first) === 0) return first;
+  // Candidate lanes for the middle segment: halfway, and just outside every box that could be in the way.
+  // Only boxes near the two ends matter, which keeps the search small in large diagrams.
+  const area = { x: Math.min(a.x, b.x) - 40, y: Math.min(a.y, b.y) - 40, w: Math.max(a.x + a.w, b.x + b.w) - Math.min(a.x, b.x) + 80, h: Math.max(a.y + a.h, b.y + b.h) - Math.min(a.y, b.y) + 80 };
+  const boxes = [a, b, ...obstacles.filter((o) => rectsOverlap(o, area))];
+  const lanesX = new Set<number>(), lanesY = new Set<number>();
+  for (const o of boxes) { lanesX.add(o.x - LANE); lanesX.add(o.x + o.w + LANE); lanesY.add(o.y - LANE); lanesY.add(o.y + o.h + LANE); }
+  let best = first;
   const sides: Side[] = ["L", "R", "U", "D"];
   for (const sa of aSide ? [aSide] : sides) for (const sb of bSide ? [bSide] : sides) {
-    const r = clean(path(anchor(a, sa), sa, anchor(b, sb), sb));
-    const c = cost(r);
-    if (c < bestCost) { best = r; bestCost = c; }
+    const pa = anchor(a, sa), pb = anchor(b, sb);
+    // Only routes with both ends horizontal or both vertical have a middle segment to move onto a lane.
+    const mids: (number | undefined)[] = horiz(sa) === horiz(sb) ? [undefined, ...lanesX, ...lanesY] : [undefined];
+    for (const m of mids) {
+      const r = clean(path(pa, sa, pb, sb, m));
+      if (better(r, best)) best = r;
+    }
   }
   return best;
 }
@@ -190,14 +208,25 @@ export interface Rect extends Box {}
 const hit = (a: Box, b: Box): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 export const rectsOverlap = hit;
 
-/** A box of `w` x `h` beside the longest segment that does not overlap `avoid`; the first candidate when none is free. */
+/** Whether a label box is crossed by any segment of the route (a 1 px rim does not count). */
+export function labelOnRoute(label: Box, pts: readonly Pt[]): boolean {
+  return pts.some((p, i) => i > 0 && segmentThroughBox(pts[i - 1]!, p, label));
+}
+
+/**
+ * A box of `w` x `h` beside the longest segment, off the end nodes and never on the edge's own line;
+ * along the segment and on both sides are tried. When every spot touches something, the first that is at least off its own line.
+ */
 export function placeLabel(pts: readonly Pt[], w: number, h: number, avoid: readonly Box[]): Rect {
   const segs = pts.slice(1).map((q, i) => ({ p: pts[i]!, q, len: Math.abs(q.x - pts[i]!.x) + Math.abs(q.y - pts[i]!.y) })).sort((s, t) => t.len - s.len);
   const cands: Rect[] = [];
   for (const s of segs) {
-    const mx = (s.p.x + s.q.x) / 2, my = (s.p.y + s.q.y) / 2;
-    if (eq(s.p.y, s.q.y)) cands.push({ x: mx - w / 2, y: my - h - 3, w, h }, { x: mx - w / 2, y: my + 3, w, h });
-    else cands.push({ x: mx + 4, y: my - h / 2, w, h }, { x: mx - w - 4, y: my - h / 2, w, h });
+    for (const t of [0.5, 0.3, 0.7]) {
+      const mx = s.p.x + (s.q.x - s.p.x) * t, my = s.p.y + (s.q.y - s.p.y) * t;
+      if (eq(s.p.y, s.q.y)) cands.push({ x: mx - w / 2, y: my - h - 3, w, h }, { x: mx - w / 2, y: my + 3, w, h });
+      else cands.push({ x: mx + 4, y: my - h / 2, w, h }, { x: mx - w - 4, y: my - h / 2, w, h });
+    }
   }
-  return cands.find((c) => !avoid.some((a) => hit(c, a))) ?? cands[0] ?? { x: 0, y: 0, w, h };
+  const off = cands.filter((c) => !labelOnRoute(c, pts));
+  return off.find((c) => !avoid.some((a) => hit(c, a))) ?? off[0] ?? cands[0] ?? { x: 0, y: 0, w, h };
 }

@@ -329,7 +329,7 @@ export function interactionTests(c: Ctx): Test[] {
         await c.eventually(async () => assert.strictEqual(nodeOf(await metrics(f), "n1").shape, "unresolved"), "undo brings the unresolved node back");
         // Remove from Diagram on the unresolved node
         await gesture(f, { kind: "select", id: "n1" });
-        await gesture(f, { kind: "key", key: "Backspace" });
+        await gesture(f, { kind: "key", key: "Delete" });
         await waitFor(() => !doc(f).nodes.some((n) => n.id === "n1"), 5000, "the unresolved node is removed");
         assert.deepStrictEqual(api.diagram.errors(), []);
       } finally {

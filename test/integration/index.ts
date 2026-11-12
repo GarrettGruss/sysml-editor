@@ -56,7 +56,7 @@ export type Gesture =
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string }[];
-  overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; portsOffBorder: number;
+  overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
 }
 
@@ -117,6 +117,7 @@ export async function run(): Promise<void> {
     for (const n of m.nodes) assert.ok([n.x, n.y, n.w, n.h].every(Number.isFinite) && n.w > 0 && n.h > 0, `${file}: ${n.id} has finite geometry`);
     assert.strictEqual(m.overflows, 0, `${file}: text overflows its box`);
     assert.strictEqual(m.outsideParent, 0, `${file}: no child is drawn outside its parent`);
+    assert.strictEqual(m.labelsOnOwnEdge, 0, `${file}: no edge label sits on its own edge`);
     const png = Buffer.from(await api.diagram.png(uri), "base64");
     assert.deepStrictEqual([...png.subarray(0, 8)], PNG_SIGNATURE, `${file}: PNG signature`);
     assert.ok(png.length > 2048, `${file}: PNG is ${png.length} bytes`);

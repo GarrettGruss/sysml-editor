@@ -4,7 +4,7 @@
  */
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import type { Element } from "../model/index.js";
+import { isLibraryUri, type Element } from "../model/index.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import { addElements } from "./create.js";
 import { applyAutoLayout, applyBoxPatches, removeItems } from "./edits.js";
@@ -18,6 +18,7 @@ import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, Diagra
 export const VIEW_TYPE = "sysml.diagram";
 const REFRESH_DEBOUNCE_MS = 50;
 const REQUEST_TIMEOUT_MS = 30_000;
+export const MAX_DROPPED_NAMES = 200;
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -270,6 +271,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         doc.state.mergeLayout(Array.isArray(m.nodes) ? m.nodes : [], Array.isArray(m.edges) ? m.edges : []);
         break;
       case "edit":
+        // An edit made on a render of an earlier load (revert, external change) must not be applied to the document now.
+        if (m.generation !== doc.state.generation) {
+          this.log(`diagram: dropped an edit from generation ${String(m.generation)} (document is at ${doc.state.generation})`);
+          break;
+        }
         this.userEdit(doc, m.edit);
         break;
       case "selection":
@@ -382,7 +388,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   private addByName(doc: SysmlDiagramDocument, names: string[]): void {
-    const els = names.flatMap((n) => (typeof n === "string" ? [...this.model.index.findByQualifiedName(n).slice(0, 1)] : []));
+    // A drop payload comes from outside the extension: bounded, and never standard library content.
+    const els = names.slice(0, MAX_DROPPED_NAMES).flatMap((n) => (typeof n === "string" ? [...this.model.index.findByQualifiedName(n).filter((e) => !isLibraryUri(e.uri)).slice(0, 1)] : []));
     if (!els.length) return;
     try {
       this.addElementsTo(doc, els);
@@ -424,7 +431,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
     const end = performance.now() + 60_000;
     while (!this.docs.has(uri.toString()) || ![...(this.panels.get(uri.toString()) ?? [])].some((p) => p.ready)) {
-      if (performance.now() > end) throw new Error(`The diagram ${uri.path.split("/").pop()} did not open`);
+      if (performance.now() > end) throw new Error(`The diagram ${uri.path.split("/").pop()} did not open${this.errorSuffix()}`);
       await new Promise((r) => setTimeout(r, 50));
     }
     this.selectIds(this.docs.get(uri.toString())!, ids);
@@ -450,10 +457,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (r.updates) void this.followRename(doc, r.updates);
     for (const p of this.panels.get(doc.uri.toString()) ?? []) {
       if (!p.ready) continue;
-      const h = hashViewModel(r.viewModel);
+      // The generation is part of the key: after a reload the webview must learn the new one even if the drawing is the same.
+      const h = `${doc.state.generation}:${hashViewModel(r.viewModel)}`;
       if (h === p.lastHash) continue;
       p.lastHash = h;
-      this.post(p, { type: "render", viewModel: r.viewModel });
+      this.post(p, { type: "render", viewModel: r.viewModel, generation: doc.state.generation });
     }
     if (doc.pendingSelect) {
       const ids = doc.pendingSelect;
@@ -490,6 +498,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     });
   }
 
+  /** The webview's logged errors, for messages about a webview that did not come up. */
+  private errorSuffix(): string {
+    return this.errorLog.length ? ` (webview errors: ${this.errorLog.slice(-5).join(" | ")})` : "";
+  }
+
   private async exportPng(uri: vscode.Uri, theme: PngTheme): Promise<string> {
     const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme }));
     if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
@@ -501,7 +514,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
       const end = performance.now() + 60_000;
       while (![...(this.panels.get(uri.toString()) ?? [])].some((p) => p.ready)) {
-        if (performance.now() > end) throw new Error(`diagram editor for ${uri.toString()} did not become ready`);
+        if (performance.now() > end) throw new Error(`diagram editor for ${uri.toString()} did not become ready${this.errorSuffix()}`);
         await new Promise((r) => setTimeout(r, 50));
       }
     },

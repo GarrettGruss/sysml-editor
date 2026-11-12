@@ -200,7 +200,7 @@ export function refresh(state: DiagramState, index: ModelIndex, opts: ResolveOpt
   return { viewModel: (state.viewModel = buildViewModel(doc, r.resolution, index)) };
 }
 
-const MAX_COORD = 1_000_000;
+export const MAX_COORD = 1_000_000;
 
 /** A box from the webview is trusted only when it is finite, positive in size and of bounded magnitude. */
 export function validBox(b: NodeBox): boolean {

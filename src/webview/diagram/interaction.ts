@@ -386,7 +386,7 @@ export class Interaction {
       this.setSelection(this.scene.items.map((i) => i.id));
       return true;
     }
-    if (key === "Delete" || key === "Backspace") {
+    if (key === "Delete") {
       if (!this.sel.size) return false;
       this.flushNudge();
       const ids = [...this.sel];

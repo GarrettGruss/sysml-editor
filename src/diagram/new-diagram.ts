@@ -13,9 +13,17 @@ export const KIND_LABELS: Record<DiagramKind, { label: string; detail: string }>
   requirements: { label: "Requirements View", detail: "Requirements with satisfy, verify and derivation relationships" },
 };
 
-/** `<element name>.sysmld`, with characters a file name cannot hold replaced. */
+const RESERVED = /^(con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
+
+/** Windows device names, which cannot be file names there (with or without an extension). */
+export function isReservedFileName(stem: string): boolean {
+  return RESERVED.test(stem.split(".")[0]!.trimEnd());
+}
+
+/** `<element name>.sysmld`, with characters a file name cannot hold replaced, and Windows-reserved names and trailing dots or spaces avoided. */
 export function defaultDiagramFileName(elementName: string): string {
-  const base = elementName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "").trim() || "diagram";
+  let base = elementName.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").replace(/^\.+/, "").replace(/[. ]+$/, "").trim() || "diagram";
+  if (isReservedFileName(base)) base = "_" + base;
   return base + DIAGRAM_EXTENSION;
 }
 
@@ -35,6 +43,10 @@ export function fileNameProblem(name: string, exists: (candidate: string) => boo
   if (/[\\/]/.test(name)) return "Enter a file name, not a path";
   if (!name.endsWith(DIAGRAM_EXTENSION)) return `The name must end with ${DIAGRAM_EXTENSION}`;
   if (name.length === DIAGRAM_EXTENSION.length) return "Enter a name before the extension";
+  const stem = name.slice(0, -DIAGRAM_EXTENSION.length);
+  if (/[. ]$/.test(stem) || /^\s/.test(name)) return "The name cannot start with a space or end with a dot or a space";
+  if (isReservedFileName(stem)) return `${stem} is a reserved file name on Windows`;
+  if (/[:*?"<>|\u0000-\u001f]/.test(name)) return "The name contains characters a file name cannot hold";
   if (exists(name)) return `${name} already exists`;
   return undefined;
 }

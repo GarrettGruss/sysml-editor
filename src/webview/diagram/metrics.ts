@@ -1,12 +1,14 @@
 /** Geometric checks on a drawn diagram, for the test API. No DOM. */
 import type { ViewModel } from "../../diagram/view-model.js";
 import type { Box, Pt } from "./geometry.js";
-import { contains, isOrthogonal, rectsOverlap, routeThroughBox } from "./routing.js";
+import { contains, isOrthogonal, labelOnRoute, rectsOverlap, routeThroughBox } from "./routing.js";
 
 export interface EdgeChecks {
   diagonalSegments: number;
   edgesThroughEndNodes: number;
   labelsOverEndNodes: number;
+  /** Edge labels crossed by their own edge's line. */
+  labelsOnOwnEdge: number;
   portsOffBorder: number;
 }
 
@@ -20,7 +22,7 @@ export function distToBorder(b: Box, o: Box): number {
 }
 
 export function checkEdges(vm: ViewModel, abs: ReadonlyMap<string, Box>, routes: ReadonlyMap<string, readonly Pt[]>, labels: ReadonlyMap<string, Box>): EdgeChecks {
-  let diagonalSegments = 0, edgesThroughEndNodes = 0, labelsOverEndNodes = 0, portsOffBorder = 0;
+  let diagonalSegments = 0, edgesThroughEndNodes = 0, labelsOverEndNodes = 0, labelsOnOwnEdge = 0, portsOffBorder = 0;
   for (const e of vm.edges) {
     const pts = routes.get(e.id);
     const s = abs.get(e.source), t = abs.get(e.target);
@@ -30,11 +32,12 @@ export function checkEdges(vm: ViewModel, abs: ReadonlyMap<string, Box>, routes:
     if (!contains(s, t) && !contains(t, s) && (routeThroughBox(pts, s) || routeThroughBox(pts, t))) edgesThroughEndNodes++;
     const l = labels.get(e.id);
     if (l && (rectsOverlap(l, s) || rectsOverlap(l, t))) labelsOverEndNodes++;
+    if (l && labelOnRoute(l, pts)) labelsOnOwnEdge++;
   }
   for (const n of vm.nodes) {
     if (n.attachedTo === undefined) continue;
     const p = abs.get(n.id), o = abs.get(n.attachedTo);
     if (p && o && distToBorder(p, o) > 2) portsOffBorder++;
   }
-  return { diagonalSegments, edgesThroughEndNodes, labelsOverEndNodes, portsOffBorder };
+  return { diagonalSegments, edgesThroughEndNodes, labelsOverEndNodes, labelsOnOwnEdge, portsOffBorder };
 }

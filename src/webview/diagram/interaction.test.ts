@@ -206,13 +206,15 @@ describe("Interaction", () => {
     expect(t.edits).toEqual([{ kind: "layout", label: "Nudge", boxes: [{ id: "free", x: 592, y: 100 }] }]);
   });
 
-  it("Delete and Backspace remove the selection in one edit; Ctrl+A selects all; Tab walks the nodes", () => {
+  it("Delete removes the selection in one edit and Backspace does nothing; Ctrl+A selects all; Tab walks the nodes", () => {
     const t = setup();
     expect(t.ia.keyDown({ key: "Delete", shift: false, mod: false })).toBe(false);
     t.ia.keyDown({ key: "a", shift: false, mod: true });
     expect(t.ia.selection.sort()).toEqual(["box", "free", "kid", "port"]);
     t.ia.setSelection(["kid"]);
-    t.ia.keyDown({ key: "Backspace", shift: false, mod: false });
+    expect(t.ia.keyDown({ key: "Backspace", shift: false, mod: false })).toBe(false);
+    expect(t.edits).toEqual([]);
+    t.ia.keyDown({ key: "Delete", shift: false, mod: false });
     expect(t.edits).toEqual([{ kind: "remove", ids: ["kid"] }]);
     t.ia.setScene(scene());
     t.ia.setSelection([]);

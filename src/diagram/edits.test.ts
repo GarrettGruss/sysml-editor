@@ -58,6 +58,9 @@ describe("layout edits", () => {
     const n1 = doc.nodes.find((n) => n.id === "n1")!;
     expect(applyBoxPatches(doc, [{ id: "n1", x: n1.x!, y: n1.y! }])).toBeUndefined();
     expect(applyBoxPatches(doc, [{ id: "n1", x: NaN, y: 1 }, { id: "zz", x: 1, y: 1 }])).toBeUndefined();
+    const big = 2_000_000;
+    for (const bad of [{ x: big, y: 1 }, { x: 1, y: -big }, { x: 1, y: 1, w: big }, { x: 1, y: 1, h: big }, { x: 1, y: 1, w: 0 }])
+      expect(applyBoxPatches(doc, [{ id: "n1", ...bad }]), JSON.stringify(bad)).toBeUndefined();
   });
   it("drops the stored route of an edge when one of its ends moves", () => {
     const withRoute: DiagramDocument = { ...doc, edges: [{ id: "e1", ref: "Ports::Drivetrain", source: "n4", target: "n5", points: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }] };
