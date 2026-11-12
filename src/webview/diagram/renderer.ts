@@ -3,14 +3,15 @@
  * this class so the drawing technology can be replaced. This implementation is hand-built SVG,
  * with the interaction logic in `interaction.ts` and the drawing in `svg.ts`.
  */
-import { ELEMENT_MIME, type DiagramEdit, type DiagramMetrics, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
+import { ELEMENT_MIME, type DiagramEdit, type DiagramMetrics, type ModelIntent, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
-import { absoluteBoxes, boundsOf, countOutsideParent, countOverlaps, type Box, type Measure, type Pt } from "./geometry.js";
+import { absoluteBoxes, boundsOf, countOutsideParent, countOverCompartments, countOverlaps, type Box, type Measure, type Pt } from "./geometry.js";
 import { handleBoxes, Interaction, snap, type InteractionHost, type PointerInput, type Scene } from "./interaction.js";
 import type { LayoutResult } from "./layout.js";
 import { checkEdges } from "./metrics.js";
 import { showMenu } from "./menu.js";
 import { buildScene } from "./scene.js";
+import { Tools, type Suggestion, type Tool } from "./tools.js";
 import { DARK_PALETTE, LIGHT_PALETTE, buildSvg, overlaySvg, wrapStandalone } from "./svg.js";
 
 export type Metrics = DiagramMetrics;
@@ -33,6 +34,8 @@ export interface RendererCallbacks {
   onSelection(ids: string[]): void;
   onRelink(id: string): void;
   onDrop(names: string[]): void;
+  onModel(intent: ModelIntent): void;
+  suggest(id: string, query: string): Promise<Suggestion[]>;
 }
 
 export class SvgRenderer implements DiagramRenderer {
@@ -51,6 +54,11 @@ export class SvgRenderer implements DiagramRenderer {
   private panStart?: View;
   readonly svg: SVGSVGElement;
   readonly ia: Interaction;
+  readonly tools: Tools;
+  private tool?: Tool;
+  /** First click of the connection tool. */
+  private connectFrom?: string;
+  private editor?: HTMLInputElement;
 
   constructor(host: HTMLElement, private readonly measure: Measure, private readonly cb: RendererCallbacks) {
     this.svg = document.createElementNS(SVG_NS, "svg");
@@ -65,7 +73,7 @@ export class SvgRenderer implements DiagramRenderer {
     this.svg.append(this.world, this.overlay);
     host.append(this.svg);
     const ihost: InteractionHost = {
-      onSelection: (ids) => { this.repaintOverlay(); cb.onSelection(ids); },
+      onSelection: (ids) => { this.repaintOverlay(); this.tools.setSelection(this.vm, ids); cb.onSelection(ids); },
       onPreview: (boxes, band) => { this.preview = boxes; this.band = band; this.repaint(); },
       onEdit: (edit) => cb.onEdit(edit),
       onPan: (dx, dy) => {
@@ -81,6 +89,7 @@ export class SvgRenderer implements DiagramRenderer {
     };
     this.ia = new Interaction(ihost);
     this.scene = this.ia.scene;
+    this.tools = new Tools(host, { onModel: (i) => cb.onModel(i), suggest: (id, q) => cb.suggest(id, q), chooseTool: (t) => this.setTool(t) });
     this.wire();
   }
 
@@ -95,7 +104,10 @@ export class SvgRenderer implements DiagramRenderer {
     this.band = undefined;
     this.scene = buildScene(viewModel, this.rel, this.mins, this.measure);
     this.ia.setScene(this.scene);
+    this.tools.setDiagram(viewModel);
+    this.closeEditor();
     this.repaint();
+    this.tools.setSelection(viewModel, this.ia.selection);
   }
 
   /** Boxes as drawn now: the stored layout with the gesture's preview on top. */
@@ -200,8 +212,17 @@ export class SvgRenderer implements DiagramRenderer {
       closeMenu();
       svg.focus({ preventScroll: true });
       if (e.button === 1) e.preventDefault();
+      if (this.tool && e.button === 0) {
+        e.preventDefault();
+        this.toolClick(this.toInput(e));
+        return;
+      }
       try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ }
       this.ia.pointerDown(this.toInput(e));
+    });
+    svg.addEventListener("dblclick", (e) => {
+      const id = hit(this.scene, this.toInput(e, 0));
+      if (id !== undefined) this.openEditor(id);
     });
     svg.addEventListener("pointermove", (e) => this.ia.pointerMove(this.toInput(e)));
     const end = (e: PointerEvent) => this.ia.pointerUp(this.toInput(e));
@@ -227,6 +248,8 @@ export class SvgRenderer implements DiagramRenderer {
       }
     }, { passive: false });
     svg.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.tool) { this.setTool(undefined); e.preventDefault(); return; }
+      if (e.key === "F2" && this.ia.selection.length === 1) { this.openEditor(this.ia.selection[0]!); e.preventDefault(); return; }
       if (e.key === " ") { this.space = true; e.preventDefault(); return; }
       if (this.ia.keyDown({ key: e.key, shift: e.shiftKey, mod: e.ctrlKey || e.metaKey })) e.preventDefault();
     });
@@ -269,17 +292,117 @@ export class SvgRenderer implements DiagramRenderer {
     const r = this.svg.getBoundingClientRect();
     const x = cx ?? (abs ? r.left + this.view.x + (abs.x + abs.w / 2) * this.view.k : r.left + 20);
     const y = cy ?? (abs ? r.top + this.view.y + (abs.y + abs.h / 2) * this.view.k : r.top + 20);
-    const items = [{ label: "Remove from Diagram", action: "remove" as const }, ...(n.shape === "unresolved" ? [{ label: "Re-link…", action: "relink" as const }] : [])];
+    const editable = n.resolved && n.props !== undefined && n.props.locked === undefined;
+    const items: { label: string; action: MenuAction }[] = [
+      ...(editable ? [{ label: "Rename", action: "rename" as const }] : []),
+      ...(n.resolved ? [{ label: "Go to Definition", action: "goto" as const }] : []),
+      { label: "Remove from Diagram", action: "remove" as const },
+      ...(n.resolved ? [{ label: "Delete from Model…", action: "deleteModel" as const }] : []),
+      ...(n.shape === "unresolved" ? [{ label: "Re-link…", action: "relink" as const }] : []),
+    ];
     showMenu(document.body, x, y, items, (a) => this.invoke(a, id), () => this.svg.focus({ preventScroll: true }));
   }
 
   /** The action a menu item performs (also what the test gesture "menu" calls). */
-  invoke(action: "remove" | "relink", id: string): void {
-    if (action === "remove") {
+  invoke(action: MenuAction, id: string): void {
+    if (action === "rename") this.openEditor(id);
+    else if (action === "goto") this.cb.onModel({ kind: "goToDefinition", id });
+    else if (action === "deleteModel") this.cb.onModel({ kind: "deleteFromModel", ids: this.ia.selection.includes(id) ? [...this.ia.selection] : [id] });
+    else if (action === "remove") {
       const ids = this.ia.selection.includes(id) ? this.ia.selection : [id];
       this.ia.setSelection([]);
       this.cb.onEdit({ kind: "remove", ids });
     } else this.cb.onRelink(id);
+  }
+
+  // ---- tools: palette, connection, inline rename -------------------------------------------
+
+  setTool(t: Tool | undefined): void {
+    this.tool = t;
+    this.connectFrom = undefined;
+    this.tools.setTool(t);
+    this.svg.classList.toggle("tool-active", t !== undefined);
+    this.svg.focus({ preventScroll: true });
+  }
+
+  /** A click with a palette item or the connection tool chosen: where it landed decides the intent. */
+  private toolClick(p: PointerInput): void {
+    const tool = this.tool;
+    if (!tool) return;
+    const id = hit(this.scene, p);
+    if (tool.kind === "add") {
+      const box = id !== undefined ? this.scene.get(id)?.abs : undefined;
+      const owner = id !== undefined && this.scene.get(id)?.owner === undefined ? id : undefined;
+      if (id !== undefined && owner === undefined) return; // a port cannot contain anything
+      const target = owner !== undefined ? this.vm?.nodes.find((x) => x.id === owner) : undefined;
+      const locked = target?.props?.locked;
+      if (locked !== undefined) {
+        // Up front, not after a round trip: inherited, library and read-only elements cannot receive new members.
+        this.tools.notice(locked === "inherited" ? `'${target!.props?.name ?? "This element"}' is inherited from ${target!.inherited?.from ?? "its definition"}; add to the usage itself or change the definition.` : locked === "readonly" ? (target!.props?.lockedReason ?? "This element's file cannot be edited.") : "Standard library content is read-only.");
+        return;
+      }
+      this.setTool(undefined);
+      this.cb.onModel({ kind: "add", paletteKind: tool.item.kind, ...(owner !== undefined ? { ownerId: owner } : {}), x: Math.round(p.x - (box?.x ?? 0)), y: Math.round(p.y - (box?.y ?? 0)) });
+      return;
+    }
+    if (id === undefined) return;
+    if (this.connectFrom === undefined) {
+      this.connectFrom = id;
+      this.ia.setSelection([id], false);
+      this.repaintOverlay();
+      return;
+    }
+    const source = this.connectFrom;
+    this.setTool(undefined);
+    if (source !== id) this.cb.onModel({ kind: "connect", sourceId: source, targetId: id });
+  }
+
+  private closeEditor(): void {
+    const e = this.editor;
+    this.editor = undefined;
+    e?.remove();
+  }
+
+  /** The inline name editor: an input over the label. Enter commits through the host, Escape and leaving cancel. */
+  openEditor(id: string): void {
+    const n = this.vm?.nodes.find((x) => x.id === id);
+    const box = this.scene.get(id)?.abs;
+    if (!n || !box) return;
+    this.closeEditor();
+    if (!n.resolved || !n.props || n.props.locked !== undefined || n.props.name === undefined) {
+      this.tools.notice(!n.resolved ? "An unresolved item cannot be renamed." : n.props?.locked === "inherited" ? `'${n.props.name}' is inherited from ${n.inherited?.from ?? "its definition"} and cannot be renamed here.` : n.props?.locked === "library" ? "Standard library content is read-only." : n.props?.locked === "readonly" ? (n.props.lockedReason ?? "This element's file cannot be edited.") : "This element has no name to edit.");
+      return;
+    }
+    const original = n.props.name;
+    const r = this.svg.getBoundingClientRect();
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "inline-editor";
+    input.value = original;
+    input.setAttribute("aria-label", `Rename ${original}`);
+    const top = box.y + (n.keyword ? 18 : 3);
+    input.style.left = `${r.left + this.view.x + (box.x + 4) * this.view.k}px`;
+    input.style.top = `${r.top + this.view.y + top * this.view.k}px`;
+    input.style.width = `${Math.max(90, (box.w - 8) * this.view.k)}px`;
+    let done = false;
+    const finish = (commit: boolean) => {
+      if (done) return;
+      done = true;
+      const v = input.value;
+      this.closeEditor();
+      this.svg.focus({ preventScroll: true });
+      if (commit && v.trim() !== "" && v !== original) this.cb.onModel({ kind: "rename", id, name: v });
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+      e.stopPropagation();
+    });
+    input.addEventListener("blur", () => finish(false));
+    document.body.append(input);
+    this.editor = input;
+    input.focus();
+    input.select();
   }
 
   // ---- test gestures ---------------------------------------------------------------------
@@ -343,6 +466,34 @@ export class SvgRenderer implements DiagramRenderer {
         this.svg.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
         break;
       }
+      case "palette": {
+        const item = this.tools.palette.querySelector<HTMLButtonElement>(`button[data-kind="${CSS.escape(g.item)}"]`);
+        if (!item) throw new Error(`no palette item ${g.item}`);
+        item.click();
+        if (g.item === "connection") break;
+        const target = g.id !== undefined ? this.scene.get(g.id)?.abs : undefined;
+        if (g.id !== undefined && !target) throw new Error(`no node ${g.id}`);
+        const p = { x: (target?.x ?? 0) + (g.x ?? 40), y: (target?.y ?? 0) + (g.y ?? 40) };
+        this.fire("pointerdown", p);
+        this.fire("pointerup", p);
+        break;
+      }
+      case "connect": {
+        this.tools.palette.querySelector<HTMLButtonElement>('button[data-kind="connection"]')?.click();
+        this.click(this.pointOn(g.source));
+        this.click(this.pointOn(g.target));
+        break;
+      }
+      case "inlineRename": {
+        const p = this.pointOn(g.id);
+        this.svg.dispatchEvent(new MouseEvent("dblclick", { ...this.toClient(p), button: 0, detail: 2, bubbles: true, cancelable: true }));
+        const input = this.editor;
+        if (!input) throw new Error(`the inline editor did not open for ${g.id}`);
+        input.value = g.text;
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: g.commit ? "Enter" : "Escape", bubbles: true, cancelable: true }));
+        break;
+      }
+      case "property": this.tools.setField(g.field, g.value); break;
       case "flush": this.ia.flushNudge(); break;
     }
   }
@@ -352,8 +503,8 @@ export class SvgRenderer implements DiagramRenderer {
   getMetrics(): Metrics {
     const vm = this.vm;
     const empty: Metrics = {
-      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
-      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
+      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
+      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
     if (!vm) return empty;
     const abs = absoluteBoxes(vm, this.currentRel());
@@ -362,7 +513,7 @@ export class SvgRenderer implements DiagramRenderer {
       if (!b) return [];
       const g = this.world.querySelector(`g[data-node="${CSS.escape(n.id)}"]`);
       const text = g ? [...g.querySelectorAll("text")].map((t) => t.textContent ?? "").join(" | ") : "";
-      return [{ id: n.id, x: b.x, y: b.y, w: b.w, h: b.h, shape: n.shape, text, ...(n.parent !== undefined ? { parent: n.parent } : {}), ...(n.attachedTo !== undefined ? { attachedTo: n.attachedTo } : {}) }];
+      return [{ id: n.id, x: b.x, y: b.y, w: b.w, h: b.h, shape: n.shape, text, ...(n.inherited ? { inherited: true } : {}), ...(n.parent !== undefined ? { parent: n.parent } : {}), ...(n.attachedTo !== undefined ? { attachedTo: n.attachedTo } : {}) }];
     });
     // Text wider than its node: measured on the real rendering.
     let overflows = 0;
@@ -375,19 +526,19 @@ export class SvgRenderer implements DiagramRenderer {
     const named = selected.filter((id) => (this.world.querySelector(`g[data-node="${CSS.escape(id)}"]`)?.getAttribute("aria-label") ?? "").length > 0).length;
     const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, style: e.style, ...(e.label !== undefined ? { label: e.label } : {}), points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
     return {
-      nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs),
+      nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs), nodesOverCompartments: countOverCompartments(vm, abs, this.measure),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels),
-      selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length,
-      focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
+      selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
+      focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.tools.state(), inlineEditor: this.editor !== undefined, theme: themeOf(),
     };
   }
 
   toSvgString(theme: PngTheme): string {
     if (!this.vm) return "";
-    const palette = theme === "light" ? LIGHT_PALETTE : DARK_PALETTE;
+    const palette = theme === "editor-dark" ? DARK_PALETTE : LIGHT_PALETTE;
     const rel = this.currentRel();
     const r = buildSvg(this.vm, rel, this.measure, { palette }, { routes: this.layoutRoutes, selected: new Set(theme === "light" ? [] : this.ia.selection) });
-    if (theme === "editor-dark") {
+    if (theme !== "light") {
       const { boxes, handles } = this.selectionBoxes();
       r.content += overlaySvg(boxes, handles, undefined, { palette });
     }
@@ -396,6 +547,14 @@ export class SvgRenderer implements DiagramRenderer {
 
   /** Round a world coordinate onto the grid (for tests and tooling). */
   static snap(v: number): number { return snap(v); }
+}
+
+type MenuAction = "remove" | "relink" | "deleteModel" | "rename" | "goto";
+
+/** `light`, `dark` or `hc`, from the classes VS Code puts on the webview body. */
+function themeOf(): string {
+  const c = document.body.classList;
+  return c.contains("vscode-high-contrast") || c.contains("vscode-high-contrast-light") ? "hc" : c.contains("vscode-light") ? "light" : "dark";
 }
 
 const closeMenu = (): void => document.querySelector(".ctx-menu")?.remove();

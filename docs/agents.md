@@ -18,6 +18,11 @@ VS Code is open on that workspace.
 | `sysml_add_to_diagram` | Add elements (qualified names) to a diagram. |
 | `sysml_remove_from_diagram` | Remove nodes or edges (ids from `sysml_read_diagram`) from a diagram. |
 | `sysml_layout_diagram` | Arrange a diagram again (automatic layout). |
+| `sysml_create_element` | Create an element (part, port, definition, ...) in an owner's `.sysml` source; optionally also place it on a diagram. |
+| `sysml_delete_element` | Delete an element from the model (its declaration and body, and its entries on every diagram). Not the same as removing it from a diagram. |
+| `sysml_rename_element` | Rename an element, every reference to it, and the diagram files that refer to it. |
+| `sysml_set_element_properties` | Change name, short name, type, multiplicity or documentation of an element. |
+| `sysml_create_relationship` | Add a `connect` (connection) or `satisfy` statement. |
 
 Results are JSON text. The model tools (`sysml_list_files`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_validate`) never write
 files. The four diagram write tools (`sysml_create_diagram`, `sysml_add_to_diagram`, `sysml_remove_from_diagram`,
@@ -58,8 +63,36 @@ Tool inputs are treated as untrusted. Every diagram path is checked before any r
 
 ### Untrusted workspaces
 
-In an untrusted workspace (`vscode.workspace.isTrusted` is false) the four write tools return an error and change nothing.
-The read tools (`sysml_list_diagrams`, `sysml_read_diagram`, including images) keep working.
+In an untrusted workspace (`vscode.workspace.isTrusted` is false) all write tools (the four diagram tools and the five model
+tools below) return an error and change nothing. The read tools (`sysml_list_diagrams`, `sysml_read_diagram`, including images,
+and the model read tools) keep working.
+
+## Model edits
+
+`sysml_create_element`, `sysml_delete_element`, `sysml_rename_element`, `sysml_set_element_properties` and
+`sysml_create_relationship` change the SysML text, the source of truth. They go through the same operations as the tree
+(Add Child, Rename, Delete) and the diagram editor (palette, connection tool, Delete from Model, inline rename, properties panel), so an agent and a
+person making the same edit produce byte-identical text (a parity test runs each operation both ways).
+
+- **One edit, saved at once.** Each call is applied as one VS Code workspace edit, with no approval prompt, and the changed
+  `.sysml` files are saved, because agents outside VS Code read from disk. The user can undo it with one Ctrl+Z in the text editor. If a
+  file already had unsaved edits by the user, saving writes those too.
+- **Minimal text edits.** Only the needed spans change; formatting, comments and order are kept. Types and connection ends are
+  written so they resolve from where they are written: the short name when visible, otherwise an import is added, otherwise the
+  qualified name. Names that need it are quoted.
+- **Refusals are errors with a reason, and nothing changes**: a file with a syntax error (the message gives the location), library
+  content, files outside the workspace or excluded by `sysml.exclude`, a kind that is not allowed for the owner (`kind` must be one that fits under it: packages take everything, definitions and usages take usages), a name that already exists in the owner, an untrusted workspace, and inherited features. A feature that a usage only
+  inherits from its definition (`Model::vehicle1::engine`, declared in `Vehicle`) cannot be deleted, renamed, retyped or extended from the
+  usage, and neither can anything inside it (`Model::vehicle1::engine::piston`); the error names the declaring definition. Use the definition's own qualified name to change it for every usage.
+  Creating an element inside a usage adds it to that usage only.
+- **Diagrams.** With `diagram` (create tools), a node (or edge) is placed on that diagram in the same operation. Deleting an element
+  removes its entries from every diagram file; renaming updates the references in the diagram files. These changes are written to the `.sysmld` files at once on top of each file's last saved state. Pending layout in a diagram that is open is **not** saved by a model edit.
+  If the diagram is open, the model edit and the node are one undo step from that diagram.
+- **A save that fails after the edit was applied is not a failure.** The edit stays applied (as unsaved changes in VS Code), diagram updates and the undo step still happen, and the result lists `filesChanged`, `filesSaved` and `filesNotSaved` exactly; the user gets a warning with a "Save All" action. Do not repeat the edit. "No files were changed" only appears on refusals, where it is true.
+- **Diagram problems are reported**: `diagramFilesNotUpdated` lists diagram files that could not be updated (unreadable, with parse errors, or changed on disk meanwhile).
+- **Results** are JSON with `filesChanged` (workspace-relative paths), the resulting `qualifiedName`, and for renames `referencesUpdated` and
+  `couldNotJudge` (mentions of the old name the tool could not decide about, with a few locations). A delete reports `remainingReferences` (with locations) and, separately, `remainingMentionsNotChecked`.
+- The five tools are marked not read-only (`readOnlyHint: false` over MCP, the `edits-model` tag in the manifest).
 
 ### Images
 

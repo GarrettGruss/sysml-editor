@@ -1,6 +1,7 @@
 import type { Element, ModelIndex } from "../model/index.js";
 import type { DiagramDocument, DiagramProblem } from "../diagram/format.js";
 import type { SourceMapper } from "../diagram/resolve.js";
+import type { ModelService } from "../model-service/service.js";
 
 /** What a tool handler can use. Transport-free: adapters build one of these. */
 export interface ToolContext {
@@ -11,6 +12,17 @@ export interface ToolContext {
   pathToUri(path: string): string | undefined;
   /** The diagram files of the workspace; implemented by the VS Code layer. Absent when diagrams are not available. */
   diagrams?: DiagramService;
+  /** The model-changing operations; implemented by the VS Code layer. Absent when editing is not available. */
+  edits?: EditContext;
+}
+
+/** What the edit tools need: the shared `ModelService`, the trust state and the mapping of diagram paths. */
+export interface EditContext {
+  service: ModelService;
+  /** False in an untrusted workspace: the write tools refuse. */
+  isTrusted(): boolean;
+  /** URI of the diagram file for a workspace-relative path; throws `ToolError` for an invalid or unknown path. */
+  diagramUri(path: string): Promise<string>;
 }
 
 /** A diagram file as listed: parsed when it parses. */

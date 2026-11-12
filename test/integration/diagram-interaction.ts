@@ -289,7 +289,7 @@ export function interactionTests(c: Ctx): Test[] {
       await c.eventually(async () => assert.strictEqual((await metrics(f)).nodes.length, 6), "undo brings the nodes back");
       // the context menu performs the same action
       await gesture(f, { kind: "contextmenu", id: "n2" });
-      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).menu, ["Remove from Diagram"]), "the menu of a resolved node has one item");
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).menu, ["Rename", "Go to Definition", "Remove from Diagram", "Delete from Model…"]), "the menu of a resolved node offers rename, go to definition, remove from diagram and delete from model");
       await gesture(f, { kind: "select", id: "n0" }); // a click elsewhere closes the menu
       assert.deepStrictEqual((await metrics(f)).menu, []);
       await gesture(f, { kind: "menu", id: "n2", action: "remove" });

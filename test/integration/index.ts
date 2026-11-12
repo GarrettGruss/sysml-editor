@@ -6,11 +6,12 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { interactionTests } from "./diagram-interaction.js";
+import { editingTests } from "./editing.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
 export interface ModelNode { id: string; uri: string }
 export interface TestApi {
-  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[] } };
+  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[]; pendingDetails(): string[] } };
   provider: {
     getChildren(n?: ModelNode): ModelNode[];
     getTreeItem(n: ModelNode): vscode.TreeItem;
@@ -28,16 +29,18 @@ export interface TestApi {
     metrics(uri: vscode.Uri): Promise<Metrics>;
     png(uri: vscode.Uri): Promise<string>;
     pngEditor(uri: vscode.Uri): Promise<string>;
+    pngWindow(uri: vscode.Uri, theme: "editor-dark" | "editor-light"): Promise<string>;
     save(uri: vscode.Uri): Promise<void>;
     edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
     state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
-    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string }) => Promise<string | undefined> } | undefined): void;
+    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void> } | undefined): void;
     activeUri(): string | undefined;
   };
   dnd: { handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void };
 }
+export interface Failure { reason: string; goToError?: { uri: string; line: number; column: number }; goToDefinition?: { uri: string; line: number; column: number; name: string } }
 export interface PickItem { label: string; description?: string; detail?: string }
 export interface DiagramDoc {
   version: number; kind: string; root: string; sources: string[];
@@ -50,15 +53,21 @@ export type Gesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[] }
+  | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
+  | { kind: "connect"; source: string; target: string }
+  | { kind: "inlineRename"; id: string; text: string; commit: boolean }
+  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation"; value: string }
   | { kind: "flush" };
-export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string }
+export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string }[];
-  overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
+  overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
+  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
+  properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }
 
 type Test = [name: string, fn: () => Promise<void>];
@@ -118,6 +127,7 @@ export async function run(): Promise<void> {
     for (const n of m.nodes) assert.ok([n.x, n.y, n.w, n.h].every(Number.isFinite) && n.w > 0 && n.h > 0, `${file}: ${n.id} has finite geometry`);
     assert.strictEqual(m.overflows, 0, `${file}: text overflows its box`);
     assert.strictEqual(m.outsideParent, 0, `${file}: no child is drawn outside its parent`);
+    assert.strictEqual(m.nodesOverCompartments, 0, `${file}: no child covers its parent's header or compartments`);
     assert.strictEqual(m.labelsOnOwnEdge, 0, `${file}: no edge label sits on its own edge`);
     assert.strictEqual(m.labelsOverNodes, 0, `${file}: no edge label touches a node`);
     assert.strictEqual(m.labelsOverLabels, 0, `${file}: no edge labels overlap`);
@@ -295,7 +305,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 10; // four model tools and six diagram tools
+  const TOOL_COUNT = 15; // four model read tools, six diagram tools and five model edit tools
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
@@ -464,8 +474,15 @@ export async function run(): Promise<void> {
         return r.text;
       };
       const both = async (name: string, input: object) => {
-        const a = await lm(name, input);
-        const b = await mcp(name, input);
+        // The two calls are sequential, and the model can change between them (for example when the
+        // parse worker's error details arrive). Compare again until two consecutive calls agree.
+        let a = await lm(name, input);
+        let b = await mcp(name, input);
+        for (let i = 0; i < 5 && a !== b; i++) {
+          await sleep(500);
+          a = await lm(name, input);
+          b = await mcp(name, input);
+        }
         assert.strictEqual(a, b, `${name}: identical over both channels`);
         return JSON.parse(a);
       };
@@ -577,6 +594,7 @@ export async function run(): Promise<void> {
     ...diagramTests(),
     ...interactionTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];

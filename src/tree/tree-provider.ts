@@ -36,6 +36,8 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   readonly onDidChangeTreeData = this.emitter.event;
   private rootIds: string[] = [];
   private readonly sub: vscode.Disposable;
+  /** Why a document cannot be edited (workspace boundary, `sysml.exclude`, not a file); such nodes get no Add Child, Rename or Delete. */
+  editBlocker?: (uri: string) => string | undefined;
 
   constructor(readonly index: ModelIndex) {
     this.rootIds = rootNodes(index).map((n) => n.id);
@@ -73,7 +75,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     item.collapsibleState = info.hasChildren ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None;
     item.description = info.description;
     item.iconPath = new vscode.ThemeIcon(ICONS[info.icon] ?? ICONS.element!);
-    item.contextValue = "sysmlElement";
+    item.contextValue = this.editBlocker?.(node.uri) ? "sysmlElementReadOnly" : "sysmlElement";
     item.command = { command: "sysml.goToDefinition", title: "Go to Definition", arguments: [node] };
     if (isErrorNode(node)) {
       item.contextValue = "sysmlSyntaxError";

@@ -145,7 +145,7 @@ export function addElements(doc: DiagramDocument, index: ModelIndex, elements: r
       if (parent === undefined && element.kind === "port") {
         parent = out.doc.nodes.find((n) => {
           const el = res0.get(n.id);
-          return !!el && el.types.some((t) => index.resolve(t, el) === element.owner);
+          return !!el && el.typeNames.some((t) => index.resolve(t, el) === element.owner);
         })?.id;
       }
     }

@@ -1,6 +1,7 @@
 import { isLibraryUri, splitQualified, type Element, type ModelIndex } from "../model/index.js";
 import { isVisible, visibleChildren, workspaceUris } from "../tree/tree-model.js";
 import { diagramToolDefinitions } from "./diagram-tools.js";
+import { editToolDefinitions } from "./edit-tools.js";
 import { findUnresolvedNames } from "./unresolved.js";
 import { ToolError, type ToolContext, type ToolDefinition } from "./types.js";
 
@@ -283,4 +284,4 @@ const validate: ToolDefinition = {
   },
 };
 
-export const toolDefinitions: readonly ToolDefinition[] = [listFiles, getElementTree, getElement, validate, ...diagramToolDefinitions];
+export const toolDefinitions: readonly ToolDefinition[] = [listFiles, getElementTree, getElement, validate, ...diagramToolDefinitions, ...editToolDefinitions];

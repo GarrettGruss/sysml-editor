@@ -6,6 +6,9 @@ import { createHash } from "node:crypto";
 import type { ModelIndex } from "../model/index.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument, type DiagramProblem } from "./format.js";
 import type { EdgePoints, NodeBox } from "./protocol.js";
+import { removeItems } from "./edits.js";
+import { referenceKey, resolveDiagram } from "./resolve.js";
+import type { DiagramChange } from "../model-service/diagram-changes.js";
 import { applyUpdates, reconcile, type ReferenceUpdate, type Snapshot } from "./reconcile.js";
 import type { ResolveOptions } from "./resolve.js";
 import { buildViewModel, type ViewModel } from "./view-model.js";
@@ -32,6 +35,14 @@ export class DiagramState {
   private savedVersion = 0;
   /** Rename follow-ups applied since the last load; re-applied after undo/redo restores an older document. */
   follows: ReferenceUpdate[][] = [];
+  /** Model-forced changes applied since the last load (new node, removed entries); re-applied after undo/redo restores an older document. */
+  forced: { token: object; fn: (doc: DiagramDocument) => DiagramDocument }[] = [];
+  /** Reference keys of items that model edits of this session created (see `takeVanished`). */
+  created = new Set<string>();
+  /** Declaring document of each created item (reference key to URI): only a clean parse of that document can show the element is gone. */
+  createdIn = new Map<string, string>();
+  /** Entries dropped because their element vanished from a clean model: restored if the element comes back (same session). */
+  dropped: { change: DiagramChange; uri: string }[] = [];
   /** Kind of the element each item resolved to the last time it did; lets "Re-link…" offer elements of the same kind after the element is gone. */
   kinds = new Map<string, string>();
   /** The view model last computed, to expand removals and to know what is drawn. */
@@ -56,6 +67,7 @@ export class DiagramState {
     this.version = this.savedVersion = 0;
     this.conflicted = false;
     this.follows = [];
+    this.forced = [];
     this.generation++;
   }
 
@@ -83,7 +95,7 @@ export class DiagramState {
   }
 
   private refollow(doc: DiagramDocument): DiagramDocument {
-    return this.follows.reduce((d, u) => applyUpdates(d, u), doc);
+    return this.forced.reduce((d, f) => f.fn(d), this.follows.reduce((d, u) => applyUpdates(d, u), doc));
   }
 
   /** Make `next` the current document as one undoable, dirtying edit. */
@@ -174,6 +186,117 @@ export function followRename(state: DiagramState, updates: readonly ReferenceUpd
   return { kind: "write", text };
 }
 
+export type ForcedWrite = { kind: "none" } | { kind: "write"; text: string };
+
+/**
+ * A change a model edit forces on the diagram (a node for the element just created, entries removed
+ * on delete): applied to memory without dirtying or an undo entry, and to the file's last saved
+ * (or externally changed) state, which is written at once. Pending layout is not written.
+ * `fn` must be idempotent. `token` identifies the change for `unforceChange`.
+ */
+export function forceChange(state: DiagramState, token: object, fn: (doc: DiagramDocument) => DiagramDocument, diskText: string | undefined): ForcedWrite {
+  if (!state.doc) return { kind: "none" };
+  let base = state.disk;
+  if (diskText !== undefined && diskText !== state.disk) {
+    if (!state.dirty) {
+      state.load(diskText);
+      base = state.disk;
+    } else {
+      state.conflicted = true;
+      base = diskText;
+    }
+  }
+  state.doc = fn(state.doc!);
+  if (!state.forced.some((f) => f.token === token)) state.forced.push({ token, fn });
+  return writeBase(state, base, fn);
+}
+
+/** Take a forced change back (undo of the model edit): `revert` applies to memory and to the saved state. */
+export function unforceChange(state: DiagramState, token: object, revert: (doc: DiagramDocument) => DiagramDocument, diskText: string | undefined): ForcedWrite {
+  if (!state.doc) return { kind: "none" };
+  state.forced = state.forced.filter((f) => f.token !== token);
+  let base = state.disk;
+  if (diskText !== undefined && diskText !== state.disk) {
+    if (!state.dirty) {
+      state.load(diskText);
+      base = state.disk;
+    } else {
+      state.conflicted = true;
+      base = diskText;
+    }
+  }
+  state.doc = revert(state.doc!);
+  return writeBase(state, base, revert);
+}
+
+function writeBase(state: DiagramState, base: string, fn: (doc: DiagramDocument) => DiagramDocument): ForcedWrite {
+  const parsed = parseDiagram(base);
+  if (!parsed.ok) return { kind: "none" };
+  const text = serializeDiagram(fn(parsed.doc));
+  if (text === base) return { kind: "none" };
+  state.raw = state.disk = text;
+  return { kind: "write", text };
+}
+
+/** Closed diagram file: the same change on its saved text; undefined when it does not change or does not parse. */
+export function forceOnText(text: string, fn: (doc: DiagramDocument) => DiagramDocument): string | undefined {
+  const parsed = parseDiagram(text);
+  if (!parsed.ok) return undefined;
+  const next = serializeDiagram(fn(parsed.doc));
+  return next === text ? undefined : next;
+}
+
+/** A document that parses without errors, is not stale (showing a last good model) and has no error details pending. */
+function parsesCleanly(index: ModelIndex, uri: string): boolean {
+  const d = index.getDocument(uri);
+  return !!d && d.errors.length === 0 && !d.stale && !d.detailsPending;
+}
+
+/**
+ * Items this session created whose element has since disappeared from the text (for example by Undo in
+ * the text editor): the keys to drop, so no unresolved placeholder is left for them. An item is dropped ONLY
+ * when (a) the document that declared the element parses cleanly right now (not stale, no pending details),
+ * (b) the element is absent from that clean model and (c) rename detection did not match the item to a renamed
+ * element. Otherwise (a syntax error while typing, a parse still settling) it stays, as any other node does.
+ */
+export function vanishedKeys(
+  state: DiagramState,
+  doc: DiagramDocument,
+  resolution: ReadonlyMap<string, unknown>,
+  index: ModelIndex,
+  renamedIds: ReadonlySet<string> = new Set(),
+): string[] {
+  if (!state.created.size) return [];
+  const cleanFor = (key: string): boolean => {
+    const uri = state.createdIn.get(key);
+    // The declaring document is unknown: every document must be clean before anything is dropped.
+    return uri !== undefined ? parsesCleanly(index, uri) : index.uris().every((u) => parsesCleanly(index, u));
+  };
+  return [...doc.nodes, ...doc.edges]
+    .filter((i) => !resolution.get(i.id) && !renamedIds.has(i.id) && state.created.has(referenceKey(i)) && cleanFor(referenceKey(i)))
+    .map((i) => referenceKey(i));
+}
+
+/** Dropped changes whose removed entries all resolve again (the element came back, e.g. by Redo in the text editor). */
+export function restorable(state: DiagramState, index: ModelIndex, opts: ResolveOptions = {}): DiagramChange[] {
+  const out: DiagramChange[] = [];
+  for (const d of state.dropped) {
+    const items = d.change.removedItems?.(d.uri);
+    if (!items || (!items.nodes.length && !items.edges.length)) continue;
+    const probe: DiagramDocument = { ...(state.doc ?? { version: 1, kind: "general", root: "", sources: [] }), nodes: items.nodes, edges: items.edges };
+    const res = resolveDiagram(probe, index, opts);
+    if ([...items.nodes, ...items.edges].every((i) => res.get(i.id))) out.push(d.change);
+  }
+  return out;
+}
+
+/** Remove the items whose reference key is in `keys`, with what hangs off them. */
+export function dropKeys(doc: DiagramDocument, keys: readonly string[]): DiagramDocument {
+  const set = new Set(keys);
+  const ids = [...doc.nodes, ...doc.edges].filter((i) => set.has(referenceKey(i))).map((i) => i.id);
+  return ids.length ? removeItems(doc, ids) : doc;
+}
+
 /** Stable hash of a view model, to skip re-posting an unchanged one. */
 export function hashViewModel(vm: ViewModel): string {
   return createHash("sha1").update(JSON.stringify(vm)).digest("hex");
@@ -184,20 +307,27 @@ export interface Refreshed {
   /** Rename updates were found; the document with them applied. */
   renamed?: DiagramDocument;
   updates?: ReferenceUpdate[];
+  /** Reference keys of items created by this session's model edits whose element is gone from a clean model: drop them. */
+  vanished?: string[];
+  /** Earlier dropped entries whose element is back: restore them at their previous position. */
+  restore?: DiagramChange[];
 }
 
 /** Re-resolve against the model, keep the snapshot, and report renames as a proposed new document. */
-export function refresh(state: DiagramState, index: ModelIndex, opts: ResolveOptions = {}): Refreshed | undefined {
+export function refresh(state: DiagramState, index: ModelIndex, opts: ResolveOptions = {}, readOnly?: (uri: string) => string | undefined): Refreshed | undefined {
   const doc = state.doc;
   if (!doc) return undefined;
   const r = reconcile(doc, index, state.snapshot, opts);
   state.snapshot = r.snapshot;
   for (const [id, el] of r.resolution) if (el) state.kinds.set(id, el.kind);
+  const vanished = vanishedKeys(state, doc, r.resolution, index, new Set(r.updates.map((u) => u.itemId)));
+  const restore = restorable(state, index, opts);
+  const extra = { ...(vanished.length ? { vanished } : {}), ...(restore.length ? { restore } : {}) };
   if (r.updates.length) {
     const renamed = applyUpdates(doc, r.updates);
-    return { viewModel: (state.viewModel = buildViewModel(renamed, r.resolution, index)), renamed, updates: [...r.updates] };
+    return { viewModel: (state.viewModel = buildViewModel(renamed, r.resolution, index, readOnly)), renamed, updates: [...r.updates], ...extra };
   }
-  return { viewModel: (state.viewModel = buildViewModel(doc, r.resolution, index)) };
+  return { viewModel: (state.viewModel = buildViewModel(doc, r.resolution, index, readOnly)), ...extra };
 }
 
 export const MAX_COORD = 1_000_000;

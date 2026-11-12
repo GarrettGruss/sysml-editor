@@ -35,7 +35,7 @@ function findToken(text: string, name: string, from: number, to: number): number
 }
 
 /** Everything an element says it is a kind of. */
-const supertypesOf = (e: Element): string[] => [...e.types, ...e.specializes, ...e.subsets, ...e.redefines];
+const supertypesOf = (e: Element): string[] => [...e.typeNames, ...e.specializes, ...e.subsets, ...e.redefines];
 
 /**
  * True when `name` could be a member inherited by an enclosing element through typing or
@@ -93,7 +93,7 @@ export function findUnresolvedNames(index: ModelIndex, uri: string): UnresolvedN
     if (el.kind === "import" && el.importInfo) {
       check(el, el.importInfo.target, "import target", scope, el.range.start.offset, el.range.end.offset);
     } else if (el.kind !== "expose" && el.kind !== "alias") {
-      if (el.isUsage) for (const t of el.types) check(el, t, "type", scope, start, end);
+      if (el.isUsage) for (const t of el.typeNames) check(el, t, "type", scope, start, end);
       if (el.isDefinition) for (const s of el.specializes) check(el, s, "supertype", scope, start, end);
     }
     for (const m of el.members) walk(m);

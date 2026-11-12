@@ -39,7 +39,15 @@ const renderer = new SvgRenderer(document.body, measure, {
   onSelection: (ids) => post({ type: "selection", ids }),
   onRelink: (id) => post({ type: "relink", id }),
   onDrop: (names) => post({ type: "dropElements", names }),
+  onModel: (intent) => post({ type: "model", intent, ...(generation !== undefined ? { generation } : {}) }),
+  suggest: (id, query) => new Promise((resolve) => {
+    const requestId = ++suggestId;
+    suggestions.set(requestId, resolve);
+    post({ type: "typeSuggestions", requestId, id, query });
+  }),
 });
+let suggestId = 0;
+const suggestions = new Map<number, (items: { name: string; qualifiedName: string; library: boolean }[]) => void>();
 let first = true;
 let queue: Promise<void> = Promise.resolve();
 let current: ViewModel | undefined;
@@ -118,8 +126,48 @@ toolbar();
 const MAX_SIDE = 16_000;
 const MAX_PIXELS = 16_000_000;
 
-async function exportPng(theme: PngTheme, maxWidth = 1600): Promise<string> {
-  const svg = renderer.toSvgString(theme);
+/** A copy of a DOM subtree with its computed styles inlined, so it draws the same inside an SVG image. */
+function styledCopy(src: Element): Element {
+  const dst = src.cloneNode(false) as Element;
+  const cs = getComputedStyle(src);
+  let css = "";
+  for (let i = 0; i < cs.length; i++) css += `${cs[i]!}:${cs.getPropertyValue(cs[i]!)};`;
+  dst.setAttribute("style", css);
+  if (src instanceof HTMLInputElement) dst.setAttribute("value", src.value);
+  if (src instanceof HTMLTextAreaElement) dst.textContent = src.value;
+  else for (const c of Array.from(src.childNodes)) dst.append(c.nodeType === 1 ? styledCopy(c as Element) : c.cloneNode(true));
+  return dst;
+}
+
+/** The editor window as an SVG: the drawing and, as foreignObjects, the toolbar, palette and properties panel. */
+function windowSvg(theme: PngTheme): { svg: string; width: number; height: number } {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const inner = renderer.toSvgString(theme);
+  const m = /width="(\d+)" height="(\d+)"/.exec(inner);
+  const dw = Number(m?.[1] ?? 800);
+  const dh = Number(m?.[2] ?? 600);
+  const left = 150;
+  const right = 270;
+  const top = 64;
+  const k = Math.min(1, (W - left - right - 20) / dw, (H - top - 10) / dh);
+  const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="${top}" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
+  let panels = "";
+  for (const sel of [".toolbar", ".palette", ".props"]) {
+    const e = document.querySelector(sel);
+    if (!e) continue;
+    const r = e.getBoundingClientRect();
+    const copy = styledCopy(e);
+    copy.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+    copy.setAttribute("style", (copy.getAttribute("style") ?? "") + ";position:static;margin:0;top:auto;left:auto;right:auto;");
+    panels += `<foreignObject x="${r.left}" y="${r.top}" width="${Math.ceil(r.width)}" height="${Math.ceil(r.height)}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
+  }
+  const bg = exportBackground(theme);
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${bg}"/>${nested}${panels}</svg>`, width: W, height: H };
+}
+
+async function exportPng(theme: PngTheme, maxWidth = 1600, panels = false): Promise<string> {
+  const svg = panels ? windowSvg(theme).svg : renderer.toSvgString(theme);
   const m = /width="(\d+)" height="(\d+)"/.exec(svg);
   const w = Number(m?.[1] ?? 800);
   const h = Number(m?.[2] ?? 600);
@@ -155,7 +203,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "exportPng":
       queue = queue
-        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth) }))
+        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
     case "command":
@@ -169,6 +217,13 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "select":
       queue = queue.then(() => renderer.select(m.ids)).catch(fail);
+      break;
+    case "typeSuggestionsResult":
+      suggestions.get(m.requestId)?.(m.items);
+      suggestions.delete(m.requestId);
+      break;
+    case "notice":
+      renderer.tools.notice(m.message);
       break;
     case "testGesture":
       queue = queue

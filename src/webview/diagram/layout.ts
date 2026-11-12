@@ -94,7 +94,8 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const kids = children.get(pid) ?? [];
     const side = pid === undefined ? 0 : INNER + Math.max(0, ...(ports.get(pid) ?? []).map((p) => measure(p.label, "small") + PORT_SIZE));
     const originX = side;
-    const originY = pid === undefined ? 0 : contentOf(byId.get(pid)!).headerH + PAD;
+    // Nested nodes go BELOW the header and every compartment of their container (a General View definition lists features there).
+    const originY = pid === undefined ? 0 : contentOf(byId.get(pid)!).bodyTop + PAD;
     const sizes = new Map<string, { w: number; h: number }>();
     for (const k of kids) {
       const inner = children.has(k.id) ? await level(k.id) : { w: 0, h: 0 };

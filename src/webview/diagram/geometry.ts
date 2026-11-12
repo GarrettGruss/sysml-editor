@@ -17,7 +17,7 @@ export const WRAP_W = 240;
 const ROW = 16;
 const TAB_H = 16;
 
-export type RowKind = "keyword" | "label" | "doc" | "ctitle" | "cline" | "warn";
+export type RowKind = "keyword" | "label" | "doc" | "ctitle" | "cline" | "icline" | "warn";
 export interface Row { kind: RowKind; text: string; /** Baseline y within the node. */ y: number; style: TextStyle }
 export interface BoxContent {
   /** Natural width and height to hold all text. */
@@ -25,6 +25,8 @@ export interface BoxContent {
   h: number;
   /** Height of the part above the area for nested nodes. */
   headerH: number;
+  /** Where the area for nested nodes starts: below the header and below the last compartment (equal to `headerH` without compartments). */
+  bodyTop: number;
   rows: Row[];
   /** Divider line y positions (before each compartment, below a requirement label). */
   dividers: number[];
@@ -83,9 +85,9 @@ export function describeBox(n: VmNode, measure: Measure): BoxContent {
     dividers.push(y);
     y += 2;
     push("ctitle", c.title, "italic");
-    for (const l of c.lines) push("cline", l, "normal");
+    c.lines.forEach((l, i) => push(c.inherited?.[i] !== undefined ? "icline" : "cline", l, c.inherited?.[i] !== undefined ? "italic" : "normal"));
   }
-  return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH, rows, dividers };
+  return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH, bodyTop: Math.max(headerH, y), rows, dividers };
 }
 
 /** Where on the box border the line from the centre towards `to` leaves it. */
@@ -176,6 +178,20 @@ export function boundsOf(boxes: Iterable<Box>, margin = 0): Box {
   }
   if (!Number.isFinite(x0)) return { x: 0, y: 0, w: 100, h: 100 };
   return { x: x0 - margin, y: y0 - margin, w: x1 - x0 + 2 * margin, h: y1 - y0 + 2 * margin };
+}
+
+/** Number of child nodes (not ports) that intersect their parent's header or compartment area (children belong BELOW the compartments). */
+export function countOverCompartments(vm: ViewModel, abs: ReadonlyMap<string, Box>, measure: Measure): number {
+  const byId = new Map(vm.nodes.map((n) => [n.id, n] as const));
+  let count = 0;
+  for (const n of vm.nodes) {
+    if (n.parent === undefined || n.attachedTo !== undefined) continue;
+    const parent = byId.get(n.parent);
+    const b = abs.get(n.id);
+    const p = abs.get(n.parent);
+    if (parent && b && p && b.y < p.y + describeBox(parent, measure).bodyTop - 0.5) count++;
+  }
+  return count;
 }
 
 /** Number of child nodes (not ports) whose box is not inside their parent's box. */

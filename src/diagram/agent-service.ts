@@ -1,6 +1,7 @@
 /** The VS Code implementation of the diagram service the agent tools use (see `DiagramService`). */
 import * as vscode from "vscode";
 import { entryExists, fsPathToToolPath, resolveToolPath, type FolderInfo } from "../agent-paths.js";
+import { validateDiagramPath } from "../agent-tools/diagram-tools.js";
 import { ToolError, type DiagramContent, type DiagramFileInfo, type DiagramImage, type DiagramService, type DiagramWriteResult } from "../agent-tools/types.js";
 import { diagramTargetFolder, type DiagramFiles } from "./commands.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
@@ -50,6 +51,15 @@ export class VsCodeDiagramService implements DiagramService {
 
   private toPath(uri: vscode.Uri): string | undefined {
     return uri.scheme === "file" ? fsPathToToolPath(this.folders(), uri.fsPath) : undefined;
+  }
+
+  /** The URI of an existing diagram file for a workspace-relative path (checked like every diagram path); throws `ToolError` otherwise. */
+  async uriForPath(path: string): Promise<string> {
+    const problem = validateDiagramPath(path);
+    if (problem) throw new ToolError(`Invalid diagram path "${path}": ${problem}. Use sysml_list_diagrams for the available paths.`);
+    const uri = await this.toUri(path);
+    if (!(await Promise.resolve(vscode.workspace.fs.stat(uri)).then(() => true, () => false))) throw new ToolError(`No diagram file "${path}". Use sysml_list_diagrams for the available paths.`);
+    return uri.toString();
   }
 
   async list(): Promise<DiagramFileInfo[]> {

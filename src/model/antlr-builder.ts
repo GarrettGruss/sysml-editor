@@ -259,6 +259,8 @@ interface MutableElement {
   owner?: MutableElement;
   members: MutableElement[];
   types: string[];
+  typeNames: string[];
+  typeConjugated: boolean[];
   specializes: string[];
   subsets: string[];
   redefines: string[];
@@ -329,7 +331,7 @@ class Builder {
   private unknown(ctx: ParserRuleContext, owner: MutableElement | undefined): MutableElement {
     const r = this.map.range(ctx.start, ctx.stop) ?? { start: this.map.pos(0), end: this.map.pos(0) };
     return {
-      uri: this.uri, kind: "unknown", isDefinition: false, isUsage: false, members: [], types: [],
+      uri: this.uri, kind: "unknown", isDefinition: false, isUsage: false, members: [], types: [], typeNames: [], typeConjugated: [],
       specializes: [], subsets: [], redefines: [], references: [], ends: [], range: r, owner,
     };
   }
@@ -342,11 +344,16 @@ class Builder {
       kind: this.kindOf(ctx, rn),
       isDefinition: isDefinitionRule(rn),
       isUsage: isUsageRule(rn),
-      members: [], types: [], specializes: [], subsets: [], redefines: [], references: [], ends: [],
+      members: [], types: [], typeNames: [], typeConjugated: [], specializes: [], subsets: [], redefines: [], references: [], ends: [],
       range,
     };
     this.applyName(ctx, rn, el);
     this.scanOwn(ctx, el);
+    for (const t of el.types) {
+      const conj = t.startsWith("~");
+      el.typeConjugated.push(conj);
+      el.typeNames.push(conj ? t.slice(1).trim() : t);
+    }
     const vis = this.visibilityOf(ctx);
     if (vis) el.visibility = vis;
     if (rn === "importRule" || rn === "expose") el.importInfo = this.importInfo(ctx);
@@ -541,11 +548,13 @@ class Builder {
 
   private bodyRangeOf(body: ParserRuleContext): SourceRange | undefined {
     let open: Token | undefined;
-    for (const c of body.children) {
+    for (const c of body.children ?? []) {
       if (c instanceof TerminalNode && c.symbol.text === "{") {
         open = c.symbol;
         break;
       }
+      // A usage body wraps the definition body (`usageBody: definitionBody`).
+      if (c instanceof ParserRuleContext && ruleName(c).endsWith("Body")) return this.bodyRangeOf(c);
     }
     return open ? this.map.range(open, body.stop) : undefined;
   }

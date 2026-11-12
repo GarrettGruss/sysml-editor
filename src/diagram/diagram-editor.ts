@@ -4,7 +4,12 @@
  */
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { isLibraryUri, type Element } from "../model/index.js";
+import { isInheritedIn, isLibraryUri, type Element } from "../model/index.js";
+import type { ModelActions } from "../model-service/interactive.js";
+import { showFailure } from "../model-service/vscode-host.js";
+import type { OpFailure } from "../model-service/service.js";
+import { commonOwner, type Target } from "../model-service/service.js";
+import { typeCandidates } from "../model-service/support.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import { readSettled } from "./read-settled.js";
 import { writeDiagramFile } from "./write-uri.js";
@@ -12,10 +17,11 @@ import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
 import { addElements } from "./create.js";
 import { applyAutoLayout, applyBoxPatches, removeItems } from "./edits.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
-import type { DiagramCommand, DiagramEdit, HostToWebview, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
+import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
 import { relink } from "./reconcile.js";
 import { makeSourceMapper, referenceKey, resolveReference } from "./resolve.js";
-import { DiagramState, decideSave, followRename, hashViewModel, noteExternalChange, refresh } from "./session.js";
+import { DiagramState, decideSave, followRename, forceChange, hashViewModel, noteExternalChange, refresh, unforceChange } from "./session.js";
+import { dropEntriesChange, type DiagramChange } from "../model-service/diagram-changes.js";
 import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, DiagramProblem } from "./format.js";
 
 export const VIEW_TYPE = "sysml.diagram";
@@ -31,11 +37,17 @@ const encoder = new TextEncoder();
 export interface DiagramUi {
   pick<T extends vscode.QuickPickItem>(items: readonly T[], options: vscode.QuickPickOptions): Promise<T | undefined>;
   input(options: vscode.InputBoxOptions): Promise<string | undefined>;
+  /** A modal confirmation; true when the user chose `action`. */
+  confirm(message: string, detail: string, action: string): Promise<boolean>;
+  /** Show a refused or failed model edit, with "Go to error" or "Go to Definition" when it offers them. */
+  fail(failure: OpFailure): Promise<void>;
 }
 
 export const defaultUi: DiagramUi = {
   pick: (items, options) => Promise.resolve(vscode.window.showQuickPick(items, options)),
   input: (options) => Promise.resolve(vscode.window.showInputBox(options)),
+  fail: (f) => showFailure(f),
+  confirm: async (message, detail, action) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action,
 };
 
 export class SysmlDiagramDocument implements vscode.CustomDocument {
@@ -82,6 +94,8 @@ export interface DiagramTestApi {
   png(uri: vscode.Uri): Promise<string>;
   /** Base64 PNG of the editor appearance (selection and handles included) in a fixed dark palette. */
   pngEditor(uri: vscode.Uri): Promise<string>;
+  /** Base64 PNG of the editor window with the palette and properties panel, in the editor's own theme (light or dark). */
+  pngWindow(uri: vscode.Uri, theme: "editor-dark" | "editor-light"): Promise<string>;
   /** Replays a gesture in the webview as DOM events; resolves when it has been handled. */
   gesture(uri: vscode.Uri, g: TestGesture): Promise<void>;
   /** Replaces the questions the editor asks the user. */
@@ -112,6 +126,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   ui: DiagramUi = defaultUi;
   /** Called when a node is selected in a diagram and the tree should follow (set by the extension). */
   revealInTree?: (element: Element) => void;
+  /** Why a document cannot be edited (library aside); nodes of such elements are locked in the view model. Set by the extension. */
+  editBlocker?: (uri: string) => string | undefined;
+  /** Model edits (palette, connection tool, delete from model, rename, properties); set by the extension. */
+  modelActions?: ModelActions;
 
   constructor(private readonly extensionUri: vscode.Uri, private readonly model: WorkspaceModel, private readonly log: (m: string) => void = () => {}) {
     this.subs.push(this.model.index.onDidChange(() => this.scheduleRefresh()), this._onDidChange);
@@ -292,6 +310,17 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         doc.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
         this.followSelection(doc);
         break;
+      case "model":
+        if (m.generation !== undefined && m.generation !== doc.state.generation) this.log(`diagram: dropped a model edit from generation ${String(m.generation)}`);
+        else void this.onModelIntent(doc, m.intent).catch((e) => this.fail("Edit", e));
+        break;
+      case "typeSuggestions": {
+        const t = this.targetOf(doc, m.id);
+        const items = t ? typeCandidates(this.model.index, t.element, typeof m.query === "string" ? m.query : "") : [];
+        const p2 = [...(this.panels.get(doc.key) ?? [])].find((x) => x.ready);
+        if (p2) this.post(p2, { type: "typeSuggestionsResult", requestId: m.requestId, items });
+        break;
+      }
       case "relink":
         void this.relinkInteractive(doc, m.id).catch((e) => this.fail("Re-link", e));
         break;
@@ -331,6 +360,34 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     this.rerender(doc);
   }
 
+  /**
+   * A change a model edit forces on an open diagram: applied to memory (not dirty, no undo entry) and to the file's last
+   * saved state, which is written at once. Returns whether the file was written.
+   */
+  async forceOpen(doc: SysmlDiagramDocument, change: DiagramChange, mode: "apply" | "revert"): Promise<boolean> {
+    const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+    const ctx = { uri: doc.uri.toString(), sourceOf: this.opts(doc).sourceOf };
+    const r =
+      mode === "apply"
+        ? forceChange(doc.state, change, (d) => change.apply(d, ctx), disk)
+        : unforceChange(doc.state, change, (d) => change.revert(d, ctx), disk);
+    if (mode === "apply") {
+      for (const k of change.createdKeys?.() ?? []) doc.state.created.add(k);
+      for (const [k, u] of change.createdIn?.() ?? []) doc.state.createdIn.set(k, u);
+    }
+    doc.state.snapshot = undefined;
+    if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
+    this.rerender(doc);
+    return r.kind === "write";
+  }
+
+  /** One undo entry for a model edit made from this diagram; its undo and redo reverse and repeat text and diagram together. */
+  recordModelEdit(uri: vscode.Uri, label: string, undo: () => Promise<void>, redo: () => Promise<void>): void {
+    const doc = this.docs.get(uri.toString());
+    if (!doc) return;
+    this._onDidChange.fire({ document: doc, label, undo: async () => { await undo(); this.rerender(doc); }, redo: async () => { await redo(); this.rerender(doc); } });
+  }
+
   private fail(what: string, e: unknown): void {
     const msg = e instanceof Error ? e.message : String(e);
     this.log(`diagram ${what} failed: ${msg}`);
@@ -362,6 +419,136 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       }
     }
     if (next) this.edit(doc, next, label);
+  }
+
+  // ---- model edits ------------------------------------------------------------------------
+
+  /** The element a node shows, and the node's container element when it only inherits the feature from there. */
+  targetOf(doc: SysmlDiagramDocument, id: string): Target | undefined {
+    const d = doc.state.doc;
+    const node = d?.nodes.find((n) => n.id === id);
+    if (!d || !node) return undefined;
+    const index = this.model.index;
+    const element = resolveReference(node, d, index, this.opts(doc));
+    if (!element) return undefined;
+    // Any container up the node ancestry that inherits the feature (or a feature it lies beneath) is its context.
+    for (const anc of this.ancestry(doc, id).slice(1)) {
+      const ancNode = d.nodes.find((n) => n.id === anc);
+      const ancEl = ancNode ? resolveReference(ancNode, d, index, this.opts(doc)) : undefined;
+      if (ancEl && isInheritedIn(index, element, ancEl)) return { element, context: ancEl };
+    }
+    return { element };
+  }
+
+  private notice(doc: SysmlDiagramDocument, message: string): void {
+    for (const p of this.panels.get(doc.key) ?? []) if (p.ready) this.post(p, { type: "notice", message });
+  }
+
+  /** The node ancestry from a node up (`parent` or, for ports, the owner node). */
+  private ancestry(doc: SysmlDiagramDocument, id: string): string[] {
+    const vm = doc.state.viewModel?.nodes ?? [];
+    const out: string[] = [];
+    for (let cur: string | undefined = id, i = 0; cur !== undefined && i < 100; i++) {
+      out.push(cur);
+      const n = vm.find((x) => x.id === cur);
+      cur = n ? (n.attachedTo ?? n.parent) : doc.state.doc?.nodes.find((x) => x.id === cur)?.parent;
+    }
+    return out;
+  }
+
+  private async onModelIntent(doc: SysmlDiagramDocument, intent: ModelIntent): Promise<void> {
+    const actions = this.modelActions;
+    const d = doc.state.doc;
+    if (!actions || !d || doc.renderOnly) return;
+    const origin = { diagram: doc.uri.toString() };
+    switch (intent.kind) {
+      case "add": {
+        const ownerT = intent.ownerId !== undefined ? this.targetOf(doc, intent.ownerId) : undefined;
+        const refusal = ownerT ? actions.service.refuseIfInherited(ownerT, "extended") : undefined;
+        if (refusal) {
+          void actions.report(refusal, "");
+          return this.notice(doc, refusal.reason);
+        }
+        const owner = ownerT?.element ?? (intent.ownerId === undefined ? resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc)) : undefined);
+        if (!owner) return this.notice(doc, "The element to add to could not be found; it may be unresolved.");
+        const r = await actions.addChild(owner, { kind: intent.paletteKind, origin, placement: { diagram: origin.diagram, ...(intent.ownerId !== undefined ? { parentNode: intent.ownerId } : {}), x: intent.x, y: intent.y } });
+        if (r && !r.ok) this.notice(doc, r.reason);
+        else if (r?.ok && r.element?.qualifiedName) {
+          const id = doc.state.doc?.nodes.find((n) => n.ref === r.element!.qualifiedName)?.id;
+          if (id) this.selectIds(doc, [id]);
+        }
+        return;
+      }
+      case "connect": {
+        const a = this.targetOf(doc, intent.sourceId);
+        const b = this.targetOf(doc, intent.targetId);
+        if (!a || !b) return this.notice(doc, "Both ends of a connection must be resolved elements.");
+        const chainA = this.ancestry(doc, intent.sourceId);
+        const chainB = this.ancestry(doc, intent.targetId);
+        const ownerNode = chainA.slice(1).find((n) => chainB.slice(1).includes(n));
+        let owner: Element | undefined;
+        let endA: Target | string = a;
+        let endB: Target | string = b;
+        if (ownerNode !== undefined) {
+          const ot = this.targetOf(doc, ownerNode);
+          owner = ot?.element;
+          const pathTo = (chain: string[]) => chain.slice(0, chain.indexOf(ownerNode)).reverse().map((n) => this.targetOf(doc, n)?.element.name);
+          const pa = pathTo(chainA);
+          const pb = pathTo(chainB);
+          if (pa.every((x) => x !== undefined) && pb.every((x) => x !== undefined)) {
+            const quote = (n: string) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(n) ? n : `'${n.replace(/[\\']/g, (c) => "\\" + c)}'`);
+            endA = pa.map((n) => quote(n!)).join(".");
+            endB = pb.map((n) => quote(n!)).join(".");
+          }
+        } else owner = commonOwner(a.element, b.element);
+        if (!owner) return this.notice(doc, "These two elements have no common owner on this diagram, so there is nowhere to put the connection.");
+        const r = await actions.service.connect(owner, endA, endB, { ...origin, placement: { diagram: origin.diagram } });
+        const shown = await actions.report(r, "Added connection");
+        if (!shown.ok) this.notice(doc, shown.reason);
+        return;
+      }
+      case "deleteFromModel": {
+        for (const id of intent.ids) {
+          const t = this.targetOf(doc, id);
+          if (!t) continue;
+          const r = await actions.delete(t, { origin });
+          if (r && !r.ok) this.notice(doc, r.reason);
+        }
+        return;
+      }
+      case "rename": {
+        const t = this.targetOf(doc, intent.id);
+        if (!t) return;
+        const r = await actions.rename(t, { origin, name: intent.name });
+        if (r && !r.ok) this.notice(doc, r.reason);
+        return;
+      }
+      case "setProperties": {
+        const t = this.targetOf(doc, intent.id);
+        if (!t) return;
+        const r = await actions.report(await actions.service.setProperties(t, intent.changes, origin), "Changed properties");
+        if (!r.ok) this.notice(doc, r.reason);
+        else this.rerender(doc);
+        return;
+      }
+      case "goToDefinition": {
+        const t = this.targetOf(doc, intent.id);
+        if (!t) return;
+        const r = t.element.nameRange ?? t.element.range;
+        const td = await vscode.workspace.openTextDocument(vscode.Uri.parse(t.element.uri));
+        await vscode.window.showTextDocument(td, { selection: new vscode.Range(r.start.line, r.start.column, r.end.line, r.end.column) });
+        return;
+      }
+    }
+  }
+
+  /** "Delete from Model…" on the selected nodes (the command and the context menu). */
+  async deleteSelectionFromModel(doc: SysmlDiagramDocument): Promise<void> {
+    if (!doc.selection.length) {
+      void vscode.window.showInformationMessage("Select an element in the diagram first.");
+      return;
+    }
+    await this.onModelIntent(doc, { kind: "deleteFromModel", ids: [...doc.selection] });
   }
 
   // ---- model-aware actions ---------------------------------------------------------------
@@ -462,9 +649,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   /** Re-resolve, write detected renames to the file, and send the view model to every ready panel. */
   private rerender(doc: SysmlDiagramDocument): void {
     for (const p of this.panels.get(doc.key) ?? []) this.syncPage(doc, p);
-    const r = refresh(doc.state, this.model.index, this.opts(doc));
+    const r = refresh(doc.state, this.model.index, this.opts(doc), this.editBlocker);
     if (!r) return;
     if (r.updates && !doc.renderOnly) void this.followRename(doc, r.updates);
+    if (r.vanished && !doc.renderOnly) void this.dropVanished(doc, r.vanished);
+    if (r.restore && !doc.renderOnly) void this.restoreDropped(doc, r.restore);
     for (const p of this.panels.get(doc.key) ?? []) {
       if (!p.ready) continue;
       // The generation is part of the key: after a reload the webview must learn the new one even if the drawing is the same.
@@ -477,6 +666,43 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       const ids = doc.pendingSelect;
       doc.pendingSelect = undefined;
       for (const p of this.panels.get(doc.key) ?? []) if (p.ready && p.lastHash !== undefined) this.post(p, { type: "select", ids });
+    }
+  }
+
+  /**
+   * Entries this session created for elements that have since disappeared from a CLEAN parse of their document are
+   * removed (no placeholder). The removal is an ordinary forced change: if the element comes back at the same
+   * qualified name in this session, the entries are restored at their previous position.
+   */
+  private async dropVanished(doc: SysmlDiagramDocument, keys: string[]): Promise<void> {
+    // Synchronously, so a second refresh before the first finishes does not drop twice.
+    for (const k of keys) doc.state.created.delete(k);
+    try {
+      // A later undo of an unrelated edit must not bring the dropped placement back.
+      doc.state.forced = doc.state.forced.filter((f) => !((f.token as Partial<DiagramChange>).createdKeys?.() ?? []).some((k) => keys.includes(k)));
+      const change = dropEntriesChange(keys, "Remove entries of vanished elements");
+      doc.state.dropped.push({ change, uri: doc.uri.toString() });
+      await this.forceOpen(doc, change, "apply");
+    } catch (e) {
+      this.log(`diagram: dropping vanished entries failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /** The element of dropped entries is back: put the entries back where they were (and track them as session-created again). */
+  private async restoreDropped(doc: SysmlDiagramDocument, changes: DiagramChange[]): Promise<void> {
+    const mine = doc.state.dropped.filter((d) => changes.includes(d.change));
+    doc.state.dropped = doc.state.dropped.filter((d) => !changes.includes(d.change));
+    for (const d of mine) {
+      try {
+        const items = d.change.removedItems?.(d.uri);
+        await this.forceOpen(doc, d.change, "revert");
+        for (const i of [...(items?.nodes ?? []), ...(items?.edges ?? [])]) {
+          const k = referenceKey(i);
+          doc.state.created.add(k);
+        }
+      } catch (e) {
+        this.log(`diagram: restoring dropped entries failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   }
 
@@ -618,8 +844,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     return this.errorLog.length ? ` (webview errors: ${this.errorLog.slice(-5).join(" | ")})` : "";
   }
 
-  private async exportPng(uri: vscode.Uri | string, theme: PngTheme, maxWidth?: number): Promise<string> {
-    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme, ...(maxWidth !== undefined ? { maxWidth } : {}) }));
+  private async exportPng(uri: vscode.Uri | string, theme: PngTheme, maxWidth?: number, panels = false): Promise<string> {
+    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme, ...(maxWidth !== undefined ? { maxWidth } : {}), ...(panels ? { panels: true } : {}) }));
     if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
     return r.base64;
   }
@@ -636,6 +862,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     metrics: (uri) => this.request<"metricsResult">(uri, (requestId) => ({ type: "getMetrics", requestId })),
     png: (uri) => this.exportPng(uri, "light"),
     pngEditor: (uri) => this.exportPng(uri, "editor-dark"),
+    pngWindow: (uri, theme) => this.exportPng(uri, theme, 1800, true),
     gesture: async (uri, gesture) => {
       const r = await this.request<"gestureResult">(uri, (requestId) => ({ type: "testGesture", requestId, gesture }));
       if (r.error) throw new Error(`gesture ${gesture.kind} failed in the webview: ${r.error}`);

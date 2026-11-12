@@ -109,6 +109,8 @@ interface MutableElement {
   owner?: MutableElement;
   members: MutableElement[];
   types: string[];
+  typeNames: string[];
+  typeConjugated: boolean[];
   specializes: string[];
   subsets: string[];
   redefines: string[];
@@ -316,7 +318,7 @@ class Reader {
       isDefinition: DEFINITION_KINDS.has(kind),
       isUsage: USAGE_KINDS.has(kind),
       members: [],
-      types: [], specializes: [], subsets: [], redefines: [], references: [], ends: [],
+      types: [], typeNames: [], typeConjugated: [], specializes: [], subsets: [], redefines: [], references: [], ends: [],
       range: this.range(first.start, first.end),
       owner,
     };
@@ -355,6 +357,10 @@ class Reader {
       endOffset = this.terminate(el);
     }
     el.range = this.range(first.start, Math.max(endOffset, first.end));
+    for (const t of el.types) {
+      el.typeConjugated.push(t.startsWith("~"));
+      el.typeNames.push(t.startsWith("~") ? t.slice(1) : t);
+    }
 
     (owner ? owner.members : this.roots).push(el);
     const doc = el.members.find((m) => m.kind === "doc");

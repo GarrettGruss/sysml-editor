@@ -11,21 +11,21 @@ import {
 import { HANDLES, handleBoxes } from "./interaction.js";
 import { edgeRoute, placeLabel } from "./routing.js";
 
-export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel";
+export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel" | "inherited";
 export type Palette = Record<Role, string>;
 
 /** Fixed light theme for exports (agent images, PNG): independent of the editor theme. */
 export const LIGHT_PALETTE: Palette = {
-  bg: "#ffffff", node: "#f6f8fa", line: "#1f2328", text: "#1f2328", subtext: "#57606a", warn: "#bf8700", edge: "#24292f", sel: "#0969da",
+  bg: "#ffffff", node: "#f6f8fa", line: "#1f2328", text: "#1f2328", subtext: "#57606a", warn: "#bf8700", edge: "#24292f", sel: "#0969da", inherited: "#e9edf1",
 };
 
 /** Fixed dark palette, only for the test export of the editor appearance. */
 export const DARK_PALETTE: Palette = {
-  bg: "#1e1e1e", node: "#252526", line: "#cccccc", text: "#cccccc", subtext: "#9d9d9d", warn: "#cca700", edge: "#cccccc", sel: "#3794ff",
+  bg: "#1e1e1e", node: "#252526", line: "#cccccc", text: "#cccccc", subtext: "#9d9d9d", warn: "#cca700", edge: "#cccccc", sel: "#3794ff", inherited: "#333336",
 };
 
 /** Background colour of an export in the given fixed theme. */
-export const exportBackground = (theme: "light" | "editor-dark"): string => (theme === "light" ? LIGHT_PALETTE : DARK_PALETTE).bg;
+export const exportBackground = (theme: "light" | "editor-dark" | "editor-light"): string => (theme === "editor-dark" ? DARK_PALETTE : LIGHT_PALETTE).bg;
 
 export interface SvgOptions {
   /** Absent: live mode (CSS classes). Present: export mode (colours as attributes, background and margin). */
@@ -71,23 +71,25 @@ export function nodeName(n: VmNode): string {
 function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: boolean): string {
   const c = describeBox(n, measure);
   const warn = n.shape === "unresolved";
-  const stroke: Role = warn ? "warn" : "line";
-  const dash = warn ? ' stroke-dasharray="5 3"' : "";
+  const inh = n.inherited !== undefined;
+  const stroke: Role = warn ? "warn" : inh ? "subtext" : "line";
+  const fill: Role = inh ? "inherited" : "node";
+  const dash = warn || inh ? ' stroke-dasharray="5 3"' : "";
   const sw = n.shape === "requirement" ? ' stroke-width="1.5"' : "";
-  let g = `<g data-node="${esc(n.id)}" data-shape="${n.shape}" role="img" aria-label="${esc(nodeName(n))}"${selected ? ' data-selected="true" aria-current="true"' : ""} transform="translate(${f(b.x)} ${f(b.y)})">`;
+  let g = `<g data-node="${esc(n.id)}" data-shape="${n.shape}" role="img" aria-label="${esc(nodeName(n) + (inh ? " (inherited from " + n.inherited!.from + ")" : ""))}"${inh ? ' data-inherited="true"' : ""}${selected ? ' data-selected="true" aria-current="true"' : ""} transform="translate(${f(b.x)} ${f(b.y)})">`;
   if (n.shape === "port") {
-    g += `<rect width="${f(b.w)}" height="${f(b.h)}"${paint(o, "node", "line")}/>`;
+    g += `<rect width="${f(b.w)}" height="${f(b.h)}"${dash}${paint(o, fill, stroke)}/>`;
     return g + "</g>";
   }
   const rx = n.shape === "usage" ? ' rx="10"' : n.shape === "requirement" ? ' rx="3"' : "";
   if (n.shape === "package") {
-    g += `<rect y="16" width="${f(b.w)}" height="${f(b.h - 16)}"${paint(o, "node", stroke)}/>`;
-    g += `<rect width="${f(Math.min(b.w * 0.4, 70))}" height="16"${paint(o, "node", stroke)}/>`;
-  } else g += `<rect width="${f(b.w)}" height="${f(b.h)}"${rx}${dash}${sw}${paint(o, "node", stroke)}/>`;
+    g += `<rect y="16" width="${f(b.w)}" height="${f(b.h - 16)}"${paint(o, fill, stroke)}/>`;
+    g += `<rect width="${f(Math.min(b.w * 0.4, 70))}" height="16"${paint(o, fill, stroke)}/>`;
+  } else g += `<rect width="${f(b.w)}" height="${f(b.h)}"${rx}${dash}${sw}${paint(o, fill, stroke)}/>`;
   for (const y of c.dividers) g += `<line x1="0" y1="${f(y)}" x2="${f(b.w)}" y2="${f(y)}"${paint(o, "none", stroke)}/>`;
   for (const r of c.rows) {
-    const role: Role = r.kind === "keyword" || r.kind === "ctitle" ? "subtext" : r.kind === "warn" ? "warn" : "text";
-    if (r.kind === "cline" || r.kind === "ctitle" || r.kind === "doc") g += text(o, PAD_LEFT, r.y, r.text, r.style, role);
+    const role: Role = r.kind === "keyword" || r.kind === "ctitle" || r.kind === "icline" ? "subtext" : r.kind === "warn" ? "warn" : "text";
+    if (r.kind === "cline" || r.kind === "icline" || r.kind === "ctitle" || r.kind === "doc") g += text(o, PAD_LEFT, r.y, r.text, r.style, role);
     else g += text(o, b.w / 2, r.y, r.text, r.style, role, "middle");
   }
   return g + "</g>";
