@@ -73,12 +73,14 @@ export function behaviorTests(c: Ctx): Test[] {
     const base = fixture(source).replace(/^package \w+/m, `package ${pkg}`);
     const original = opts.text ? opts.text(base) : base;
     writeFileSync(uriOf(model).fsPath, original);
+    rmSync(uriOf(diagram).fsPath, { force: true }); // sysml_create_diagram never overwrites: a leftover of an earlier run would refuse it
     installUi();
     try {
       await api.model.ready;
       await vscode.workspace.openTextDocument(uriOf(model));
       await waitFor(() => api.model.index.findByQualifiedName(`${pkg}::${root.split("::")[0]}`).length > 0, 300000, `${pkg} is in the model`);
       const made = await viaLm("sysml_create_diagram", { root: `${pkg}::${root}`, kind, path: diagram });
+      assert.ok(made.text.startsWith("{"), `sysml_create_diagram for ${diagram} did not return JSON: ${made.text}`);
       assert.ok(JSON.parse(made.text).created, made.text);
       await api.diagram.open(uriOf(diagram));
       await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.length > 0), `${diagram} rendered`);
@@ -100,6 +102,8 @@ export function behaviorTests(c: Ctx): Test[] {
       rmSync(uriOf(model).fsPath, { force: true });
       rmSync(uriOf(diagram).fsPath, { force: true });
       await sleep(150);
+      // The editor may still be saving the diagram after a model edit when the test ends (that write lands after the first rm): remove it again.
+      rmSync(uriOf(diagram).fsPath, { force: true });
     }
   };
 
