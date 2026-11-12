@@ -1,0 +1,64 @@
+/**
+ * The requirements tools: read a package as a specification document (Markdown) and create requirements.
+ * Relationships (satisfy, verify, derivation) are part of `sysml_create_relationship`. Transport-free.
+ */
+import { buildDocumentModel } from "../requirements/document-model.js";
+import { documentToMarkdown } from "../requirements/document-markdown.js";
+import { ToolError, type ToolDefinition } from "./types.js";
+import { summary, editing, locate, ok } from "./edit-tools.js";
+
+const readRequirementsDocument: ToolDefinition = {
+  name: "sysml_read_requirements_document",
+  description:
+    "Read a package as a specification document, the same projection the requirements editor's Document view shows, as Markdown: the title (from a @DocumentRoot annotation, else the package name), a table of contents, numbered sections (1, 1.1, ...; nested packages), their paragraphs (doc and comment text), requirement items (id, name, text, satisfied by / verified by / derived from) and appendices (packages annotated @Appendix, lettered A, B, ...). " +
+    "Section numbers are generated from the nesting and source order and are not stored in the model. Each heading and each requirement is followed by a marker such as `<!-- qn: VehicleSpec::Performance::accel -->` with the qualified name to pass to the edit tools (sysml_set_element_properties, sysml_create_requirement, sysml_create_relationship, ...). " +
+    "`package` is the qualified name of the root package (a nested package reads just that part). Output is limited to 60000 characters; the end then says it was truncated. Read-only.",
+  inputSchema: {
+    type: "object",
+    properties: { package: { type: "string", minLength: 1, description: "Qualified name of the package, e.g. VehicleSpec." } },
+    required: ["package"],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  handler(input, ctx) {
+    const qn = input.package as string;
+    const el = ctx.index.findByQualifiedName(qn).find((e) => e.kind === "package" || e.kind === "library package");
+    if (!el) throw new ToolError(`No package with qualified name "${qn}". Use sysml_get_element_tree to find qualified names.`);
+    return { text: documentToMarkdown(buildDocumentModel(ctx.index, el)).text };
+  },
+};
+
+const createRequirement: ToolDefinition = {
+  name: "sysml_create_requirement",
+  description:
+    "Create a requirement in a package: `requirement <'ID'> name;` (or `requirement def` with `definition: true`), with optional documentation as a doc comment, exactly as the requirements editor's Add Requirement does. " +
+    "`owner` is the qualified name of the package (or definition) to add it to. Text containing the comment terminator star-slash is stored as star-backslash-slash. Applied directly, saved, one undo step. Refused for files with syntax errors, existing names and in an untrusted workspace. Returns JSON with the new element's qualifiedName and the files changed.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      owner: { type: "string", minLength: 1, description: "Qualified name of the package to add the requirement to." },
+      name: { type: "string", minLength: 1, description: "Name of the requirement." },
+      id: { type: "string", description: "Requirement id, written as the short name <'id'>." },
+      documentation: { type: "string", description: "The requirement text, written as a doc comment." },
+      definition: { type: "boolean", description: "Create a requirement def instead of a requirement usage." },
+    },
+    required: ["owner", "name"],
+    additionalProperties: false,
+  },
+  readOnly: false,
+  async handler(input, ctx) {
+    const ed = editing(ctx);
+    const owner = locate(ctx, ed, input.owner as string, "owner element");
+    const r = ok(
+      await ed.service.createRequirement(owner.element, {
+        name: input.name as string,
+        ...(typeof input.id === "string" && input.id !== "" ? { id: input.id } : {}),
+        ...(typeof input.documentation === "string" && input.documentation !== "" ? { documentation: input.documentation } : {}),
+        ...(input.definition === true ? { definition: true } : {}),
+      }),
+    );
+    return summary(ctx, r, { created: { qualifiedName: r.element?.qualifiedName, kind: input.definition === true ? "requirement def" : "requirement", name: input.name } });
+  },
+};
+
+export const requirementsToolDefinitions: readonly ToolDefinition[] = [readRequirementsDocument, createRequirement];

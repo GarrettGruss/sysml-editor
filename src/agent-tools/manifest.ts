@@ -14,7 +14,7 @@ export interface LmToolManifestEntry {
   inputSchema: unknown;
 }
 
-const MODEL_TOOLS = /^sysml_(create_element|delete_element|rename_element|set_element_properties|create_relationship)$/;
+const MODEL_TOOLS = /^sysml_(create_element|delete_element|rename_element|set_element_properties|create_relationship|create_requirement)$/;
 const words = (name: string) => name.replace(/^sysml_/, "").split("_");
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 

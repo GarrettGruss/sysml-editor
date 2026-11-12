@@ -691,7 +691,7 @@
       {
         "name": "sysml_create_relationship",
         "displayName": "SysML: Create Relationship",
-        "modelDescription": "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. `kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
+        "modelDescription": "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. `kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. `kind: \"verify\"` adds `verify <requirement>;` to the objective of a verification case (SysML v2 allows verify only there): give `verificationCase` (qualified name of an existing verification case; its objective is created when missing) or `newVerificationCase` (a name; a new `verification` containing the objective is created in `owner`, default the package of the requirement). `kind: \"derivation\"` adds `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; ... }` (derivation is not a keyword) to `owner` (default: the package of the first derived requirement) and `private import RequirementDerivation::*;` when missing; `original` and `derived` (a list) are qualified names of requirements. With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
         "toolReferenceName": "sysmlCreateRelationship",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
@@ -706,9 +706,11 @@
               "type": "string",
               "enum": [
                 "connection",
-                "satisfy"
+                "satisfy",
+                "verify",
+                "derivation"
               ],
-              "description": "connection or satisfy."
+              "description": "connection, satisfy, verify or derivation."
             },
             "owner": {
               "type": "string",
@@ -730,6 +732,27 @@
               "type": "string",
               "description": "satisfy: qualified name of the satisfying element."
             },
+            "verificationCase": {
+              "type": "string",
+              "description": "verify: qualified name of an existing verification case (def or usage)."
+            },
+            "newVerificationCase": {
+              "type": "string",
+              "description": "verify: name of a new verification case to create."
+            },
+            "original": {
+              "type": "string",
+              "description": "derivation: qualified name of the original requirement."
+            },
+            "derived": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "description": "derivation: qualified names of the derived requirements."
+            },
             "diagram": {
               "type": "string",
               "description": "Optional workspace-relative path of a .sysmld diagram to place the new element on (as a node, or an edge for a relationship). The diagram file is updated on top of its last saved state; pending layout in an open diagram stays unsaved."
@@ -737,6 +760,76 @@
           },
           "required": [
             "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_read_requirements_document",
+        "displayName": "SysML: Read Requirements Document",
+        "modelDescription": "Read a package as a specification document, the same projection the requirements editor's Document view shows, as Markdown: the title (from a @DocumentRoot annotation, else the package name), a table of contents, numbered sections (1, 1.1, ...; nested packages), their paragraphs (doc and comment text), requirement items (id, name, text, satisfied by / verified by / derived from) and appendices (packages annotated @Appendix, lettered A, B, ...). Section numbers are generated from the nesting and source order and are not stored in the model. Each heading and each requirement is followed by a marker such as `<!-- qn: VehicleSpec::Performance::accel -->` with the qualified name to pass to the edit tools (sysml_set_element_properties, sysml_create_requirement, sysml_create_relationship, ...). `package` is the qualified name of the root package (a nested package reads just that part). Output is limited to 60000 characters; the end then says it was truncated. Read-only.",
+        "toolReferenceName": "sysmlReadRequirementsDocument",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "package": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the package, e.g. VehicleSpec."
+            }
+          },
+          "required": [
+            "package"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_create_requirement",
+        "displayName": "SysML: Create Requirement",
+        "modelDescription": "Create a requirement in a package: `requirement <'ID'> name;` (or `requirement def` with `definition: true`), with optional documentation as a doc comment, exactly as the requirements editor's Add Requirement does. `owner` is the qualified name of the package (or definition) to add it to. Text containing the comment terminator star-slash is stored as star-backslash-slash. Applied directly, saved, one undo step. Refused for files with syntax errors, existing names and in an untrusted workspace. Returns JSON with the new element's qualifiedName and the files changed.",
+        "toolReferenceName": "sysmlCreateRequirement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the package to add the requirement to."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Name of the requirement."
+            },
+            "id": {
+              "type": "string",
+              "description": "Requirement id, written as the short name <'id'>."
+            },
+            "documentation": {
+              "type": "string",
+              "description": "The requirement text, written as a doc comment."
+            },
+            "definition": {
+              "type": "boolean",
+              "description": "Create a requirement def instead of a requirement usage."
+            }
+          },
+          "required": [
+            "owner",
+            "name"
           ],
           "additionalProperties": false
         }
