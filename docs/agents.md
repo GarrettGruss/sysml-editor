@@ -81,15 +81,17 @@ person making the same edit produce byte-identical text (a parity test runs each
   written so they resolve from where they are written: the short name when visible, otherwise an import is added, otherwise the
   qualified name. Names that need it are quoted.
 - **Refusals are errors with a reason, and nothing changes**: a file with a syntax error (the message gives the location), library
-  content, a name that already exists in the owner, an untrusted workspace, and inherited features. A feature that a usage only
-  inherits from its definition (`Model::vehicle1::engine`, declared in `Vehicle`) cannot be deleted, renamed or retyped from the
-  usage; the error names the declaring definition. Use the definition's own qualified name to change it for every usage.
+  content, files outside the workspace or excluded by `sysml.exclude`, a kind that is not allowed for the owner (`kind` must be one that fits under it: packages take everything, definitions and usages take usages), a name that already exists in the owner, an untrusted workspace, and inherited features. A feature that a usage only
+  inherits from its definition (`Model::vehicle1::engine`, declared in `Vehicle`) cannot be deleted, renamed, retyped or extended from the
+  usage, and neither can anything inside it (`Model::vehicle1::engine::piston`); the error names the declaring definition. Use the definition's own qualified name to change it for every usage.
   Creating an element inside a usage adds it to that usage only.
 - **Diagrams.** With `diagram` (create tools), a node (or edge) is placed on that diagram in the same operation. Deleting an element
   removes its entries from every diagram file; renaming updates the references in the diagram files. These changes are written to the `.sysmld` files at once on top of each file's last saved state. Pending layout in a diagram that is open is **not** saved by a model edit.
   If the diagram is open, the model edit and the node are one undo step from that diagram.
+- **A save that fails after the edit was applied is not a failure.** The edit stays applied (as unsaved changes in VS Code), diagram updates and the undo step still happen, and the result lists `filesChanged`, `filesSaved` and `filesNotSaved` exactly; the user gets a warning with a "Save All" action. Do not repeat the edit. "No files were changed" only appears on refusals, where it is true.
+- **Diagram problems are reported**: `diagramFilesNotUpdated` lists diagram files that could not be updated (unreadable, with parse errors, or changed on disk meanwhile).
 - **Results** are JSON with `filesChanged` (workspace-relative paths), the resulting `qualifiedName`, and for renames `referencesUpdated` and
-  `couldNotJudge` (mentions of the old name the tool could not decide about, with a few locations).
+  `couldNotJudge` (mentions of the old name the tool could not decide about, with a few locations). A delete reports `remainingReferences` (with locations) and, separately, `remainingMentionsNotChecked`.
 - The five tools are marked not read-only (`readOnlyHint: false` over MCP, the `edits-model` tag in the manifest).
 
 ### Images

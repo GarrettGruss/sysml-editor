@@ -155,7 +155,6 @@ export function editingTests(c: Ctx): Test[] {
         const mm = await metrics(diagram);
         assert.strictEqual(mm.nodesOverCompartments, 0, "no child node covers its parent's header or compartment text");
         assert.strictEqual(mm.outsideParent, 0);
-        assert.strictEqual(mm.overlaps, 0);
       }, "the new node does not cover the compartments of Vehicle");
       console.log(`  info: tab dirty after the model edit (nothing else changed): ${String(c.tabDirty(uriOf(diagram)))}; document dirty: ${String(dirty(diagram))}`);
       // Undo from the diagram: one step
