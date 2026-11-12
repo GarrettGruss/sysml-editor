@@ -4,7 +4,7 @@ import { ModelIndex } from "../model/index.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument } from "./format.js";
 import { reconcile } from "./reconcile.js";
 import { resolveDiagram } from "./resolve.js";
-import { DiagramState, applyLayout, refresh } from "./session.js";
+import { DiagramState, applyLayout, decideSave, followRename, hashViewModel, noteExternalChange, refresh, validBox } from "./session.js";
 import { buildViewModel } from "./view-model.js";
 
 const dir = new URL("../../test/fixtures/workspace-basic/", import.meta.url);
@@ -98,6 +98,21 @@ describe("view model: interconnection view", () => {
   });
 });
 
+describe("ports without an owner on the diagram", () => {
+  it("are labelled boxes, not bare port rectangles", () => {
+    const r = parseDiagram(read("drivetrain-interconnection.sysmld"));
+    if (!r.ok) throw new Error("fixture");
+    const doc = { ...r.doc, nodes: r.doc.nodes.filter((n) => n.id !== "n1") };
+    const ix = fixtureIndex();
+    const vm = buildViewModel(doc, resolveDiagram(doc, ix), ix);
+    const n3 = vm.nodes.find((n) => n.id === "n3")!;
+    expect(n3.shape).not.toBe("port");
+    expect(n3.attachedTo).toBeUndefined();
+    expect(n3.label).toContain("output");
+    expect(n3.label).toContain(":");
+  });
+});
+
 describe("session", () => {
   it("tracks dirty state, undo and redo", () => {
     const s = new DiagramState(read("ports-general-auto.sysmld"));
@@ -135,5 +150,110 @@ describe("session", () => {
     expect(r.renamed?.nodes.find((n) => n.id === "n2")?.ref).toBe("Ports::Accumulator");
     expect(r.viewModel.nodes.find((n) => n.id === "n2")?.label).toBe("Accumulator");
     expect(reconcile(r.renamed!, ix).unresolved).toEqual([]);
+  });
+
+  const renamedIndex = () => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///ws/ports.sysml", read("ports.sysml"));
+    return ix;
+  };
+  const rename = (ix: ModelIndex) => ix.setDocument("file:///ws/ports.sysml", read("ports.sysml").replace("part def Battery", "part def Accumulator"));
+
+  it("undo and redo do nothing after a reload, and the dirty state stays correct", () => {
+    const s = new DiagramState(read("ports-general-auto.sysmld"));
+    const edit = s.apply(applyLayout(s.doc!, [{ id: "n1", x: 1, y: 2, w: 3, h: 4 }])!);
+    expect(s.dirty).toBe(true);
+    s.load(read("ports-general.sysmld"));
+    const before = s.doc;
+    expect(s.dirty).toBe(false);
+    expect(edit.undo()).toBe(false);
+    expect(edit.redo()).toBe(false);
+    expect(s.doc).toBe(before);
+    expect(s.dirty).toBe(false);
+  });
+  it("layout merges in memory without dirtying or creating an undo entry", () => {
+    const s = new DiagramState(read("ports-general-auto.sysmld"));
+    expect(s.mergeLayout([{ id: "n1", x: 5, y: 6, w: 7, h: 8 }])).toBe(true);
+    expect(s.dirty).toBe(false);
+    expect(s.doc!.nodes.find((n) => n.id === "n1")).toMatchObject({ x: 5, y: 6 });
+    expect(s.disk).toBe(read("ports-general-auto.sysmld"));
+  });
+  it("rename follow writes only the reference change to disk; memory keeps pending layout; dirty is unchanged", () => {
+    const ix = renamedIndex();
+    const s = new DiagramState(read("ports-general-auto.sysmld"));
+    refresh(s, ix);
+    s.mergeLayout([{ id: "n1", x: 5, y: 6, w: 7, h: 8 }]);
+    rename(ix);
+    const r = refresh(s, ix)!;
+    const f = followRename(s, r.updates!, s.disk);
+    expect(f.kind).toBe("write");
+    if (f.kind !== "write") return;
+    const onDisk = parseDiagram(f.text);
+    if (!onDisk.ok) throw new Error("disk text");
+    expect(onDisk.doc.nodes.find((n) => n.id === "n2")?.ref).toBe("Ports::Accumulator");
+    expect(onDisk.doc.nodes.every((n) => n.x === undefined)).toBe(true);
+    expect(s.doc!.nodes.find((n) => n.id === "n2")?.ref).toBe("Ports::Accumulator");
+    expect(s.doc!.nodes.find((n) => n.id === "n1")).toMatchObject({ x: 5, y: 6 });
+    expect(s.dirty).toBe(false);
+    expect(s.disk).toBe(f.text);
+    expect(noteExternalChange(s, f.text)).toBe("ignore");
+  });
+  it("rename follow applies to the file as it is on disk after an external change", () => {
+    const ix = renamedIndex();
+    const s = new DiagramState(read("ports-general.sysmld"));
+    refresh(s, ix);
+    rename(ix);
+    const r = refresh(s, ix)!;
+    const external = read("ports-general-auto.sysmld");
+    // clean document: reload and detect again
+    expect(followRename(s, r.updates!, external).kind).toBe("reloaded");
+    expect(s.disk).toBe(external);
+    // dirty document: apply on top of the external text and flag the conflict
+    const d = new DiagramState(read("ports-general.sysmld"));
+    refresh(d, ix);
+    d.apply({ ...d.doc!, nodes: d.doc!.nodes.map((n) => (n.id === "n1" ? { ...n, x: 9 } : n)) });
+    const ix2 = renamedIndex();
+    refresh(d, ix2);
+    rename(ix2);
+    const r2 = refresh(d, ix2)!;
+    const f = followRename(d, r2.updates!, external);
+    expect(f.kind).toBe("write");
+    expect(d.conflicted).toBe(true);
+    expect(d.dirty).toBe(true);
+  });
+  it("external changes: reload when clean, conflict once when dirty", () => {
+    const s = new DiagramState(read("ports-general.sysmld"));
+    expect(noteExternalChange(s, read("ports-general.sysmld"))).toBe("ignore");
+    expect(noteExternalChange(s, read("ports-general-auto.sysmld"))).toBe("reload");
+    expect(s.disk).toBe(read("ports-general-auto.sysmld"));
+    s.apply({ ...s.doc!, nodes: s.doc!.nodes.map((n) => (n.id === "n1" ? { ...n, x: 9 } : n)) });
+    expect(noteExternalChange(s, read("ports-general.sysmld"))).toBe("conflict");
+    expect(noteExternalChange(s, read("drivetrain-interconnection.sysmld"))).toBe("ignore");
+    expect(s.dirty).toBe(true);
+  });
+  it("save decisions: conflict when the disk changed, unparsed never writes, missing file writes", () => {
+    const s = new DiagramState(read("ports-general.sysmld"));
+    expect(decideSave(s, read("ports-general.sysmld"))).toBe("write");
+    expect(decideSave(s, read("ports-general-auto.sysmld"))).toBe("conflict");
+    expect(decideSave(s, undefined)).toBe("write");
+    s.markSaved();
+    expect(s.conflicted).toBe(false);
+    const bad = new DiagramState("");
+    bad.loadDirty("{ not json", read("ports-general.sysmld"));
+    expect(bad.dirty).toBe(true);
+    expect(decideSave(bad, read("ports-general.sysmld"))).toBe("unparsed");
+    expect(new DiagramState(read("invalid.sysmld")).doc).toBeUndefined();
+  });
+  it("validates boxes from the webview", () => {
+    const ok = { id: "n1", x: 1, y: 2, w: 3, h: 4 };
+    expect(validBox(ok)).toBe(true);
+    for (const bad of [{ ...ok, x: NaN }, { ...ok, y: Infinity }, { ...ok, w: 0 }, { ...ok, h: -1 }, { ...ok, x: 1e12 }, { ...ok, w: "3" as never }]) expect(validBox(bad)).toBe(false);
+    const s = new DiagramState(read("ports-general-auto.sysmld"));
+    expect(s.mergeLayout([{ id: "zzz", x: 1, y: 2, w: 3, h: 4 }, { ...ok, w: 0 }, { ...ok, x: NaN }])).toBe(false);
+    expect(s.doc!.nodes.find((n) => n.id === "n1")!.x).toBeUndefined();
+  });
+  it("hashes view models stably", () => {
+    expect(hashViewModel(vmOf("ports-general.sysmld"))).toBe(hashViewModel(vmOf("ports-general.sysmld")));
+    expect(hashViewModel(vmOf("ports-general.sysmld"))).not.toBe(hashViewModel(vmOf("ports-general-auto.sysmld")));
   });
 });

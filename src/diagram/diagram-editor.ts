@@ -5,9 +5,9 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
-import type { HostToWebview, NodeBox, WebviewToHost } from "./protocol.js";
+import type { HostToWebview, WebviewToHost } from "./protocol.js";
 import { makeSourceMapper } from "./resolve.js";
-import { DiagramState, applyLayout, refresh } from "./session.js";
+import { DiagramState, decideSave, followRename, hashViewModel, noteExternalChange, refresh } from "./session.js";
 import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, DiagramProblem } from "./format.js";
 
 export const VIEW_TYPE = "sysml.diagram";
@@ -33,6 +33,10 @@ export class SysmlDiagramDocument implements vscode.CustomDocument {
 interface Panel {
   panel: vscode.WebviewPanel;
   ready: boolean;
+  /** Which page is loaded (diagram or error page, with the problems shown), so it is rebuilt when that changes. */
+  pageKey?: string;
+  /** Hash of the last view model posted. */
+  lastHash?: string;
 }
 
 interface Pending {
@@ -47,6 +51,8 @@ export interface DiagramTestApi {
   png(uri: vscode.Uri): Promise<string>;
   /** Writes the in-memory document in canonical form, as Save would. */
   save(uri: vscode.Uri): Promise<void>;
+  /** Applies a move of nodes as one user edit (undoable, dirties the document). */
+  edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
   state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: DiagramProblem[]; doc?: DiagramFile };
   errors(): string[];
 }
@@ -76,23 +82,25 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   // ---- documents -------------------------------------------------------------------------
 
   async openCustomDocument(uri: vscode.Uri, ctx: vscode.CustomDocumentOpenContext): Promise<SysmlDiagramDocument> {
+    const read = async (u: vscode.Uri) => decoder.decode(await vscode.workspace.fs.readFile(u));
     let state: DiagramState;
     if (ctx.backupId) {
+      const disk = await read(uri).catch(() => "");
       state = new DiagramState("");
-      state.loadDirty(decoder.decode(await vscode.workspace.fs.readFile(vscode.Uri.parse(ctx.backupId))));
+      state.loadDirty(await read(vscode.Uri.parse(ctx.backupId)), disk);
     } else {
-      state = new DiagramState(decoder.decode(await vscode.workspace.fs.readFile(uri)));
+      state = new DiagramState(await read(uri));
     }
     const doc = new SysmlDiagramDocument(uri, state);
     this.docs.set(uri.toString(), doc);
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop()!));
     const onDisk = async () => {
-      if (doc.state.dirty) return;
       try {
-        const text = decoder.decode(await vscode.workspace.fs.readFile(uri));
-        if (text === doc.state.raw) return;
-        doc.state.load(text);
-        this.rerender(doc);
+        const change = noteExternalChange(doc.state, await read(uri));
+        if (change === "reload") this.rerender(doc);
+        else if (change === "conflict") {
+          void vscode.window.showWarningMessage(`${uri.path.split("/").pop()} changed on disk while it has unsaved changes. Saving will ask whether to overwrite it.`);
+        }
       } catch {
         /* deleted: keep what is open */
       }
@@ -104,10 +112,32 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   async saveCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
-    // A file that did not parse is never overwritten.
-    if (!doc.state.doc) return;
-    await vscode.workspace.fs.writeFile(doc.uri, encoder.encode(doc.state.text()));
-    doc.state.markSaved();
+    const s = doc.state;
+    const name = doc.uri.path.split("/").pop();
+    const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+    const decision = decideSave(s, disk);
+    if (decision === "unparsed") {
+      throw new Error(`${name} cannot be saved: it is not a valid diagram file, and it was not changed. Open it as text to fix it.`);
+    }
+    if (decision === "conflict") {
+      const overwrite = "Overwrite";
+      const revert = "Revert to file on disk";
+      const pick = await vscode.window.showWarningMessage(`${name} was changed on disk since it was opened or last saved.`, { modal: true, detail: "Overwrite replaces the file with this diagram. Revert discards the unsaved changes and shows the file on disk." }, overwrite, revert);
+      if (pick === revert) {
+        await this.revertCustomDocument(doc);
+        return;
+      }
+      if (pick !== overwrite) throw new Error(`Save cancelled: ${name} was changed on disk.`);
+    }
+    const previous = s.disk;
+    s.disk = s.text(); // our own write must not look like an external change
+    try {
+      await vscode.workspace.fs.writeFile(doc.uri, encoder.encode(s.text()));
+    } catch (e) {
+      s.disk = previous;
+      throw e;
+    }
+    s.markSaved();
   }
 
   async saveCustomDocumentAs(doc: SysmlDiagramDocument, dest: vscode.Uri): Promise<void> {
@@ -133,14 +163,30 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const key = doc.uri.toString();
     const p: Panel = { panel: webviewPanel, ready: false };
     this.panels.set(key, (this.panels.get(key) ?? new Set()).add(p));
-    webviewPanel.onDidDispose(() => this.panels.get(key)?.delete(p));
+    webviewPanel.onDidDispose(() => {
+      const set = this.panels.get(key);
+      set?.delete(p);
+      if (set && !set.size) this.panels.delete(key);
+    });
     webview.onDidReceiveMessage((m: WebviewToHost) => this.onMessage(doc, p, m));
+    this.syncPage(doc, p);
+    // The model must have loaded before references can resolve.
+    void this.model.ready.then(() => this.rerender(doc), () => this.rerender(doc));
+  }
+
+  /** Load the diagram page or the error page, whichever fits the document now; rebuilt when that changes. */
+  private syncPage(doc: SysmlDiagramDocument, p: Panel): void {
+    const key = doc.state.doc ? "diagram" : "error:" + JSON.stringify(doc.state.problems ?? []);
+    if (p.pageKey === key) return;
+    p.pageKey = key;
+    p.ready = false;
+    p.lastHash = undefined;
+    const webview = p.panel.webview;
+    const root = vscode.Uri.joinPath(this.extensionUri, "dist", "webview");
     const nonce = randomBytes(16).toString("base64");
     webview.html = doc.state.doc
       ? this.page(webview, root, nonce, `<script nonce="${nonce}" src="${webview.asWebviewUri(vscode.Uri.joinPath(root, "diagram.js"))}"></script>`)
       : this.page(webview, root, nonce, this.errorBody(doc, nonce));
-    // The model must have loaded before references can resolve.
-    void this.model.ready.then(() => this.rerender(doc), () => this.rerender(doc));
   }
 
   private page(webview: vscode.Webview, root: vscode.Uri, nonce: string, body: string): string {
@@ -168,10 +214,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     switch (m.type) {
       case "ready":
         p.ready = true;
+        p.lastHash = undefined;
         this.rerender(doc);
         break;
       case "layoutChanged":
-        this.onLayout(doc, m.nodes);
+        doc.state.mergeLayout(Array.isArray(m.nodes) ? m.nodes : []); // held in memory until the next save
         break;
       case "pngResult":
       case "metricsResult":
@@ -187,20 +234,18 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     }
   }
 
-  private onLayout(doc: SysmlDiagramDocument, nodes: NodeBox[]): void {
-    const cur = doc.state.doc;
-    const next = cur && applyLayout(cur, nodes);
-    if (next) this.edit(doc, next, "Auto-layout");
-  }
-
-  /** Apply `next` as one undoable edit. */
-  private edit(doc: SysmlDiagramDocument, next: FileDoc, label: string): void {
+  /**
+   * Apply `next` as one undoable, dirtying edit (user actions and agent tool calls; layout and
+   * rename follow are not edits). Undo and redo do nothing once the document was reloaded.
+   */
+  edit(doc: SysmlDiagramDocument, next: FileDoc, label: string): void {
     const e = doc.state.apply(next);
-    const redraw = () => {
+    const redraw = (applied: boolean) => {
+      if (!applied) return;
       doc.state.snapshot = undefined; // an undone rename must not be detected again
       this.rerender(doc);
     };
-    this._onDidChange.fire({ document: doc, label, undo: () => { e.undo(); redraw(); }, redo: () => { e.redo(); redraw(); } });
+    this._onDidChange.fire({ document: doc, label, undo: () => redraw(e.undo()), redo: () => redraw(e.redo()) });
   }
 
   // ---- model refresh ---------------------------------------------------------------------
@@ -215,12 +260,30 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     return { sourceOf: makeSourceMapper(folder?.uri.toString()) };
   }
 
-  /** Re-resolve, apply detected renames as one edit, and send the view model to every ready panel. */
+  /** Re-resolve, write detected renames to the file, and send the view model to every ready panel. */
   private rerender(doc: SysmlDiagramDocument): void {
+    for (const p of this.panels.get(doc.uri.toString()) ?? []) this.syncPage(doc, p);
     const r = refresh(doc.state, this.model.index, this.opts(doc));
     if (!r) return;
-    if (r.renamed) this.edit(doc, r.renamed, "Follow rename");
-    for (const p of this.panels.get(doc.uri.toString()) ?? []) if (p.ready) this.post(p, { type: "render", viewModel: r.viewModel });
+    if (r.updates) void this.followRename(doc, r.updates);
+    for (const p of this.panels.get(doc.uri.toString()) ?? []) {
+      if (!p.ready) continue;
+      const h = hashViewModel(r.viewModel);
+      if (h === p.lastHash) continue;
+      p.lastHash = h;
+      this.post(p, { type: "render", viewModel: r.viewModel });
+    }
+  }
+
+  private async followRename(doc: SysmlDiagramDocument, updates: NonNullable<ReturnType<typeof refresh>>["updates"]): Promise<void> {
+    try {
+      const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+      const r = followRename(doc.state, updates ?? [], disk);
+      if (r.kind === "reloaded") this.rerender(doc);
+      else if (r.kind === "write") await vscode.workspace.fs.writeFile(doc.uri, encoder.encode(r.text));
+    } catch (e) {
+      this.log(`diagram rename follow failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   private post(p: Panel, m: HostToWebview): void {
@@ -250,7 +313,18 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       }
     },
     metrics: (uri) => this.request<"metricsResult">(uri, (requestId) => ({ type: "getMetrics", requestId })),
-    png: async (uri) => (await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme: "light" }))).base64,
+    png: async (uri) => {
+      const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme: "light" }));
+      if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
+      return r.base64;
+    },
+    edit: (uri, moves) => {
+      const d = this.docs.get(uri.toString());
+      if (!d?.state.doc) throw new Error("diagram is not open or not parsed");
+      const ids = new Map(moves.map((m) => [m.id, m] as const));
+      const next = { ...d.state.doc, nodes: d.state.doc.nodes.map((n) => (ids.has(n.id) ? { ...n, x: ids.get(n.id)!.x, y: ids.get(n.id)!.y } : n)) };
+      this.edit(d, next, "Move");
+    },
     save: async (uri) => {
       const d = this.docs.get(uri.toString());
       if (!d) throw new Error("diagram is not open");

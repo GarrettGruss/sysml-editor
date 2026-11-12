@@ -25,7 +25,7 @@ export type WebviewToHost =
   | { type: "ready" }
   /** Positions the webview computed for nodes that had none; relative to the parent node. */
   | { type: "layoutChanged"; nodes: NodeBox[]; edges: { id: string; points: { x: number; y: number }[] }[] }
-  | { type: "pngResult"; requestId: number; base64: string }
+  | { type: "pngResult"; requestId: number; base64: string; error?: string }
   | {
       type: "metricsResult";
       requestId: number;
@@ -35,6 +35,8 @@ export type WebviewToHost =
       overlaps: number;
       /** Text elements wider than their box. */
       overflows: number;
+      /** Child nodes whose box is not inside their parent's box. */
+      outsideParent: number;
     }
   | { type: "openAsText" }
   | { type: "error"; message: string };
