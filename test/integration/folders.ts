@@ -227,8 +227,12 @@ export function foldersTests(c: Ctx): Test[] {
         const root = (await kids())[0]!;
         await waitFor(async () => {
           const t = (await kids(root)).find((n) => label(n) === "tmp-tree");
-          return !!t && api.provider.getTreeItem(t).description === undefined;
-        }, 20000, "the new diagrams are found");
+          if (!t || api.provider.getTreeItem(t).description !== undefined) return false;
+          const nest = (await kids(t)).find((n) => label(n) === "Nest");
+          const deep = nest && (await kids(nest)).find((n) => label(n) === "deep");
+          const names = deep ? (await kids(deep)).map(label) : [];
+          return names.includes("d.sysmld") && names.includes("bad.sysmld") && (await kids(t)).length === 3;
+        }, 20000, "the new diagrams are found under Nest/deep");
         const tmp = await find(root, "tmp-tree");
         assert.deepStrictEqual((await kids(tmp)).map(label), ["docs", "empty", "Nest"], "folders only: the .sysml files are not shown");
         for (const empty of ["docs", "empty"]) {
@@ -282,10 +286,13 @@ export function foldersTests(c: Ctx): Test[] {
         if (Array.isArray(e) && e.length > 0 && e.every((n) => api.provider.isHanded(n))) targetedFires++;
       });
       try {
-        await waitFor(() => indexed("a.sysml") && indexed("b.sysml"), 20000, "the files are indexed");
+        await waitFor(() => indexed("a.sysml") && indexed("b.sysml") && indexed("Nest/deep/m.sysml"), 20000, "the files are indexed");
+        await waitFor(() => api.provider.pendingFolderRescans === 0, 30000, "earlier folder re-reads are done");
         const root = (await vkids())[0]!;
+        await waitFor(async () => (await vkids(root)).some((n) => label(n) === "tmp-tree"), 20000, "tmp-tree is listed");
         const tmp = await vfind(root, "tmp-tree");
         await vkids(tmp);
+        await sleep(500); // let late index-change refreshes from the setup land before counting events
         events.length = 0;
         targetedFires = 0;
         const targeted = () => targetedFires > 0;
@@ -451,8 +458,11 @@ export function foldersTests(c: Ctx): Test[] {
         const root = (await kids())[0]!;
         await waitFor(async () => {
           const t = (await kids(root)).find((n) => label(n) === "tmp-tree");
-          return !!t && api.provider.getTreeItem(t).description === undefined;
-        }, 20000, "the new diagram is found");
+          if (!t || api.provider.getTreeItem(t).description !== undefined) return false;
+          const nest = (await kids(t)).find((n) => label(n) === "Nest");
+          const deep = nest && (await kids(nest)).find((n) => label(n) === "deep");
+          return !!deep && (await kids(deep)).some((n) => label(n) === "state-one.sysmld");
+        }, 20000, "the new diagram is found under Nest/deep");
         api.search.post({ type: "query", text: "STATE-ONE" });
         assert.deepStrictEqual((await kids(root)).map(label), ["tmp-tree"]);
         const tmp = await find(root, "tmp-tree");
