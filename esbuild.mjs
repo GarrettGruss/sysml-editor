@@ -18,6 +18,8 @@ if (existsSync(`${release}/sysml.library`)) {
     filter: (src) => !statSync(src).isFile() || /\.(sysml|kerml)$/.test(src),
   });
   cpSync(`${release}/LICENSE`, "dist/sysml.library/LICENSE");
+  // The metadata library of the requirements document view (ours, not part of the standard library), indexed read-only with it.
+  cpSync("src/requirements/DocumentAnnotations.sysml", "dist/sysml.library/DocumentAnnotations.sysml");
 } else {
   console.warn(`${release} is missing (submodule not initialised): standard library not bundled`);
 }
@@ -28,3 +30,10 @@ await build({
   entryPoints: ["src/webview/diagram/main.ts"], outfile: "dist/webview/diagram.js",
 });
 cpSync("src/webview/diagram/diagram.css", "dist/webview/diagram.css");
+
+// The requirements editor webview, under the same strict CSP.
+await build({
+  bundle: true, platform: "browser", format: "iife", target: "es2022", minify: true,
+  entryPoints: ["src/webview/requirements/main.ts"], outfile: "dist/webview/requirements.js",
+});
+cpSync("src/webview/requirements/requirements.css", "dist/webview/requirements.css");

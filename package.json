@@ -17,7 +17,8 @@
   "activationEvents": [
     "workspaceContains:**/*.sysml",
     "workspaceContains:**/*.kerml",
-    "onCustomEditor:sysml.diagram"
+    "onCustomEditor:sysml.diagram",
+    "onWebviewPanel:sysml.requirements"
   ],
   "contributes": {
     "viewsContainers": {
@@ -101,6 +102,16 @@
         "title": "Delete from Model…",
         "category": "SysML",
         "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.openRequirementsEditor",
+        "title": "Open Requirements Editor",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.copyDocumentAnnotations",
+        "title": "Copy Document Annotations Library to Workspace",
+        "category": "SysML"
       }
     ],
     "menus": {
@@ -139,6 +150,11 @@
           "command": "sysml.tree.delete",
           "when": "view == sysmlModel && viewItem == sysmlElement",
           "group": "edit@3"
+        },
+        {
+          "command": "sysml.openRequirementsEditor",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
+          "group": "requirements@1"
         }
       ],
       "commandPalette": [
@@ -177,6 +193,13 @@
         {
           "command": "sysml.diagram.deleteFromModel",
           "when": "sysml.diagramActive"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "sysml.openRequirementsEditor",
+          "when": "resourceExtname == .sysml",
+          "group": "navigation@9"
         }
       ]
     },

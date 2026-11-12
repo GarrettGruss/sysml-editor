@@ -122,7 +122,7 @@ export type Gesture =
   | { kind: "key"; selector: string; key: string };
 
 export type HostToWebview =
-  | { type: "render"; state: RequirementsState; view?: ViewMode; generation: number }
+  | { type: "render"; state: RequirementsState; scope: RequirementsScope; view?: ViewMode; generation: number }
   | { type: "notice"; level: "info" | "error"; message: string }
   | { type: "getMetrics"; requestId: number }
   | { type: "exportPng"; requestId: number }
