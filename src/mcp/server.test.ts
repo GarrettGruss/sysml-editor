@@ -17,7 +17,7 @@ import { startMcpServer, tokenMatches, type RunningMcpServer } from "./server.js
 
 const ROOT = "file:///w/";
 const index = new ModelIndex();
-const M_TEXT = "package P { part def Engine; part def Car { part engine : Engine; part gearbox; } requirement def Req; requirement def Req2; }";
+const M_TEXT = "package P { part def Engine; part def Car { part engine : Engine; part gearbox; } requirement def Req; requirement def Req2; requirement ua; requirement ub; }";
 index.setDocument(ROOT + "m.sysml", M_TEXT);
 index.setDocument(ROOT + "bad.sysml", "package Q { part x : Nope; }");
 index.setDocument(ROOT + "ports.sysml", fixtureText("ports.sysml"));
@@ -57,7 +57,7 @@ const INPUTS: Record<string, unknown> = {
 const MORE: [string, unknown][] = [
   ["sysml_create_relationship", { kind: "satisfy", requirement: "P::Req", by: "P::Car" }],
   ["sysml_create_relationship", { kind: "verify", requirement: "P::Req", newVerificationCase: "check" }],
-  ["sysml_create_relationship", { kind: "derivation", original: "P::Req", derived: ["P::Req2"] }],
+  ["sysml_create_relationship", { kind: "derivation", original: "P::ua", derived: ["P::ub"] }],
 ];
 
 let home: string;
