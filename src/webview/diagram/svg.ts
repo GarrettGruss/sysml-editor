@@ -5,16 +5,23 @@
  */
 import type { VmEdge, VmNode, ViewModel } from "../../diagram/view-model.js";
 import {
-  FONT_FAMILY, FONT_SIZE, SMALL_SIZE, absoluteBoxes, boundsOf, describeBox, diamondPoints, headPoints, routeEdge,
+  FONT_FAMILY, FONT_SIZE, SMALL_SIZE, absoluteBoxes, boundsOf, describeBox, diamondPoints, headPoints,
   type Box, type Measure, type Pt, type TextStyle,
 } from "./geometry.js";
+import { HANDLES, handleBoxes } from "./interaction.js";
+import { edgeRoute, placeLabel } from "./routing.js";
 
-export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge";
+export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel";
 export type Palette = Record<Role, string>;
 
 /** Fixed light theme for exports (agent images, PNG): independent of the editor theme. */
 export const LIGHT_PALETTE: Palette = {
-  bg: "#ffffff", node: "#f6f8fa", line: "#1f2328", text: "#1f2328", subtext: "#57606a", warn: "#bf8700", edge: "#24292f",
+  bg: "#ffffff", node: "#f6f8fa", line: "#1f2328", text: "#1f2328", subtext: "#57606a", warn: "#bf8700", edge: "#24292f", sel: "#0969da",
+};
+
+/** Fixed dark palette, only for the test export of the editor appearance. */
+export const DARK_PALETTE: Palette = {
+  bg: "#1e1e1e", node: "#252526", line: "#cccccc", text: "#cccccc", subtext: "#9d9d9d", warn: "#cca700", edge: "#cccccc", sel: "#3794ff",
 };
 
 export interface SvgOptions {
@@ -26,6 +33,15 @@ export interface SvgResult {
   /** Drawing in canvas coordinates. */
   content: string;
   bounds: Box;
+  /** The polyline drawn for each edge (absolute coordinates) and the box of its label. */
+  routes: Map<string, Pt[]>;
+  labels: Map<string, Box>;
+}
+
+export interface BuildExtras {
+  /** Stored or ELK routes (absolute) tried before computing one. */
+  routes?: ReadonlyMap<string, readonly Pt[]>;
+  selected?: ReadonlySet<string>;
 }
 
 export const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -43,13 +59,19 @@ function text(o: SvgOptions, x: number, y: number, s: string, style: TextStyle, 
   return `<text x="${f(x)}" y="${f(y)}" font-size="${size}"${weight}${slant} text-anchor="${anchor}"${paint(o, role, "none")}>${esc(s)}</text>`;
 }
 
-function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure): string {
+/** Accessible name of a node: its kind and label. */
+export function nodeName(n: VmNode): string {
+  const kind = n.keyword ? n.keyword.replace(/[«»]/g, "") : n.shape === "package" ? "package" : n.shape;
+  return `${kind} ${n.label}`.trim();
+}
+
+function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: boolean): string {
   const c = describeBox(n, measure);
   const warn = n.shape === "unresolved";
   const stroke: Role = warn ? "warn" : "line";
   const dash = warn ? ' stroke-dasharray="5 3"' : "";
   const sw = n.shape === "requirement" ? ' stroke-width="1.5"' : "";
-  let g = `<g data-node="${esc(n.id)}" data-shape="${n.shape}" transform="translate(${f(b.x)} ${f(b.y)})">`;
+  let g = `<g data-node="${esc(n.id)}" data-shape="${n.shape}" role="img" aria-label="${esc(nodeName(n))}"${selected ? ' data-selected="true" aria-current="true"' : ""} transform="translate(${f(b.x)} ${f(b.y)})">`;
   if (n.shape === "port") {
     g += `<rect width="${f(b.w)}" height="${f(b.h)}"${paint(o, "node", "line")}/>`;
     return g + "</g>";
@@ -75,9 +97,9 @@ function drawPortLabel(n: VmNode, b: Box, owner: Box, o: SvgOptions): string {
   return text(o, x, b.y + b.h / 2 + 3, n.label, "small", "text", left ? "start" : "end");
 }
 
-const DASHED = new Set(["typing", "satisfy", "verify"]);
+const DASHED = new Set(["typing", "satisfy", "verify", "derivation"]);
 
-function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, measure: Measure): string {
+function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, measure: Measure, avoid: Box[]): { svg: string; label?: Box } {
   const first = pts[0]!;
   const second = pts[1] ?? first;
   const last = pts[pts.length - 1]!;
@@ -89,20 +111,20 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, measure: Measure): string
   switch (e.style) {
     case "composition": g += poly(diamondPoints(first, second, 16, 5), "edge"); break;
     case "specialization": g += poly(headPoints(last, before, 14, 7), "bg"); break;
-    case "typing": case "satisfy": case "verify": {
+    case "typing": case "satisfy": case "verify": case "derivation": {
       const [t, a, b] = headPoints(last, before, 10, 5);
       g += `<polyline points="${f(a.x)},${f(a.y)} ${f(t.x)},${f(t.y)} ${f(b.x)},${f(b.y)}"${paint(o, "none", roleLine)}/>`;
       break;
     }
     default: break;
   }
+  let label: Box | undefined;
   if (e.label) {
-    const mid = { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
-    const w = measure(e.label, "small") + 6;
-    g += `<rect x="${f(mid.x - w / 2)}" y="${f(mid.y - 8)}" width="${f(w)}" height="13"${paint(o, "bg", "none")}/>`;
-    g += text(o, mid.x, mid.y + 2, e.label, "small", e.resolved ? "subtext" : "warn", "middle");
+    const w = measure(e.label, "small") + 4;
+    label = placeLabel(pts, w, 13, avoid);
+    g += text(o, label.x + w / 2, label.y + 10, e.label, "small", e.resolved ? "subtext" : "warn", "middle");
   }
-  return g + "</g>";
+  return { svg: g + "</g>", ...(label ? { label } : {}) };
 }
 
 function depth(vm: ViewModel): Map<string, number> {
@@ -122,27 +144,64 @@ function depth(vm: ViewModel): Map<string, number> {
 }
 
 /** Draw the whole diagram from boxes relative to their parents. */
-export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: Measure, o: SvgOptions = {}): SvgResult {
+export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: Measure, o: SvgOptions = {}, extras: BuildExtras = {}): SvgResult {
   const abs = absoluteBoxes(vm, rel);
   const d = depth(vm);
   const order = [...vm.nodes].filter((n) => abs.has(n.id)).sort((a, b) => (d.get(a.id)! - d.get(b.id)!));
+  const byId = new Map(vm.nodes.map((n) => [n.id, n] as const));
+  const selected = extras.selected ?? new Set<string>();
   let out = "";
-  for (const n of order) if (n.shape !== "port") out += drawNode(n, abs.get(n.id)!, o, measure);
+  for (const n of order) if (n.shape !== "port") out += drawNode(n, abs.get(n.id)!, o, measure, selected.has(n.id));
+  const routes = new Map<string, Pt[]>();
+  const labels = new Map<string, Box>();
+  const endOf = (id: string) => {
+    const n = byId.get(id);
+    const box = abs.get(id)!;
+    const owner = n?.attachedTo !== undefined ? abs.get(n.attachedTo) : undefined;
+    return { box, ...(owner ? { owner } : {}) };
+  };
   for (const e of vm.edges) {
     const s = abs.get(e.source);
     const t = abs.get(e.target);
     if (!s || !t || e.source === e.target) continue;
-    out += drawEdge(e, routeEdge(s, t, e.points ?? []), o, measure);
+    const related = (id: string) => {
+      // The end itself, what it sits in and what sits in it: a route may cross those.
+      const set = new Set<string>();
+      for (let cur: string | undefined = id, i = 0; cur !== undefined && i < 100; i++) { set.add(cur); const n = byId.get(cur); cur = n ? (n.attachedTo ?? n.parent) : undefined; }
+      for (let grew = true; grew; ) { grew = false; for (const n of vm.nodes) { const up = n.attachedTo ?? n.parent; if (up !== undefined && set.has(up) && !set.has(n.id)) { set.add(n.id); grew = true; } } }
+      return set;
+    };
+    const skip = new Set([...related(e.source), ...related(e.target)]);
+    const obstacles = vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!);
+    const pts = edgeRoute(endOf(e.source), endOf(e.target), extras.routes?.get(e.id) ?? e.points, obstacles);
+    routes.set(e.id, pts);
+    const r = drawEdge(e, pts, o, measure, [s, t]);
+    out += r.svg;
+    if (r.label) labels.set(e.id, r.label);
   }
-  const byId = new Map(vm.nodes.map((n) => [n.id, n] as const));
   for (const n of order) {
     if (n.shape !== "port") continue;
     const b = abs.get(n.id)!;
-    out += drawNode(n, b, o, measure);
+    out += drawNode(n, b, o, measure, selected.has(n.id));
     const owner = n.attachedTo !== undefined && byId.has(n.attachedTo) ? abs.get(n.attachedTo) : undefined;
     if (owner) out += drawPortLabel(n, b, owner, o);
   }
-  return { content: out, bounds: boundsOf(abs.values(), 0) };
+  return { content: out, bounds: boundsOf(abs.values(), 0), routes, labels };
+}
+
+/** Selection outlines and resize handles (single selected non-port node), and the rubber band. */
+export function overlaySvg(selected: readonly Box[], handlesFor: Box | undefined, band: Box | undefined, o: SvgOptions, zoom = 1): string {
+  const stroke = o.palette ? ` stroke="${o.palette.sel}"` : ' class="sel-line"';
+  const fill = o.palette ? ` fill="${o.palette.sel}"` : ' class="sel-fill"';
+  const sw = f(2 / zoom);
+  let g = "";
+  for (const b of selected) g += `<rect x="${f(b.x - 2)}" y="${f(b.y - 2)}" width="${f(b.w + 4)}" height="${f(b.h + 4)}" fill="none" stroke-width="${sw}" stroke-dasharray="4 2"${stroke}/>`;
+  if (handlesFor) {
+    const hb = handleBoxes(handlesFor, 8 / zoom);
+    for (const h of HANDLES) g += `<rect data-handle="${h}" x="${f(hb[h].x)}" y="${f(hb[h].y)}" width="${f(hb[h].w)}" height="${f(hb[h].h)}"${fill}${o.palette ? ` stroke="${o.palette.bg}"` : ' stroke="none"'}/>`;
+  }
+  if (band) g += `<rect x="${f(band.x)}" y="${f(band.y)}" width="${f(band.w)}" height="${f(band.h)}" fill-opacity="0.12" stroke-width="${sw}"${o.palette ? ` fill="${o.palette.sel}" stroke="${o.palette.sel}"` : ' class="band"'}/>`;
+  return g;
 }
 
 /** A standalone SVG document (export mode adds a background rect and a margin). */
