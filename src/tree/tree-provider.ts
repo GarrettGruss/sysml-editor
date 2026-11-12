@@ -2,8 +2,9 @@
 import * as vscode from "vscode";
 import { uriKey } from "../workspace/uri-key.js";
 import type { ModelIndex } from "../model/index.js";
+import { ELEMENT_MIME } from "../diagram/protocol.js";
 import {
-  affectedNodes, childNodes, firstErrorPosition, firstErrorText, isErrorNode, nodeAtOffset, nodeInfo, parentNode, resolveNode, rootNodes,
+  affectedNodes, childNodes, elementNames, firstErrorPosition, firstErrorText, isErrorNode, nodeAtOffset, nodeInfo, parentNode, resolveNode, rootNodes,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -91,6 +92,24 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   dispose(): void {
     this.sub.dispose();
     this.emitter.dispose();
+  }
+}
+
+/**
+ * Dragging elements out of the tree. The elements travel as a JSON array of qualified names under
+ * a custom MIME type (and as plain text for other drop targets); a diagram's drop handler adds them.
+ */
+export class ModelTreeDragAndDrop implements vscode.TreeDragAndDropController<ModelNode> {
+  readonly dragMimeTypes = [ELEMENT_MIME, "text/plain"];
+  readonly dropMimeTypes: string[] = [];
+
+  constructor(private readonly index: ModelIndex) {}
+
+  handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void {
+    const names = elementNames(this.index, source);
+    if (!names.length) return;
+    data.set(ELEMENT_MIME, new vscode.DataTransferItem(JSON.stringify(names)));
+    data.set("text/plain", new vscode.DataTransferItem(names.join("\n")));
   }
 }
 

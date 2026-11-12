@@ -54,6 +54,32 @@
         "command": "sysml.newFile",
         "title": "New SysML File",
         "category": "SysML"
+      },
+      {
+        "command": "sysml.newDiagram",
+        "title": "New Diagram…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.showInDiagram",
+        "title": "Show in Diagram",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.addToActiveDiagram",
+        "title": "Add to Active Diagram",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.autoLayout",
+        "title": "Auto-layout Diagram",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.diagram.showElement",
+        "title": "Show Element on Diagram…",
+        "category": "SysML"
       }
     ],
     "menus": {
@@ -62,12 +88,43 @@
           "command": "sysml.goToDefinition",
           "when": "view == sysmlModel && viewItem == sysmlElement",
           "group": "navigation"
+        },
+        {
+          "command": "sysml.newDiagram",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "diagram@1"
+        },
+        {
+          "command": "sysml.showInDiagram",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "diagram@2"
+        },
+        {
+          "command": "sysml.addToActiveDiagram",
+          "when": "view == sysmlModel && viewItem == sysmlElement && sysml.diagramActive",
+          "group": "diagram@3"
         }
       ],
       "commandPalette": [
         {
           "command": "sysml.goToDefinition",
           "when": "false"
+        },
+        {
+          "command": "sysml.showInDiagram",
+          "when": "false"
+        },
+        {
+          "command": "sysml.addToActiveDiagram",
+          "when": "false"
+        },
+        {
+          "command": "sysml.diagram.autoLayout",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.showElement",
+          "when": "sysml.diagramActive"
         }
       ]
     },
