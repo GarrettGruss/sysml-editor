@@ -39,7 +39,15 @@ const renderer = new SvgRenderer(document.body, measure, {
   onSelection: (ids) => post({ type: "selection", ids }),
   onRelink: (id) => post({ type: "relink", id }),
   onDrop: (names) => post({ type: "dropElements", names }),
+  onModel: (intent) => post({ type: "model", intent, ...(generation !== undefined ? { generation } : {}) }),
+  suggest: (id, query) => new Promise((resolve) => {
+    const requestId = ++suggestId;
+    suggestions.set(requestId, resolve);
+    post({ type: "typeSuggestions", requestId, id, query });
+  }),
 });
+let suggestId = 0;
+const suggestions = new Map<number, (items: { name: string; qualifiedName: string; library: boolean }[]) => void>();
 let first = true;
 let queue: Promise<void> = Promise.resolve();
 let current: ViewModel | undefined;
@@ -169,6 +177,13 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "select":
       queue = queue.then(() => renderer.select(m.ids)).catch(fail);
+      break;
+    case "typeSuggestionsResult":
+      suggestions.get(m.requestId)?.(m.items);
+      suggestions.delete(m.requestId);
+      break;
+    case "notice":
+      renderer.tools.notice(m.message);
       break;
     case "testGesture":
       queue = queue

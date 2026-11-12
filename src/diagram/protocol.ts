@@ -43,6 +43,25 @@ export type DiagramEdit =
   | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
   | { kind: "remove"; ids: string[] };
 
+/** What the properties panel edits; `null` removes a value. */
+export interface PropertyChanges {
+  name?: string;
+  shortName?: string | null;
+  type?: string | null;
+  multiplicity?: string | null;
+  documentation?: string | null;
+}
+
+/** Model edits requested from the webview. The host asks for names, runs the operation and answers with a new render. */
+export type ModelIntent =
+  /** Create an element of `kind` in the element of node `ownerId` (the diagram's root when absent), placed at (x, y) relative to that node. */
+  | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number }
+  | { kind: "connect"; sourceId: string; targetId: string }
+  | { kind: "deleteFromModel"; ids: string[] }
+  | { kind: "rename"; id: string; name: string }
+  | { kind: "setProperties"; id: string; changes: PropertyChanges }
+  | { kind: "goToDefinition"; id: string };
+
 export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
 
 /** Test-only gestures, replayed as DOM events so they take the code paths real input takes. */
@@ -52,10 +71,18 @@ export type TestGesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
   /** Open the context menu on a node, as a right click does. */
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[] }
+  /** Choose a palette item, then click a node (or the canvas, with `id` absent) at a point relative to that node. */
+  | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
+  /** Connection tool: click the source, then the target. */
+  | { kind: "connect"; source: string; target: string }
+  /** Double-click a node label: opens the inline editor; `text` types into it and Enter commits (or Escape cancels). */
+  | { kind: "inlineRename"; id: string; text: string; commit: boolean }
+  /** Edit a field of the properties panel as the user would: sets the value and fires `change`. */
+  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation"; value: string }
   | { kind: "flush" };
 
 export type HostToWebview =
@@ -65,7 +92,10 @@ export type HostToWebview =
   | { type: "getMetrics"; requestId: number }
   | { type: "command"; name: DiagramCommand }
   | { type: "select"; ids: string[] }
-  | { type: "testGesture"; requestId: number; gesture: TestGesture };
+  | { type: "testGesture"; requestId: number; gesture: TestGesture }
+  | { type: "typeSuggestionsResult"; requestId: number; items: { name: string; qualifiedName: string; library: boolean }[] }
+  /** A model edit was refused or failed; shown in the properties panel as well as in a notification. */
+  | { type: "notice"; message: string };
 
 /** Edges, in the metrics: absolute canvas coordinates. */
 export interface MetricsEdge {
@@ -113,6 +143,14 @@ export interface DiagramMetrics {
   handles: number;
   /** Nodes drawn as inherited features. */
   inheritedNodes: number;
+  /** Labels of the palette items, the active tool, and what the properties panel shows. */
+  palette: string[];
+  tool?: string;
+  properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
+  /** An inline name editor is open. */
+  inlineEditor: boolean;
+  /** `light`, `dark` or `hc`, from the editor theme. */
+  theme: string;
   focusable: boolean;
   /** Zoom factor. */
   zoom: number;
@@ -126,6 +164,9 @@ export type WebviewToHost =
   | { type: "edit"; edit: DiagramEdit; generation?: number }
   | { type: "selection"; ids: string[] }
   | { type: "relink"; id: string }
+  | { type: "model"; intent: ModelIntent; generation?: number }
+  /** Completion for the type field of the properties panel. */
+  | { type: "typeSuggestions"; requestId: number; id: string; query: string }
   | { type: "showElement" }
   /** Qualified names dropped from the tree onto the diagram. */
   | { type: "dropElements"; names: string[] }

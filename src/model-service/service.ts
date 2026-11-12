@@ -220,6 +220,16 @@ export class ModelService {
 
   // ---- inherited rule ------------------------------------------------------------------------
 
+  /** Resolves once the index reflects the open editors. */
+  ready(): Promise<void> {
+    return this.host.sync();
+  }
+
+  /** The refusal for an edit of a feature that `t.context` only inherits, or undefined. */
+  refuseIfInherited(t: Target, what: string): OpFailure | undefined {
+    return this.inheritedRefusal(t, what);
+  }
+
   /** Refuse an edit of a feature that `target.context` only inherits. */
   private inheritedRefusal(t: Target, what: string): OpFailure | undefined {
     if (!t.context) return undefined;

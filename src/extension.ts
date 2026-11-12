@@ -6,6 +6,10 @@ import { VsCodeDiagramService } from "./diagram/agent-service.js";
 import { AgentIntegration } from "./agent-integration.js";
 import { DiagramEditorProvider, VIEW_TYPE as DIAGRAM_VIEW_TYPE, type DiagramTestApi } from "./diagram/diagram-editor.js";
 import { WorkspaceModel } from "./workspace/workspace-model.js";
+import { ModelService } from "./model-service/service.js";
+import { VsCodeModelHost } from "./model-service/vscode-host.js";
+import { ModelActions } from "./model-service/interactive.js";
+import { registerModelCommands } from "./model-service/commands.js";
 
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
@@ -15,6 +19,8 @@ export interface TestApi {
   agent: AgentIntegration;
   diagram: DiagramTestApi;
   dnd: ModelTreeDragAndDrop;
+  /** The model-changing operations shared by the tree, the diagrams and the agent tools. */
+  edit: ModelService;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -26,6 +32,11 @@ export function activate(context: vscode.ExtensionContext): TestApi {
 
   const diagrams = new DiagramEditorProvider(context.extensionUri, model, (m) => log.warn(m));
   const files = new DiagramFiles();
+  const modelHost = new VsCodeModelHost(model, diagrams, files, (m) => log.warn(m));
+  const edit = new ModelService(modelHost);
+  modelHost.service = edit;
+  const actions = new ModelActions(edit, model.index, () => diagrams.ui);
+  diagrams.modelActions = actions;
   const folders = () => (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
   const agent = new AgentIntegration(model, (m) => log.info(m), String(context.extension.packageJSON.version ?? "0.0.1"), new VsCodeDiagramService(diagrams, files, folders));
   void agent.apply();
@@ -64,6 +75,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     diagrams,
     files,
     ...registerDiagramCommands({ model, diagrams, files }),
+    ...registerModelCommands({ model, actions, diagrams, selection: () => view.selection }),
     vscode.window.registerCustomEditorProvider(DIAGRAM_VIEW_TYPE, diagrams, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: true,
@@ -71,7 +83,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
   );
-  return { model, provider, view, agent, diagram: diagrams.testApi, dnd };
+  return { model, provider, view, agent, diagram: diagrams.testApi, dnd, edit };
 }
 
 export function deactivate(): void {}

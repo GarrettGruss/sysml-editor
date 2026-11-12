@@ -2,7 +2,7 @@
  * What the diagram webview draws (design D7): a plain-JSON view model computed from a diagram
  * document, its resolution and the model. No `vscode` import and no DOM.
  */
-import { inheritedFrom, inheritedMembers, type Element, type ModelIndex } from "../model/index.js";
+import { inheritedFrom, inheritedMembers, isLibraryUri, type Element, type ModelIndex } from "../model/index.js";
 import type { DiagramDocument, DiagramKind, ElementReference, Point } from "./format.js";
 import type { Resolution } from "./resolve.js";
 import { endElement, relationOf } from "./relations.js";
@@ -37,6 +37,22 @@ export interface VmNode {
   unresolvedRef?: string;
   /** The feature is shown inside a usage that inherits it; `from` is the qualified name of the declaring element. Read-only from that usage. */
   inherited?: { from: string };
+  /** What the properties panel shows for a resolved node. `locked` explains why it cannot be edited. */
+  props?: NodeProps;
+}
+
+export interface NodeProps {
+  kind: string;
+  qualifiedName?: string;
+  name?: string;
+  shortName?: string;
+  type?: string;
+  multiplicity?: string;
+  documentation?: string;
+  /** The feature is inherited, the element is library content, or the element is a definition-less statement with no name. */
+  locked?: "inherited" | "library";
+  /** Whether the element can have a type and a multiplicity (usages). */
+  isUsage: boolean;
 }
 
 export interface VmEdge {
@@ -154,6 +170,17 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     const containerEl = portOwner !== undefined ? resolution.get(portOwner) : n.parent !== undefined ? resolution.get(n.parent) : undefined;
     const from = containerEl ? inheritedFrom(index, el, containerEl) : undefined;
     if (from) out.inherited = { from: from.qualifiedName ?? from.name ?? "" };
+    out.props = {
+      kind: el.kind,
+      isUsage: el.isUsage,
+      ...(el.qualifiedName !== undefined ? { qualifiedName: el.qualifiedName } : {}),
+      ...(el.name !== undefined ? { name: el.name } : {}),
+      ...(el.shortName !== undefined ? { shortName: el.shortName } : {}),
+      ...(el.types.length ? { type: el.types.join(", ") } : {}),
+      ...(el.multiplicity !== undefined ? { multiplicity: el.multiplicity } : {}),
+      ...(el.documentation !== undefined ? { documentation: el.documentation } : {}),
+      ...(isLibraryUri(el.uri) ? { locked: "library" as const } : from ? { locked: "inherited" as const } : {}),
+    };
     if (shape === "port") {
       if (portOwner !== undefined) out.attachedTo = portOwner;
     } else if (n.parent !== undefined) out.parent = n.parent;

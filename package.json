@@ -80,6 +80,27 @@
         "command": "sysml.diagram.showElement",
         "title": "Show Element on Diagram…",
         "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.addChild",
+        "title": "Add Child…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.rename",
+        "title": "Rename…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.delete",
+        "title": "Delete…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.diagram.deleteFromModel",
+        "title": "Delete from Model…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
       }
     ],
     "menus": {
@@ -103,6 +124,21 @@
           "command": "sysml.addToActiveDiagram",
           "when": "view == sysmlModel && viewItem == sysmlElement && sysml.diagramActive",
           "group": "diagram@3"
+        },
+        {
+          "command": "sysml.tree.addChild",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "edit@1"
+        },
+        {
+          "command": "sysml.tree.rename",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "edit@2"
+        },
+        {
+          "command": "sysml.tree.delete",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "edit@3"
         }
       ],
       "commandPalette": [
@@ -124,6 +160,22 @@
         },
         {
           "command": "sysml.diagram.showElement",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.tree.addChild",
+          "when": "false"
+        },
+        {
+          "command": "sysml.tree.rename",
+          "when": "false"
+        },
+        {
+          "command": "sysml.tree.delete",
+          "when": "false"
+        },
+        {
+          "command": "sysml.diagram.deleteFromModel",
           "when": "sysml.diagramActive"
         }
       ]
@@ -468,6 +520,13 @@
           }
         ],
         "priority": "default"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sysml.tree.rename",
+        "key": "f2",
+        "when": "focusedView == sysmlModel"
       }
     ]
   },
