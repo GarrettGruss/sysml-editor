@@ -75,6 +75,21 @@ saved for any reason. Only a user action (move, resize, Auto-layout, remove) or 
 makes an undoable, dirtying edit. Stored positions never move; a stored position outside its
 container is drawn at the container's inner edge.
 
+Edge `points` hold the whole route as an orthogonal polyline in canvas coordinates, ends included
+(each segment horizontal or vertical, the first point on the source's border and the last on the
+target's). The editor keeps a stored route only while it still joins the borders of the two end
+nodes without crossing them; when an end moves, resizes or its node is edited, the route is dropped
+from the file and the editor computes one (routes of edges the model derives, such as composition
+and typing, are never stored). A route from automatic layout is stored together with the positions.
+User edits and what they write: Move and Nudge write `x`, `y` of the moved nodes (relative to the
+parent; a port to its owner); Resize writes `x`, `y`, `w`, `h` and shifts the nested nodes' and ports'
+positions so they stay where they are; Auto-layout writes `x`, `y`, `w`, `h` for every node and the
+routes it computed; Remove from Diagram deletes the node, its child nodes (by `parent`, and ports
+attached to them) and every edge attached to any of them; Re-link replaces only the reference;
+adding an element appends a node (inside its owner's node in an Interconnection View when that is
+shown) and the relationship edges whose ends are on the diagram, and records the element's source file in `sources`.
+A stored size is a minimum: the node is never drawn smaller than its content.
+
 Reference updates from rename detection are model-forced: they are written to the `.sysmld` file at
 once, on top of the file's last saved state (pending in-memory layout is not written), and applied
 in memory without dirtying or an undo entry.

@@ -4,7 +4,7 @@
  * fit their children; ports are put on the owner's border. No DOM: ELK and text measuring are injected.
  */
 import type { VmNode, ViewModel } from "../../diagram/view-model.js";
-import { PAD, PORT_SIZE, absoluteBoxes, describeBox, type Box, type Measure } from "./geometry.js";
+import { PAD, PORT_SIZE, absoluteBoxes, describeBox, type Box, type Measure, type Pt } from "./geometry.js";
 
 /** The part of ELK's API used here (the `elkjs` default export satisfies it). */
 export interface ElkLike {
@@ -14,7 +14,12 @@ export interface ElkGraph {
   id: string;
   layoutOptions?: Record<string, string>;
   children?: { id: string; width: number; height: number; x?: number; y?: number }[];
-  edges?: { id: string; sources: string[]; targets: string[] }[];
+  edges?: {
+    id: string;
+    sources: string[];
+    targets: string[];
+    sections?: { startPoint: { x: number; y: number }; endPoint: { x: number; y: number }; bendPoints?: { x: number; y: number }[] }[];
+  }[];
 }
 
 export interface LayoutResult {
@@ -22,6 +27,10 @@ export interface LayoutResult {
   boxes: Map<string, Box>;
   /** Nodes whose position was computed now (they had none stored). */
   placed: Set<string>;
+  /** The smallest size each node may be given: its content, its nested nodes and its ports (stored sizes do not count). */
+  mins: Map<string, { w: number; h: number }>;
+  /** Routes ELK computed for edges, in absolute canvas coordinates (only for nodes placed in this run). */
+  routes: Map<string, Pt[]>;
 }
 
 const GAP = 40;
@@ -44,6 +53,8 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
   }
   const boxes = new Map<string, Box>();
   const placed = new Set<string>();
+  const mins = new Map<string, { w: number; h: number }>();
+  const pending: { pid: string | undefined; id: string; pts: Pt[] }[] = [];
   const content = new Map<string, ReturnType<typeof describeBox>>();
   const contentOf = (n: VmNode) => {
     let c = content.get(n.id);
@@ -70,11 +81,11 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     return undefined;
   };
 
-  const sizeOf = (n: VmNode, needW: number, needH: number): { w: number; h: number } => {
+  const sizeOf = (n: VmNode, needW: number, needH: number, stored = true): { w: number; h: number } => {
     const c = contentOf(n);
     const pn = portNeeds(n);
-    const w = Math.max(c.w, needW, pn.w, n.geometry?.w ?? 0);
-    const h = Math.max(c.h, needH, c.headerH + pn.rows * 22 + 8, n.geometry?.h ?? 0);
+    const w = Math.max(c.w, needW, pn.w, stored ? (n.geometry?.w ?? 0) : 0);
+    const h = Math.max(c.h, needH, c.headerH + pn.rows * 22 + 8, stored ? (n.geometry?.h ?? 0) : 0);
     return { w: Math.ceil(w), h: Math.ceil(h) };
   };
 
@@ -88,6 +99,7 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     for (const k of kids) {
       const inner = children.has(k.id) ? await level(k.id) : { w: 0, h: 0 };
       sizes.set(k.id, sizeOf(k, inner.w, inner.h));
+      mins.set(k.id, sizeOf(k, inner.w, inner.h, false));
     }
     const fixed = kids.filter(hasPos);
     const loose = kids.filter((k) => !hasPos(k));
@@ -99,12 +111,13 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
       boxes.set(k.id, { x: pid === undefined ? x : Math.max(x, PAD), y: pid === undefined ? y : Math.max(y, originY), ...s });
     }
     if (loose.length) {
-      const pos = await place(pid, loose, sizes);
+      const { pos, routes } = await place(pid, loose, sizes);
       let x0 = originX, y0 = originY;
       if (fixed.length) {
         x0 = Math.max(...fixed.map((k) => boxes.get(k.id)!.x + boxes.get(k.id)!.w)) + GAP;
         y0 = Math.min(...fixed.map((k) => boxes.get(k.id)!.y));
       }
+      for (const r of routes) pending.push({ pid, id: r.id, pts: r.pts.map((q) => ({ x: Math.round(x0 + q.x), y: Math.round(y0 + q.y) })) });
       for (const k of loose) {
         const p = pos.get(k.id)!;
         boxes.set(k.id, { x: Math.round(x0 + p.x), y: Math.round(y0 + p.y), ...sizes.get(k.id)! });
@@ -121,7 +134,7 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     return kids.length ? { w: w + side, h: h + PAD } : { w: 0, h: 0 };
   };
 
-  const place = async (pid: string | undefined, loose: VmNode[], sizes: Map<string, { w: number; h: number }>): Promise<Map<string, { x: number; y: number }>> => {
+  const place = async (pid: string | undefined, loose: VmNode[], sizes: Map<string, { w: number; h: number }>): Promise<{ pos: Map<string, { x: number; y: number }>; routes: { id: string; pts: Pt[] }[] }> => {
     const ids = new Set(loose.map((k) => k.id));
     const seen = new Set<string>();
     const edges: NonNullable<ElkGraph["edges"]> = [];
@@ -137,21 +150,27 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const graph: ElkGraph = {
       id: "root",
       layoutOptions: edges.length
-        ? { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
+        ? { "elk.algorithm": "layered", "elk.direction": "RIGHT", "elk.edgeRouting": "ORTHOGONAL", "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
         : { "elk.algorithm": "rectpacking", "elk.spacing.nodeNode": "40", "elk.aspectRatio": "1.6", "elk.padding": "[top=0,left=0,bottom=0,right=0]" },
       children: loose.map((k) => ({ id: k.id, width: sizes.get(k.id)!.w, height: sizes.get(k.id)!.h })),
       edges,
     };
     const out = new Map<string, { x: number; y: number }>();
+    const routes: { id: string; pts: Pt[] }[] = [];
     try {
       const res = await elk.layout(graph);
       for (const c of res.children ?? []) out.set(c.id, { x: c.x ?? 0, y: c.y ?? 0 });
+      for (const e of res.edges ?? []) {
+        const sec = e.sections?.[0];
+        if (sec) routes.push({ id: e.id, pts: [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint] });
+      }
     } catch {
       /* fall through to the grid */
     }
     if (out.size !== loose.length) {
       // Fallback: a simple grid, so a layout failure never leaves nodes stacked on each other.
       out.clear();
+      routes.length = 0;
       let x = 0, y = 0, rowH = 0;
       const cols = Math.ceil(Math.sqrt(loose.length));
       loose.forEach((k, i) => {
@@ -162,13 +181,15 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
         rowH = Math.max(rowH, s.h);
       });
     }
-    return out;
+    return { pos: out, routes };
   };
 
   await level(undefined);
   // Top-level nodes start at a margin.
   const tops = children.get(undefined) ?? [];
+  let topShift = 0;
   if (tops.length && tops.every((n) => placed.has(n.id))) {
+    topShift = 20;
     for (const n of tops) {
       const b = boxes.get(n.id)!;
       boxes.set(n.id, { ...b, x: b.x + 20, y: b.y + 20 });
@@ -197,7 +218,13 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     }
     for (const p of list) {
       if (!hasPos(p)) continue;
-      boxes.set(p.id, { x: p.geometry?.x ?? 0, y: p.geometry?.y ?? 0, w: p.geometry?.w ?? PORT_SIZE, h: p.geometry?.h ?? PORT_SIZE });
+      // A stored port always lies on the owner's left or right border, whatever happened to the owner's size.
+      const w = p.geometry?.w ?? PORT_SIZE;
+      const h = p.geometry?.h ?? PORT_SIZE;
+      const cx = (p.geometry?.x ?? 0) + w / 2;
+      const x = cx < ob.w / 2 ? -w / 2 : ob.w - w / 2;
+      const y = Math.min(Math.max(p.geometry?.y ?? 0, top), Math.max(top, ob.h - h));
+      boxes.set(p.id, { x, y, w, h });
     }
     sides.forEach((ps, side) => {
       const span = Math.max(ob.h - top, 1);
@@ -210,5 +237,13 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
       });
     });
   }
-  return { boxes, placed };
+  const routes = new Map<string, Pt[]>();
+  const finalAbs = absoluteBoxes(vm, boxes);
+  for (const r of pending) {
+    const o = r.pid === undefined ? { x: 0, y: 0 } : finalAbs.get(r.pid);
+    if (!o) continue;
+    const shift = r.pid === undefined ? topShift : 0;
+    routes.set(r.id, r.pts.map((q) => ({ x: q.x + o.x + shift, y: q.y + o.y + shift })));
+  }
+  return { boxes, placed, mins, routes };
 }

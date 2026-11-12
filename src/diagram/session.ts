@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import type { ModelIndex } from "../model/index.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument, type DiagramProblem } from "./format.js";
-import type { NodeBox } from "./protocol.js";
+import type { EdgePoints, NodeBox } from "./protocol.js";
 import { applyUpdates, reconcile, type ReferenceUpdate, type Snapshot } from "./reconcile.js";
 import type { ResolveOptions } from "./resolve.js";
 import { buildViewModel, type ViewModel } from "./view-model.js";
@@ -32,6 +32,10 @@ export class DiagramState {
   private savedVersion = 0;
   /** Rename follow-ups applied since the last load; re-applied after undo/redo restores an older document. */
   follows: ReferenceUpdate[][] = [];
+  /** Kind of the element each item resolved to the last time it did; lets "Re-link…" offer elements of the same kind after the element is gone. */
+  kinds = new Map<string, string>();
+  /** The view model last computed, to expand removals and to know what is drawn. */
+  viewModel?: ViewModel;
 
   constructor(text: string) {
     this.load(text);
@@ -106,8 +110,8 @@ export class DiagramState {
   }
 
   /** Merge computed positions into the in-memory document: not dirty, no undo entry. */
-  mergeLayout(boxes: readonly NodeBox[]): boolean {
-    const next = this.doc && applyLayout(this.doc, boxes);
+  mergeLayout(boxes: readonly NodeBox[], edges: readonly EdgePoints[] = []): boolean {
+    const next = this.doc && applyLayout(this.doc, boxes, edges);
     if (!next) return false;
     this.doc = next;
     return true;
@@ -188,11 +192,12 @@ export function refresh(state: DiagramState, index: ModelIndex, opts: ResolveOpt
   if (!doc) return undefined;
   const r = reconcile(doc, index, state.snapshot, opts);
   state.snapshot = r.snapshot;
+  for (const [id, el] of r.resolution) if (el) state.kinds.set(id, el.kind);
   if (r.updates.length) {
     const renamed = applyUpdates(doc, r.updates);
-    return { viewModel: buildViewModel(renamed, r.resolution, index), renamed, updates: [...r.updates] };
+    return { viewModel: (state.viewModel = buildViewModel(renamed, r.resolution, index)), renamed, updates: [...r.updates] };
   }
-  return { viewModel: buildViewModel(doc, r.resolution, index) };
+  return { viewModel: (state.viewModel = buildViewModel(doc, r.resolution, index)) };
 }
 
 const MAX_COORD = 1_000_000;
@@ -205,7 +210,7 @@ export function validBox(b: NodeBox): boolean {
 }
 
 /** Merge positions computed by the webview into nodes that have none; stored positions never change. */
-export function applyLayout(doc: DiagramDocument, boxes: readonly NodeBox[]): DiagramDocument | undefined {
+export function applyLayout(doc: DiagramDocument, boxes: readonly NodeBox[], routes: readonly EdgePoints[] = []): DiagramDocument | undefined {
   const byId = new Map(boxes.filter(validBox).map((b) => [b.id, b] as const));
   let changed = false;
   const nodes = doc.nodes.map((n) => {
@@ -214,5 +219,12 @@ export function applyLayout(doc: DiagramDocument, boxes: readonly NodeBox[]): Di
     changed = true;
     return { ...n, x: b.x, y: b.y, w: b.w, h: b.h };
   });
-  return changed ? { ...doc, nodes } : undefined;
+  const pts = new Map(routes.filter((r) => Array.isArray(r?.points) && r.points.length >= 2 && r.points.every((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y) && Math.abs(p.x) <= MAX_COORD && Math.abs(p.y) <= MAX_COORD)).map((r) => [r.id, r.points] as const));
+  const edges = doc.edges.map((e) => {
+    const p = pts.get(e.id);
+    if (!p || e.points !== undefined) return e;
+    changed = true;
+    return { ...e, points: p.map((q) => ({ x: q.x, y: q.y })) };
+  });
+  return changed ? { ...doc, nodes, edges } : undefined;
 }

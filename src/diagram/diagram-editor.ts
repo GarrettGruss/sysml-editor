@@ -4,21 +4,41 @@
  */
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
+import type { Element } from "../model/index.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
-import type { HostToWebview, WebviewToHost } from "./protocol.js";
-import { makeSourceMapper } from "./resolve.js";
+import { addElements } from "./create.js";
+import { applyAutoLayout, applyBoxPatches, removeItems } from "./edits.js";
+import { listElements, relinkCandidates } from "./new-diagram.js";
+import type { DiagramCommand, DiagramEdit, HostToWebview, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
+import { relink } from "./reconcile.js";
+import { makeSourceMapper, referenceKey, resolveReference } from "./resolve.js";
 import { DiagramState, decideSave, followRename, hashViewModel, noteExternalChange, refresh } from "./session.js";
 import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, DiagramProblem } from "./format.js";
 
 export const VIEW_TYPE = "sysml.diagram";
-const REFRESH_DEBOUNCE_MS = 150;
+const REFRESH_DEBOUNCE_MS = 50;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 
+/** The questions the editor asks the user; replaced in tests, which cannot click a quick pick. */
+export interface DiagramUi {
+  pick<T extends vscode.QuickPickItem>(items: readonly T[], options: vscode.QuickPickOptions): Promise<T | undefined>;
+  input(options: vscode.InputBoxOptions): Promise<string | undefined>;
+}
+
+export const defaultUi: DiagramUi = {
+  pick: (items, options) => Promise.resolve(vscode.window.showQuickPick(items, options)),
+  input: (options) => Promise.resolve(vscode.window.showInputBox(options)),
+};
+
 export class SysmlDiagramDocument implements vscode.CustomDocument {
   readonly changed = new vscode.EventEmitter<void>();
+  /** Ids selected in the editor, as last reported by the webview. */
+  selection: string[] = [];
+  /** Ids to select once the next render has reached the webview. */
+  pendingSelect?: string[];
   private readonly disposables: vscode.Disposable[] = [];
   constructor(readonly uri: vscode.Uri, readonly state: DiagramState) {}
   onDispose(...d: vscode.Disposable[]): void {
@@ -49,6 +69,14 @@ export interface DiagramTestApi {
   metrics(uri: vscode.Uri): Promise<Extract<WebviewToHost, { type: "metricsResult" }>>;
   /** Base64 PNG of the diagram. */
   png(uri: vscode.Uri): Promise<string>;
+  /** Base64 PNG of the editor appearance (selection and handles included) in a fixed dark palette. */
+  pngEditor(uri: vscode.Uri): Promise<string>;
+  /** Replays a gesture in the webview as DOM events; resolves when it has been handled. */
+  gesture(uri: vscode.Uri, g: TestGesture): Promise<void>;
+  /** Replaces the questions the editor asks the user. */
+  setUi(ui: Partial<DiagramUi> | undefined): void;
+  /** The diagram editor that is active now. */
+  activeUri(): string | undefined;
   /** Writes the in-memory document in canonical form, as Save would. */
   save(uri: vscode.Uri): Promise<void>;
   /** Applies a move of nodes as one user edit (undoable, dirties the document). */
@@ -69,9 +97,28 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   private readonly errorLog: string[] = [];
   private requestId = 0;
   private timer?: ReturnType<typeof setTimeout>;
+  ui: DiagramUi = defaultUi;
+  /** Called when a node is selected in a diagram and the tree should follow (set by the extension). */
+  revealInTree?: (element: Element) => void;
 
   constructor(private readonly extensionUri: vscode.Uri, private readonly model: WorkspaceModel, private readonly log: (m: string) => void = () => {}) {
     this.subs.push(this.model.index.onDidChange(() => this.scheduleRefresh()), this._onDidChange);
+    const sync = () => void vscode.commands.executeCommand("setContext", "sysml.diagramActive", this.activeDocument() !== undefined);
+    this.subs.push(vscode.window.tabGroups.onDidChangeTabs(sync), vscode.window.tabGroups.onDidChangeTabGroups(sync));
+    sync();
+  }
+
+  /** The in-memory content of the diagrams that are open, for finding which diagrams show an element. */
+  openDocuments(): Map<string, FileDoc> {
+    const out = new Map<string, FileDoc>();
+    for (const [uri, d] of this.docs) if (d.state.doc) out.set(uri, d.state.doc);
+    return out;
+  }
+
+  /** The diagram document shown in the active editor group, if any. */
+  activeDocument(): SysmlDiagramDocument | undefined {
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    return input instanceof vscode.TabInputCustom && input.viewType === VIEW_TYPE ? this.docs.get(input.uri.toString()) : undefined;
   }
 
   dispose(): void {
@@ -106,7 +153,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       }
     };
     doc.onDispose(watcher, watcher.onDidChange(() => void onDisk()), watcher.onDidCreate(() => void onDisk()), {
-      dispose: () => this.docs.delete(uri.toString()),
+      // A document closed a moment ago must not unregister the one opened in its place.
+      dispose: () => { if (this.docs.get(uri.toString()) === doc) this.docs.delete(uri.toString()); },
     });
     return doc;
   }
@@ -218,8 +266,26 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         this.rerender(doc);
         break;
       case "layoutChanged":
-        doc.state.mergeLayout(Array.isArray(m.nodes) ? m.nodes : []); // held in memory until the next save
+        // Held in memory until the next save: automatic layout is not an edit.
+        doc.state.mergeLayout(Array.isArray(m.nodes) ? m.nodes : [], Array.isArray(m.edges) ? m.edges : []);
         break;
+      case "edit":
+        this.userEdit(doc, m.edit);
+        break;
+      case "selection":
+        doc.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
+        this.followSelection(doc);
+        break;
+      case "relink":
+        void this.relinkInteractive(doc, m.id).catch((e) => this.fail("Re-link", e));
+        break;
+      case "showElement":
+        void this.showElementInteractive(doc).catch((e) => this.fail("Show Element", e));
+        break;
+      case "dropElements":
+        this.addByName(doc, Array.isArray(m.names) ? m.names : []);
+        break;
+      case "gestureResult":
       case "pngResult":
       case "metricsResult":
         this.pending.get(m.requestId)?.resolve(m);
@@ -246,6 +312,122 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       this.rerender(doc);
     };
     this._onDidChange.fire({ document: doc, label, undo: () => redraw(e.undo()), redo: () => redraw(e.redo()) });
+    this.rerender(doc);
+  }
+
+  private fail(what: string, e: unknown): void {
+    const msg = e instanceof Error ? e.message : String(e);
+    this.log(`diagram ${what} failed: ${msg}`);
+    void vscode.window.showErrorMessage(`${what} failed: ${msg}`);
+  }
+
+  /** A layout or remove edit from the webview: one undoable edit of the diagram file, never of the model. */
+  private userEdit(doc: SysmlDiagramDocument, edit: DiagramEdit): void {
+    const cur = doc.state.doc;
+    if (!cur || !edit || typeof edit !== "object") return;
+    let next: FileDoc | undefined;
+    let label = "Edit diagram";
+    switch (edit.kind) {
+      case "layout":
+        next = Array.isArray(edit.boxes) ? applyBoxPatches(cur, edit.boxes) : undefined;
+        label = edit.label === "Resize" ? "Resize" : edit.label === "Nudge" ? "Nudge" : "Move";
+        break;
+      case "autoLayout":
+        next = Array.isArray(edit.boxes) ? applyAutoLayout(cur, edit.boxes, Array.isArray(edit.edges) ? edit.edges : []) : undefined;
+        label = "Auto-layout";
+        break;
+      case "remove": {
+        const ids = Array.isArray(edit.ids) ? edit.ids.filter((i) => typeof i === "string") : [];
+        const removed = removeItems(cur, ids, doc.state.viewModel);
+        next = removed === cur ? undefined : removed;
+        label = "Remove from Diagram";
+        doc.selection = doc.selection.filter((i) => !ids.includes(i));
+        break;
+      }
+    }
+    if (next) this.edit(doc, next, label);
+  }
+
+  // ---- model-aware actions ---------------------------------------------------------------
+
+  private selectIds(doc: SysmlDiagramDocument, ids: string[]): void {
+    if (!ids.length) return;
+    doc.selection = ids;
+    let sent = false;
+    for (const p of this.panels.get(doc.uri.toString()) ?? []) {
+      if (p.ready && p.lastHash !== undefined) { this.post(p, { type: "select", ids }); sent = true; }
+    }
+    doc.pendingSelect = sent ? undefined : ids;
+  }
+
+  /** The tree follows a node selected in a diagram (behind `sysml.tree.followCursor`). */
+  private followSelection(doc: SysmlDiagramDocument): void {
+    if (!this.revealInTree || !vscode.workspace.getConfiguration("sysml").get<boolean>("tree.followCursor", true)) return;
+    const d = doc.state.doc;
+    const id = doc.selection[doc.selection.length - 1];
+    const node = d?.nodes.find((n) => n.id === id);
+    if (!d || !node) return;
+    const el = resolveReference(node, d, this.model.index, this.opts(doc));
+    if (el) this.revealInTree(el);
+  }
+
+  /** Add elements to the diagram as one undoable edit; existing ones are just selected. */
+  addElementsTo(doc: SysmlDiagramDocument, elements: Element[]): { ids: string[]; added: number } {
+    const cur = doc.state.doc;
+    if (!cur) throw new Error("This diagram cannot be edited: its file does not parse.");
+    const r = addElements(cur, this.model.index, elements, this.opts(doc));
+    if (r.added.length) this.edit(doc, r.doc, elements.length === 1 ? "Add to Diagram" : "Add elements to Diagram");
+    this.selectIds(doc, r.ids);
+    return { ids: r.ids, added: r.added.length };
+  }
+
+  private addByName(doc: SysmlDiagramDocument, names: string[]): void {
+    const els = names.flatMap((n) => (typeof n === "string" ? [...this.model.index.findByQualifiedName(n).slice(0, 1)] : []));
+    if (!els.length) return;
+    try {
+      this.addElementsTo(doc, els);
+    } catch (e) {
+      this.fail("Add to Diagram", e);
+    }
+  }
+
+  /** The "Show Element…" picker: any named element of the workspace model. */
+  async showElementInteractive(doc: SysmlDiagramDocument): Promise<void> {
+    const items = listElements(this.model.index).map((e) => ({ label: e.name!, description: e.qualifiedName!, detail: e.kind, element: e }));
+    const pick = await this.ui.pick(items, { title: "Show Element on Diagram", placeHolder: "Type the name of a model element", matchOnDescription: true, matchOnDetail: true });
+    if (pick) this.addElementsTo(doc, [pick.element]);
+  }
+
+  /** The "Re-link…" picker for an unresolved item: elements of the kind it had, not already shown. */
+  async relinkInteractive(doc: SysmlDiagramDocument, id: string): Promise<void> {
+    const cur = doc.state.doc;
+    const node = cur?.nodes.find((n) => n.id === id);
+    if (!cur || !node) return;
+    const shown = new Set(cur.nodes.filter((n) => n.id !== id).map((n) => referenceKey(n)));
+    const cands = relinkCandidates(this.model.index, doc.state.kinds.get(id)).filter((e) => e.qualifiedName !== undefined && !shown.has(referenceKey({ ref: e.qualifiedName })));
+    const items = cands.map((e) => ({ label: e.name!, description: e.qualifiedName!, detail: e.kind, element: e }));
+    const pick = await this.ui.pick(items, { title: `Re-link ${node.ref ?? "item"}`, placeHolder: "Choose the element this item should show", matchOnDescription: true });
+    const now = doc.state.doc;
+    if (pick && now) this.edit(doc, relink(now, id, pick.element), "Re-link");
+  }
+
+  /** Ask the active (or given) diagram's webview to run a command. */
+  runCommand(doc: SysmlDiagramDocument | undefined, name: DiagramCommand): boolean {
+    const p = [...(this.panels.get(doc?.uri.toString() ?? "") ?? [])].find((x) => x.ready);
+    if (!p) return false;
+    this.post(p, { type: "command", name });
+    return true;
+  }
+
+  /** Open a diagram (if it is not open) and select an item in it. */
+  async openAndSelect(uri: vscode.Uri, ids: string[]): Promise<void> {
+    await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+    const end = performance.now() + 60_000;
+    while (!this.docs.has(uri.toString()) || ![...(this.panels.get(uri.toString()) ?? [])].some((p) => p.ready)) {
+      if (performance.now() > end) throw new Error(`The diagram ${uri.path.split("/").pop()} did not open`);
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    this.selectIds(this.docs.get(uri.toString())!, ids);
   }
 
   // ---- model refresh ---------------------------------------------------------------------
@@ -272,6 +454,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       if (h === p.lastHash) continue;
       p.lastHash = h;
       this.post(p, { type: "render", viewModel: r.viewModel });
+    }
+    if (doc.pendingSelect) {
+      const ids = doc.pendingSelect;
+      doc.pendingSelect = undefined;
+      for (const p of this.panels.get(doc.uri.toString()) ?? []) if (p.ready && p.lastHash !== undefined) this.post(p, { type: "select", ids });
     }
   }
 
@@ -303,21 +490,30 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     });
   }
 
+  private async exportPng(uri: vscode.Uri, theme: PngTheme): Promise<string> {
+    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme }));
+    if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
+    return r.base64;
+  }
+
   readonly testApi: DiagramTestApi = {
     open: async (uri) => {
       await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
-      const end = Date.now() + 30_000;
+      const end = performance.now() + 60_000;
       while (![...(this.panels.get(uri.toString()) ?? [])].some((p) => p.ready)) {
-        if (Date.now() > end) throw new Error(`diagram editor for ${uri.toString()} did not become ready`);
+        if (performance.now() > end) throw new Error(`diagram editor for ${uri.toString()} did not become ready`);
         await new Promise((r) => setTimeout(r, 50));
       }
     },
     metrics: (uri) => this.request<"metricsResult">(uri, (requestId) => ({ type: "getMetrics", requestId })),
-    png: async (uri) => {
-      const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme: "light" }));
-      if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
-      return r.base64;
+    png: (uri) => this.exportPng(uri, "light"),
+    pngEditor: (uri) => this.exportPng(uri, "editor-dark"),
+    gesture: async (uri, gesture) => {
+      const r = await this.request<"gestureResult">(uri, (requestId) => ({ type: "testGesture", requestId, gesture }));
+      if (r.error) throw new Error(`gesture ${gesture.kind} failed in the webview: ${r.error}`);
     },
+    setUi: (ui) => { this.ui = ui ? { ...defaultUi, ...ui } : defaultUi; },
+    activeUri: () => this.activeDocument()?.uri.toString(),
     edit: (uri, moves) => {
       const d = this.docs.get(uri.toString());
       if (!d?.state.doc) throw new Error("diagram is not open or not parsed");

@@ -4,11 +4,12 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "no
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { interactionTests } from "./diagram-interaction.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
-interface ModelNode { id: string; uri: string }
-interface TestApi {
-  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined } };
+export interface ModelNode { id: string; uri: string }
+export interface TestApi {
+  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[] } };
   provider: {
     getChildren(n?: ModelNode): ModelNode[];
     getTreeItem(n: ModelNode): vscode.TreeItem;
@@ -25,14 +26,39 @@ interface TestApi {
     open(uri: vscode.Uri): Promise<void>;
     metrics(uri: vscode.Uri): Promise<Metrics>;
     png(uri: vscode.Uri): Promise<string>;
+    pngEditor(uri: vscode.Uri): Promise<string>;
     save(uri: vscode.Uri): Promise<void>;
     edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
-    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: { nodes: { id: string; x?: number; y?: number; w?: number; h?: number }[] } };
+    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
+    gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
+    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string }) => Promise<string | undefined> } | undefined): void;
+    activeUri(): string | undefined;
   };
+  dnd: { handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void };
 }
-interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string }
-interface Metrics { nodes: MNode[]; edges: { id: string; source: string; target: string }[]; overlaps: number; overflows: number; outsideParent: number }
+export interface PickItem { label: string; description?: string; detail?: string }
+export interface DiagramDoc {
+  version: number; kind: string; root: string; sources: string[];
+  nodes: { id: string; ref?: string; parent?: string; x?: number; y?: number; w?: number; h?: number }[];
+  edges: { id: string; ref?: string; locator?: { kind: string }; source: string; target: string; points?: { x: number; y: number }[] }[];
+}
+export type Gesture =
+  | { kind: "select"; id: string; shift?: boolean }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
+  | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
+  | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
+  | { kind: "menu"; id: string; action: "remove" | "relink" }
+  | { kind: "contextmenu"; id: string }
+  | { kind: "drop"; names: string[] }
+  | { kind: "flush" };
+export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string }
+export interface Metrics {
+  nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string }[];
+  overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; portsOffBorder: number;
+  selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
+}
 
 type Test = [name: string, fn: () => Promise<void>];
 
@@ -266,7 +292,7 @@ export async function run(): Promise<void> {
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
-      assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Notes", "Ports", "Vehicle", "broken.sysml"]);
+      assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Design", "Notes", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
       assert.ok(ix.uris().some((u) => ix.isReadOnly(u)), "library is loaded");
       const lib = labels(api.provider.getChildren());
       assert.ok(!lib.includes("ScalarValues") && !lib.includes("ISQ"), "library packages are not roots");
@@ -529,10 +555,13 @@ export async function run(): Promise<void> {
       }
     }],
     ...diagramTests(),
+    ...interactionTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];
+  const only = process.env.SYSML_TEST_FILTER ? new RegExp(process.env.SYSML_TEST_FILTER) : undefined;
   for (const [name, fn] of tests) {
+    if (only && !only.test(name)) continue;
     try {
       await fn();
       console.log(`ok - ${name}`);

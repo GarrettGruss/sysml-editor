@@ -1,6 +1,17 @@
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--vscode-editor-background, #ffffff); color: var(--vscode-editor-foreground, #1f2328); font-family: var(--vscode-font-family); }
-.diagram { width: 100vw; height: 100vh; display: block; cursor: grab; outline: none; }
-.diagram:active { cursor: grabbing; }
+.diagram { width: 100vw; height: 100vh; display: block; cursor: default; outline: none; }
+.diagram:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: -2px; }
+.diagram .sel-line { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); fill: none; }
+.diagram .sel-fill { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
+.diagram .band { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
+.diagram .overlay { pointer-events: none; }
+.toolbar { position: fixed; top: 8px; left: 8px; display: flex; gap: 4px; z-index: 2; }
+.toolbar button { background: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background)); color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-contrastBorder, var(--vscode-button-border, transparent)); padding: 3px 9px; cursor: pointer; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground)); }
+.toolbar button:focus-visible, .ctx-menu button:focus-visible { outline: 1px solid var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: 1px; }
+.ctx-menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 180px; padding: 4px 0; background: var(--vscode-menu-background, var(--vscode-editorWidget-background)); color: var(--vscode-menu-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-menu-border, var(--vscode-contrastBorder, var(--vscode-editorWidget-border, transparent))); box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent); }
+.ctx-menu button { background: none; color: inherit; border: none; text-align: left; padding: 4px 14px; cursor: pointer; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.ctx-menu button:hover, .ctx-menu button:focus { background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground)); color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground, inherit)); }
 .diagram .f-none { fill: none; }
 .diagram .s-none { stroke: none; }
 .diagram .f-bg { fill: var(--vscode-editor-background, #ffffff); }
@@ -13,7 +24,8 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 .diagram .s-warn { stroke: var(--vscode-editorWarning-foreground, #bf8700); }
 .diagram .s-text, .diagram .s-subtext, .diagram .s-bg, .diagram .s-node { stroke: none; }
 .diagram text { font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; stroke: none; }
-.vscode-high-contrast .diagram .s-line, .vscode-high-contrast .diagram .s-edge { stroke-width: 2; }
+.vscode-high-contrast .diagram .s-line, .vscode-high-contrast .diagram .s-edge, .vscode-high-contrast-light .diagram .s-line, .vscode-high-contrast-light .diagram .s-edge { stroke-width: 2; }
+.vscode-high-contrast .diagram g[data-selected] rect, .vscode-high-contrast-light .diagram g[data-selected] rect { stroke-width: 3; }
 .error-page { padding: 24px; max-width: 760px; font-family: var(--vscode-font-family); }
 .error-page h1 { font-size: 1.3em; }
 .error-page code { font-family: var(--vscode-editor-font-family); }

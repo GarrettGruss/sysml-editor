@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
-import { ModelTreeProvider, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
-import type { ModelNode } from "./tree/tree-model.js";
+import { ModelTreeDragAndDrop, ModelTreeProvider, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { nodeForElement, type ModelNode } from "./tree/tree-model.js";
+import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { AgentIntegration } from "./agent-integration.js";
 import { DiagramEditorProvider, VIEW_TYPE as DIAGRAM_VIEW_TYPE, type DiagramTestApi } from "./diagram/diagram-editor.js";
 import { WorkspaceModel } from "./workspace/workspace-model.js";
@@ -12,17 +13,24 @@ export interface TestApi {
   view: vscode.TreeView<ModelNode>;
   agent: AgentIntegration;
   diagram: DiagramTestApi;
+  dnd: ModelTreeDragAndDrop;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
   const log = vscode.window.createOutputChannel("SysML", { log: true });
   const model = new WorkspaceModel(context.extensionPath, (m) => log.warn(m));
   const provider = new ModelTreeProvider(model.index);
-  const view = vscode.window.createTreeView<ModelNode>(VIEW_ID, { treeDataProvider: provider });
+  const dnd = new ModelTreeDragAndDrop(model.index);
+  const view = vscode.window.createTreeView<ModelNode>(VIEW_ID, { treeDataProvider: provider, dragAndDropController: dnd, canSelectMany: true });
 
   const agent = new AgentIntegration(model, (m) => log.info(m), String(context.extension.packageJSON.version ?? "0.0.1"));
   void agent.apply();
   const diagrams = new DiagramEditorProvider(context.extensionUri, model, (m) => log.warn(m));
+  const files = new DiagramFiles();
+  diagrams.revealInTree = (el) => {
+    const node = nodeForElement(model.index, el);
+    if (node && view.selection[0]?.id !== node.id) void Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {});
+  };
 
   const updateContext = () => {
     const empty = !model.index.uris().some((u) => !model.index.isReadOnly(u));
@@ -52,6 +60,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     view,
     registerCursorSync(model.index, view),
     diagrams,
+    files,
+    ...registerDiagramCommands({ model, diagrams, files }),
     vscode.window.registerCustomEditorProvider(DIAGRAM_VIEW_TYPE, diagrams, {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: true,
@@ -59,7 +69,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
   );
-  return { model, provider, view, agent, diagram: diagrams.testApi };
+  return { model, provider, view, agent, diagram: diagrams.testApi, dnd };
 }
 
 export function deactivate(): void {}

@@ -5,9 +5,10 @@
 import type { Element, ModelIndex } from "../model/index.js";
 import type { DiagramDocument, DiagramKind, ElementReference, Point } from "./format.js";
 import type { Resolution } from "./resolve.js";
+import { endElement, relationOf } from "./relations.js";
 
 export type ShapeKind = "definition" | "usage" | "package" | "requirement" | "port" | "unresolved";
-export type EdgeStyle = "composition" | "specialization" | "typing" | "connection" | "satisfy" | "verify" | "generic";
+export type EdgeStyle = "composition" | "specialization" | "typing" | "connection" | "satisfy" | "verify" | "derivation" | "generic";
 
 export interface Compartment {
   title: string;
@@ -145,40 +146,24 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
 
   const edges: VmEdge[] = [];
   const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
-  const memberOf = (el: Element, name: string, depth = 0): Element | undefined => {
-    const own = el.members.find((m) => m.name === name);
-    if (own || depth > 5) return own;
-    for (const t of [...el.types, ...el.specializes]) {
-      const def = index.resolve(t, el);
-      const found = def && memberOf(def, name, depth + 1);
-      if (found) return found;
-    }
-    return undefined;
-  };
-  /** The node an end text such as `engine.drive` refers to: the port node if shown, else the nearest shown prefix. */
-  const endNode = (owner: Element, end: string): string | undefined => {
-    const [first, ...rest] = end.replace(/\s+/g, "").split(/\.|::/);
-    let el = first ? index.resolve(first, owner) : undefined;
-    let hit = el ? nodeOfElement.get(el) : undefined;
-    for (const seg of rest) {
-      el = el && memberOf(el, seg);
-      if (!el) break;
-      hit = nodeOfElement.get(el) ?? hit;
-    }
-    return hit;
+  /** The node for an end of a relationship: the nearest shown element along the end's name (or owners). */
+  const endNode = (end: Parameters<typeof endElement>[1]): string | undefined => {
+    const el = endElement(index, end, (x) => nodeOfElement.has(x));
+    return el ? nodeOfElement.get(el) : undefined;
   };
 
   for (const e of doc.edges) {
     const el = resolution.get(e.id);
     let source = e.source;
     let target = e.target;
-    const style = el ? edgeStyleOf(el.kind) : "generic";
+    let style: EdgeStyle = el ? edgeStyleOf(el.kind) : "generic";
     let label: string | undefined;
     if (el) {
-      if (el.ends.length >= 2) {
-        const o = el.owner ?? el;
-        source = endNode(o, el.ends[0]!) ?? source;
-        target = endNode(o, el.ends[el.ends.length - 1]!) ?? target;
+      const rel = relationOf(el, index);
+      if (rel) {
+        source = endNode(rel.source) ?? source;
+        target = endNode(rel.target) ?? target;
+        if (rel.kind === "derivation") { style = "derivation"; label = "«derive»"; }
       }
       if (style === "satisfy" || style === "verify") label = `«${style}»`;
       else if (style === "generic" && el.name) label = el.name;
