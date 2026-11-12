@@ -21,6 +21,10 @@ jobs:
       - run: npm test
       - run: npm run gate:parser
       - run: npm run build
+      - run: npm run package
+      - run: npm run check:vsix
       - run: xvfb-run -a npm run test:integration
       - name: Integration tests on minimum VS Code
         run: VSCODE_VERSION="$(node -p "require('./package.json').engines.vscode.replace(/^[^0-9]*/, '')")" xvfb-run -a npm run test:integration
+      - name: Integration tests against the installed .vsix
+        run: SYSML_VSIX="$(ls sysml-editor-*.vsix)" xvfb-run -a npm run test:integration

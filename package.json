@@ -4,8 +4,11 @@
   "description": "Graphical and model-aware editor for SysML v2",
   "version": "0.0.1",
   "publisher": "your-publisher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GarrettGruss/sysml-editor.git"
+  },
   "private": true,
-  "license": "UNLICENSED",
   "engines": {
     "node": ">=22",
     "vscode": "^1.106.0"
@@ -198,7 +201,9 @@
     "bench:parser": "npm run generate:parser && tsx scripts/parser-bench.ts",
     "gate:parser": "npm run generate:parser && tsx scripts/parser-gate.ts",
     "gate:parser:record": "npm run generate:parser && tsx scripts/parser-gate.ts --write",
-    "generate:manifest": "tsx scripts/generate-manifest.ts"
+    "generate:manifest": "tsx scripts/generate-manifest.ts",
+    "package": "npm run build && vsce package --no-dependencies --skip-license",
+    "check:vsix": "tsx scripts/check-vsix.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
