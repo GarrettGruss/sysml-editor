@@ -28,7 +28,7 @@
 
 ## 4. Agent foundation
 
-- [ ] 4.1 Implement shared tool definitions in a transport-free `agent-tools` module (names, descriptions, input schemas, handlers on the model service) for `list_files`, `get_element_tree` (with a default depth limit and subtree requests), `get_element`, and `validate` (syntax errors and unresolved names with file and line); verify handler unit tests against fixtures, including the "Depth limit" and three "Validate model" scenarios
+- [x] 4.1 Implement shared tool definitions in a transport-free `agent-tools` module (names, descriptions, input schemas, handlers on the model service) for `list_files`, `get_element_tree` (with a default depth limit and subtree requests), `get_element`, and `validate` (syntax errors and unresolved names with file and line); verify handler unit tests against fixtures, including the "Depth limit" and three "Validate model" scenarios
 - [ ] 4.2 Host the MCP server in the extension (MCP TypeScript SDK, loopback HTTP, per-session token) and ship the stdio bridge `dist/mcp-bridge.js`; verify an MCP client outside VS Code lists the tools through the bridge while VS Code is open, and gets the "VS Code must be open" error when it is not
 - [ ] 4.3 Register the server through an MCP server definition provider; verify it appears in VS Code's MCP server list for the workspace
 - [ ] 4.4 Implement the Language Model Tools adapter: generate `contributes.languageModelTools` from the shared definitions at build time and register handlers with `vscode.lm.registerTool`; verify the "In-editor agent reads an element" and "Unsaved buffers visible" scenarios
