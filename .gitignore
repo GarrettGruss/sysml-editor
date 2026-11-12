@@ -12,3 +12,6 @@ coverage
 .idea
 logs
 src/parser/generated
+
+# Files created and removed by the integration tests
+test/fixtures/workspace-basic/tmp-*

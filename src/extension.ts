@@ -95,7 +95,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     }),
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
-    vscode.commands.registerCommand("sysml.tree.changeView", async (filter?: TreeFilter) => {
+    vscode.commands.registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
+      let filter: TreeFilter | undefined = arg === "elements" || arg === "diagrams" || arg === "all" ? arg : undefined;
       if (filter === undefined) {
         const items: { label: string; description?: string; filter: TreeFilter }[] = [
           { label: "Elements", filter: "elements" },
