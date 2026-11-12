@@ -489,7 +489,8 @@ export class ModelService {
       const current = new Map<string, string | undefined>();
       for (const uri of result.record.after.keys()) current.set(uri, await this.host.currentText(uri));
       const plan = planUndo(result.record, current);
-      if (plan.ok) {
+      if (plan.ok && plan.edits.length === 0) textReverted = true;
+      else if (plan.ok) {
         const base = new Map<string, string>([...result.record.after]);
         const o = await this.host.applyAndSave(plan.edits, base);
         if (o.ok) textReverted = true;
@@ -509,7 +510,8 @@ export class ModelService {
       const current = new Map<string, string | undefined>();
       for (const uri of result.record.before.keys()) current.set(uri, await this.host.currentText(uri));
       const plan = planRedo(result.record, current);
-      if (plan.ok) {
+      if (plan.ok && plan.edits.length === 0) textApplied = true;
+      else if (plan.ok) {
         const o = await this.host.applyAndSave(plan.edits, new Map(result.record.before));
         if (o.ok) textApplied = true;
         else warning = o.stale ? "The text changed while redoing; the edit was not repeated in the text." : o.reason;

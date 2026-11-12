@@ -81,6 +81,15 @@ describe("ModelService operations", () => {
     expect(host.diagramOnDisk("file:///w/d.sysmld").nodes.some((n) => n.ref?.endsWith("wheel"))).toBe(false);
   });
 
+  test("undo after the text was already reverted in the text editor still undoes the diagram part, without a warning", async () => {
+    const { host, svc, q } = setup(true);
+    const r = ok(await svc.addElement(q("Model::Vehicle"), { kind: "part", name: "wheel" }, { placement: { diagram: "file:///w/d.sysmld" } }));
+    host.buffers.set(URI, MODEL); // Undo in the text editor
+    const u = await svc.undo(r);
+    expect(u).toEqual({ textReverted: true });
+    expect(host.diagramOnDisk("file:///w/d.sysmld").nodes.some((n) => n.ref?.endsWith("wheel"))).toBe(false);
+  });
+
   test("delete removes the declaration and the entries of every diagram, undo puts the entries back", async () => {
     const { host, svc, q } = setup(true);
     host.addDiagram("file:///w/closed.sysmld", DIAGRAM(`[{"id":"n1","ref":"Model::Vehicle::engine"},{"id":"n2","ref":"Model::Vehicle"}]`));

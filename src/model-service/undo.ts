@@ -47,6 +47,8 @@ function name(uri: string): string {
 
 /** The text to revert, or why it cannot be: every touched document must still be exactly as the edit left it. */
 export function planUndo(rec: EditRecord, current: ReadonlyMap<string, string | undefined>): UndoPlan {
+  // Already reverted (for example by Undo in the text editor): nothing to do.
+  if ([...rec.before].every(([uri, t]) => current.get(uri) === t)) return { ok: true, edits: [], expected: new Map(rec.before) };
   for (const [uri, after] of rec.after) {
     if (current.get(uri) !== after) return { ok: false, reason: `${name(uri)} was changed after the edit, so the edit cannot be reverted automatically.` };
   }
@@ -55,6 +57,7 @@ export function planUndo(rec: EditRecord, current: ReadonlyMap<string, string | 
 
 /** The edits to repeat: every touched document must be exactly as it was before the edit. */
 export function planRedo(rec: EditRecord, current: ReadonlyMap<string, string | undefined>): UndoPlan {
+  if ([...rec.after].every(([uri, t]) => current.get(uri) === t)) return { ok: true, edits: [], expected: new Map(rec.after) };
   for (const [uri, before] of rec.before) {
     if (current.get(uri) !== before) return { ok: false, reason: `${name(uri)} was changed since the edit was undone, so the edit cannot be repeated automatically.` };
   }

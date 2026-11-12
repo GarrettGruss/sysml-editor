@@ -2,7 +2,7 @@
  * What the diagram webview draws (design D7): a plain-JSON view model computed from a diagram
  * document, its resolution and the model. No `vscode` import and no DOM.
  */
-import type { Element, ModelIndex } from "../model/index.js";
+import { inheritedFrom, inheritedMembers, type Element, type ModelIndex } from "../model/index.js";
 import type { DiagramDocument, DiagramKind, ElementReference, Point } from "./format.js";
 import type { Resolution } from "./resolve.js";
 import { endElement, relationOf } from "./relations.js";
@@ -13,6 +13,8 @@ export type EdgeStyle = "composition" | "specialization" | "typing" | "connectio
 export interface Compartment {
   title: string;
   lines: string[];
+  /** Line index to the qualified name of the element that declares the inherited feature on that line. */
+  inherited?: Record<number, string>;
 }
 
 export interface VmNode {
@@ -33,6 +35,8 @@ export interface VmNode {
   resolved: boolean;
   /** For unresolved nodes: the stored reference text. */
   unresolvedRef?: string;
+  /** The feature is shown inside a usage that inherits it; `from` is the qualified name of the declaring element. Read-only from that usage. */
+  inherited?: { from: string };
 }
 
 export interface VmEdge {
@@ -85,15 +89,23 @@ function labelOf(e: Element, shape: ShapeKind): string {
 }
 
 /** Direct members that are not shown as their own nodes, grouped by kind. */
-function compartmentsOf(e: Element, shown: Set<Element>): Compartment[] {
-  const groups = new Map<string, string[]>();
-  for (const m of e.members) {
-    if (shown.has(m) || m.name === undefined || !m.isUsage || m.ends.length >= 2) continue;
-    const lines = groups.get(m.kind) ?? [];
-    lines.push(m.name + typed(m));
-    groups.set(m.kind, lines);
+function compartmentsOf(e: Element, shown: Set<Element>, index: ModelIndex, withOwn: boolean): Compartment[] {
+  const groups = new Map<string, { lines: string[]; inherited: Record<number, string> }>();
+  const group = (kind: string) => groups.get(kind) ?? groups.set(kind, { lines: [], inherited: {} }).get(kind)!;
+  if (withOwn) {
+    for (const m of e.members) {
+      if (shown.has(m) || m.name === undefined || !m.isUsage || m.ends.length >= 2) continue;
+      group(m.kind).lines.push(m.name + typed(m));
+    }
   }
-  return [...groups].map(([kind, lines]) => ({ title: kind.endsWith("s") ? kind : kind + "s", lines }));
+  // Features inherited through typing and specialization, after the own ones.
+  for (const { member, declaredIn } of inheritedMembers(index, e)) {
+    if (shown.has(member)) continue;
+    const g = group(member.kind);
+    g.inherited[g.lines.length] = declaredIn.qualifiedName ?? declaredIn.name ?? "";
+    g.lines.push(member.name + typed(member));
+  }
+  return [...groups].map(([kind, g]) => ({ title: kind.endsWith("s") ? kind : kind + "s", lines: g.lines, ...(Object.keys(g.inherited).length ? { inherited: g.inherited } : {}) }));
 }
 
 const EDGE_STYLES: Record<string, EdgeStyle> = {
@@ -134,10 +146,14 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     out.label = labelOf(el, shape);
     if (!isPackage(el)) out.keyword = `«${el.kind}»`;
     if (shape === "requirement" && el.documentation) out.doc = el.documentation;
-    if (general && shape === "definition") {
-      const c = compartmentsOf(el, shown);
+    if (general && (shape === "definition" || shape === "usage")) {
+      const c = compartmentsOf(el, shown, index, shape === "definition");
       if (c.length) out.compartments = c;
     }
+    // A feature shown inside a usage that only inherits it (an Interconnection View of a usage shows its inherited parts and ports).
+    const containerEl = portOwner !== undefined ? resolution.get(portOwner) : n.parent !== undefined ? resolution.get(n.parent) : undefined;
+    const from = containerEl ? inheritedFrom(index, el, containerEl) : undefined;
+    if (from) out.inherited = { from: from.qualifiedName ?? from.name ?? "" };
     if (shape === "port") {
       if (portOwner !== undefined) out.attachedTo = portOwner;
     } else if (n.parent !== undefined) out.parent = n.parent;

@@ -353,7 +353,7 @@ export class SvgRenderer implements DiagramRenderer {
     const vm = this.vm;
     const empty: Metrics = {
       nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
-      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
+      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, inheritedNodes: 0, focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
     if (!vm) return empty;
     const abs = absoluteBoxes(vm, this.currentRel());
@@ -362,7 +362,7 @@ export class SvgRenderer implements DiagramRenderer {
       if (!b) return [];
       const g = this.world.querySelector(`g[data-node="${CSS.escape(n.id)}"]`);
       const text = g ? [...g.querySelectorAll("text")].map((t) => t.textContent ?? "").join(" | ") : "";
-      return [{ id: n.id, x: b.x, y: b.y, w: b.w, h: b.h, shape: n.shape, text, ...(n.parent !== undefined ? { parent: n.parent } : {}), ...(n.attachedTo !== undefined ? { attachedTo: n.attachedTo } : {}) }];
+      return [{ id: n.id, x: b.x, y: b.y, w: b.w, h: b.h, shape: n.shape, text, ...(n.inherited ? { inherited: true } : {}), ...(n.parent !== undefined ? { parent: n.parent } : {}), ...(n.attachedTo !== undefined ? { attachedTo: n.attachedTo } : {}) }];
     });
     // Text wider than its node: measured on the real rendering.
     let overflows = 0;
@@ -377,7 +377,7 @@ export class SvgRenderer implements DiagramRenderer {
     return {
       nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels),
-      selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length,
+      selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
       focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
   }

@@ -15,7 +15,8 @@ import { listElements, relinkCandidates } from "./new-diagram.js";
 import type { DiagramCommand, DiagramEdit, HostToWebview, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
 import { relink } from "./reconcile.js";
 import { makeSourceMapper, referenceKey, resolveReference } from "./resolve.js";
-import { DiagramState, decideSave, followRename, hashViewModel, noteExternalChange, refresh } from "./session.js";
+import { DiagramState, decideSave, dropKeys, followRename, forceChange, hashViewModel, noteExternalChange, refresh, unforceChange } from "./session.js";
+import type { DiagramChange } from "../model-service/diagram-changes.js";
 import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, DiagramProblem } from "./format.js";
 
 export const VIEW_TYPE = "sysml.diagram";
@@ -331,6 +332,31 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     this.rerender(doc);
   }
 
+  /**
+   * A change a model edit forces on an open diagram: applied to memory (not dirty, no undo entry) and to the file's last
+   * saved state, which is written at once. Returns whether the file was written.
+   */
+  async forceOpen(doc: SysmlDiagramDocument, change: DiagramChange, mode: "apply" | "revert"): Promise<boolean> {
+    const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+    const ctx = { uri: doc.uri.toString(), sourceOf: this.opts(doc).sourceOf };
+    const r =
+      mode === "apply"
+        ? forceChange(doc.state, change, (d) => change.apply(d, ctx), disk)
+        : unforceChange(doc.state, change, (d) => change.revert(d, ctx), disk);
+    if (mode === "apply") for (const k of change.createdKeys?.() ?? []) doc.state.created.add(k);
+    doc.state.snapshot = undefined;
+    if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
+    this.rerender(doc);
+    return r.kind === "write";
+  }
+
+  /** One undo entry for a model edit made from this diagram; its undo and redo reverse and repeat text and diagram together. */
+  recordModelEdit(uri: vscode.Uri, label: string, undo: () => Promise<void>, redo: () => Promise<void>): void {
+    const doc = this.docs.get(uri.toString());
+    if (!doc) return;
+    this._onDidChange.fire({ document: doc, label, undo: async () => { await undo(); this.rerender(doc); }, redo: async () => { await redo(); this.rerender(doc); } });
+  }
+
   private fail(what: string, e: unknown): void {
     const msg = e instanceof Error ? e.message : String(e);
     this.log(`diagram ${what} failed: ${msg}`);
@@ -465,6 +491,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const r = refresh(doc.state, this.model.index, this.opts(doc));
     if (!r) return;
     if (r.updates && !doc.renderOnly) void this.followRename(doc, r.updates);
+    if (r.vanished && !doc.renderOnly) void this.dropVanished(doc, r.vanished);
     for (const p of this.panels.get(doc.key) ?? []) {
       if (!p.ready) continue;
       // The generation is part of the key: after a reload the webview must learn the new one even if the drawing is the same.
@@ -477,6 +504,21 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       const ids = doc.pendingSelect;
       doc.pendingSelect = undefined;
       for (const p of this.panels.get(doc.key) ?? []) if (p.ready && p.lastHash !== undefined) this.post(p, { type: "select", ids });
+    }
+  }
+
+  /** Entries this session created for elements that have since disappeared from the text are removed (no placeholder). */
+  private async dropVanished(doc: SysmlDiagramDocument, keys: string[]): Promise<void> {
+    try {
+      const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
+      // A later undo of an unrelated edit must not bring the dropped placement back.
+      doc.state.forced = doc.state.forced.filter((f) => !((f.token as Partial<DiagramChange>).createdKeys?.() ?? []).some((k) => keys.includes(k)));
+      const r = forceChange(doc.state, {}, (d) => dropKeys(d, keys), disk);
+      for (const k of keys) doc.state.created.delete(k);
+      if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
+      this.rerender(doc);
+    } catch (e) {
+      this.log(`diagram: dropping vanished entries failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

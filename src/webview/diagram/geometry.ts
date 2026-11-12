@@ -17,7 +17,7 @@ export const WRAP_W = 240;
 const ROW = 16;
 const TAB_H = 16;
 
-export type RowKind = "keyword" | "label" | "doc" | "ctitle" | "cline" | "warn";
+export type RowKind = "keyword" | "label" | "doc" | "ctitle" | "cline" | "icline" | "warn";
 export interface Row { kind: RowKind; text: string; /** Baseline y within the node. */ y: number; style: TextStyle }
 export interface BoxContent {
   /** Natural width and height to hold all text. */
@@ -83,7 +83,7 @@ export function describeBox(n: VmNode, measure: Measure): BoxContent {
     dividers.push(y);
     y += 2;
     push("ctitle", c.title, "italic");
-    for (const l of c.lines) push("cline", l, "normal");
+    c.lines.forEach((l, i) => push(c.inherited?.[i] !== undefined ? "icline" : "cline", l, c.inherited?.[i] !== undefined ? "italic" : "normal"));
   }
   return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH, rows, dividers };
 }

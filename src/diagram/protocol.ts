@@ -28,6 +28,8 @@ export interface MetricsNode extends NodeBox {
   shape?: string;
   /** All text drawn in the node, joined with " | ". */
   text?: string;
+  /** Drawn as an inherited feature (dashed border, muted fill). */
+  inherited?: boolean;
 }
 
 export interface EdgePoints {
@@ -109,6 +111,8 @@ export interface DiagramMetrics {
   selectedNamed: number;
   /** Resize handles drawn. */
   handles: number;
+  /** Nodes drawn as inherited features. */
+  inheritedNodes: number;
   focusable: boolean;
   /** Zoom factor. */
   zoom: number;

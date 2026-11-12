@@ -16,6 +16,8 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 .diagram .s-none { stroke: none; }
 .diagram .f-bg { fill: var(--vscode-editor-background, #ffffff); }
 .diagram .f-node { fill: var(--vscode-editorWidget-background, var(--vscode-editor-background, #ffffff)); }
+.diagram .f-inherited { fill: var(--vscode-editor-inactiveSelectionBackground, var(--vscode-editorWidget-background, #e9edf1)); }
+.diagram .s-inherited { stroke: none; }
 .diagram .f-line, .diagram .f-edge { fill: var(--vscode-editor-foreground, #1f2328); }
 .diagram .f-text { fill: var(--vscode-editor-foreground, #1f2328); }
 .diagram .f-subtext { fill: var(--vscode-descriptionForeground, var(--vscode-editor-foreground, #1f2328)); }
