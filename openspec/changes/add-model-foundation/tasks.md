@@ -53,4 +53,5 @@
 - [x] 6.6 Replace the Diagrams view's periodic rescan with re-reading only newly created folders a few times over the following seconds; no workspace search while idle; verify the just-created-folder case and the idle case with integration tests
 - [x] 6.7 Search box above the tree (webview view limited to one input, `postMessage` only) that filters the active view to matches plus their path, including unexpanded folders; "No matches" item; clearing restores the tree and its expansion; verify with unit and integration tests and update the tree mockup
 - [x] 6.8 "Delete File" on `.sysml` file nodes: confirmation naming the file, unsaved changes and the references in other files that will stop resolving; move to trash, close its editors, update tree and model; verify with unit tests for the reference count and integration tests for confirm, cancel and the referenced case
+- [x] 6.9 All view: a third filter value showing subfolders, then `.sysml` files with their elements, then `.sysmld` diagrams; empty only when neither is below; search over both; menus as in the single views; verify with unit and integration tests and update the tree mockup
 

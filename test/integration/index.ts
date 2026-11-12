@@ -24,8 +24,8 @@ export interface TestApi {
     getParent(n: ModelNode): ModelNode | undefined;
     /** Whether the node is an object getChildren handed out (VS Code only refreshes such objects). */
     isHanded(n: ModelNode): boolean;
-    readonly filter: "elements" | "diagrams";
-    setFilter(filter: "elements" | "diagrams"): Promise<void>;
+    readonly filter: "elements" | "diagrams" | "all";
+    setFilter(filter: "elements" | "diagrams" | "all"): Promise<void>;
     getTreeItem(n: ModelNode): vscode.TreeItem;
     onDidChangeTreeData: vscode.Event<unknown>;
     /** Workspace searches and directory reads done for the tree so far. */

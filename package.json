@@ -133,16 +133,10 @@
         "icon": "$(clear-all)"
       },
       {
-        "command": "sysml.tree.showDiagrams",
-        "title": "Show Diagrams",
+        "command": "sysml.tree.changeView",
+        "title": "Change View",
         "category": "SysML",
-        "icon": "$(type-hierarchy)"
-      },
-      {
-        "command": "sysml.tree.showElements",
-        "title": "Show Elements",
-        "category": "SysML",
-        "icon": "$(symbol-class)"
+        "icon": "$(list-filter)"
       }
     ],
     "menus": {
@@ -259,13 +253,8 @@
           "group": "navigation@0"
         },
         {
-          "command": "sysml.tree.showDiagrams",
-          "when": "view == sysmlModel && sysml.treeFilter != diagrams",
-          "group": "navigation"
-        },
-        {
-          "command": "sysml.tree.showElements",
-          "when": "view == sysmlModel && sysml.treeFilter == diagrams",
+          "command": "sysml.tree.changeView",
+          "when": "view == sysmlModel",
           "group": "navigation"
         }
       ]

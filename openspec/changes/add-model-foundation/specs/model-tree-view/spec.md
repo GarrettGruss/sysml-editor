@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Native tree view of model hierarchy
-The extension SHALL contribute a VS Code native tree view (not a webview) rooted at the workspace folders, showing folders, then files, then their contents. A filter in the view's title bar, remembered per workspace, SHALL switch between two views that both keep the folder structure: Elements (the default), which shows `.sysml` files and the ownership hierarchy of their elements; and Diagrams, which shows `.sysmld` diagram files.
+The extension SHALL contribute a VS Code native tree view (not a webview) rooted at the workspace folders, showing folders, then files, then their contents. A filter in the view's title bar, remembered per workspace, SHALL switch between three views that all keep the folder structure: Elements (the default), which shows `.sysml` files and the ownership hierarchy of their elements; Diagrams, which shows `.sysmld` diagram files; and All, which shows both.
 
 #### Scenario: Workspace with SysML files in folders
 - **WHEN** the workspace contains `fixtures/sysml-v2-models/SE_Models/Vehicle.sysml` and the user opens the SysML Model view in the Elements view
@@ -14,6 +14,10 @@ The extension SHALL contribute a VS Code native tree view (not a webview) rooted
 #### Scenario: Workspace without diagrams
 - **WHEN** the workspace contains no `.sysmld` files and the Diagrams view is selected
 - **THEN** the tree shows the workspace folders and their subfolders, all marked "no diagrams"
+
+#### Scenario: All view
+- **WHEN** the folder `models/vehicle` contains `vehicle.sysml` and `vehicle-general.sysmld` and the user switches the filter to All
+- **THEN** `vehicle` lists its subfolders, then `vehicle.sysml` (expandable to its elements), then `vehicle-general.sysmld` (a leaf with its kind), and a folder is marked empty ("no SysML files or diagrams") only when nothing below it holds either; search matches element, `.sysml` file and diagram names
 
 #### Scenario: Multi-root workspace
 - **WHEN** the workspace has more than one workspace folder

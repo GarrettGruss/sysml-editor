@@ -95,8 +95,19 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     }),
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
-    vscode.commands.registerCommand("sysml.tree.showDiagrams", () => provider.setFilter("diagrams")),
-    vscode.commands.registerCommand("sysml.tree.showElements", () => provider.setFilter("elements")),
+    vscode.commands.registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
+      let filter: TreeFilter | undefined = arg === "elements" || arg === "diagrams" || arg === "all" ? arg : undefined;
+      if (filter === undefined) {
+        const items: { label: string; description?: string; filter: TreeFilter }[] = [
+          { label: "Elements", filter: "elements" },
+          { label: "Diagrams", filter: "diagrams" },
+          { label: "All", filter: "all" },
+        ];
+        for (const i of items) if (i.filter === provider.filter) i.description = "current";
+        filter = (await vscode.window.showQuickPick(items, { placeHolder: "Show in the SysML Model view" }))?.filter;
+      }
+      if (filter) await provider.setFilter(filter);
+    }),
     vscode.commands.registerCommand("sysml.tree.clearSearch", () => {
       provider.setQuery("");
       search.setText("");
