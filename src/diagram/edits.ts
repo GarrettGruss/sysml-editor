@@ -51,7 +51,8 @@ export function applyBoxPatches(doc: DiagramDocument, patches: readonly BoxPatch
   const nodes = doc.nodes.map((n) => {
     const p = byId.get(n.id);
     if (!p) return n;
-    const next = { ...n, x: p.x, y: p.y, ...(p.w !== undefined ? { w: p.w } : {}), ...(p.h !== undefined ? { h: p.h } : {}) };
+    // A lifeline's `y` and `h` are computed from the messages (design D17): only the column order (`x`) and width are stored.
+    const next = doc.kind === "sequence" ? { ...n, x: p.x, ...(p.w !== undefined ? { w: p.w } : {}) } : { ...n, x: p.x, y: p.y, ...(p.w !== undefined ? { w: p.w } : {}), ...(p.h !== undefined ? { h: p.h } : {}) };
     if (next.x === n.x && next.y === n.y && next.w === n.w && next.h === n.h) return n;
     changed.add(n.id);
     return next;
@@ -74,11 +75,16 @@ export function applyAutoLayout(doc: DiagramDocument, boxes: readonly NodeBox[],
   const nodes = doc.nodes.map((n) => {
     const b = byId.get(n.id);
     if (!b) return n;
+    if (doc.kind === "sequence") {
+      if (n.x !== b.x || n.w !== b.w || n.y !== undefined || n.h !== undefined) changed = true;
+      const { y: _y, h: _h, ...rest } = n;
+      return { ...rest, x: b.x, w: b.w };
+    }
     if (n.x !== b.x || n.y !== b.y || n.w !== b.w || n.h !== b.h) changed = true;
     return { ...n, x: b.x, y: b.y, w: b.w, h: b.h };
   });
   const edges = doc.edges.map((e) => {
-    const p = pts.get(e.id);
+    const p = doc.kind === "sequence" ? undefined : pts.get(e.id);
     if (!p) {
       if (e.points === undefined) return e;
       changed = true;

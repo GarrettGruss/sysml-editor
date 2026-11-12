@@ -17,7 +17,7 @@ import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type Model
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
 import { placeElementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
-import { analyze, isSynthetic } from "../model/index.js";
+import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
 
 export interface ElementInfo {
@@ -693,7 +693,7 @@ export class ModelService {
 
   /** The member of `owner` the element stands for now (or its start/done node), re-read from the current model. */
   private resolveNode(owner: Element, el: Element): Element | undefined {
-    if (isSynthetic(el)) return analyze(this.index, owner).synthetic.find((s) => s.kind === el.kind && s.owner === owner) ?? analyze(this.index, owner).nodes.find((n) => n.kind === el.kind && isSynthetic(n)) ?? el;
+    if (isSynthetic(el) && (el.kind === "start" || el.kind === "done")) return virtualNode(owner, el.kind);
     return el.qualifiedName !== undefined ? owner.members.find((m) => m.qualifiedName === el.qualifiedName) : this.fresh(el);
   }
 

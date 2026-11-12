@@ -39,6 +39,7 @@ const GAP = 40;
 const INNER = 30;
 const SIDE_LABEL_MARGIN = 8;
 
+const rank = (n: VmNode): number => (n.variant === "start" ? 0 : n.variant === "done" ? 2 : 1);
 const hasPos = (n: VmNode) => n.geometry?.x !== undefined || n.geometry?.y !== undefined;
 
 /** Action Flow and State Transition views flow from top to bottom (design D17); the others from left to right. */
@@ -90,7 +91,7 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const c = contentOf(n);
     const pn = portNeeds(n);
     const w = Math.max(c.w, needW, pn.w, stored ? (n.geometry?.w ?? 0) : 0);
-    const h = Math.max(c.h, needH, c.headerH + pn.rows * 22 + 8, stored ? (n.geometry?.h ?? 0) : 0);
+    const h = Math.max(c.h, needH, pn.rows > 0 ? c.headerH + pn.rows * 22 + 8 : 0, stored ? (n.geometry?.h ?? 0) : 0);
     return { w: Math.ceil(w), h: Math.ceil(h) };
   };
 
@@ -156,9 +157,10 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const graph: ElkGraph = {
       id: "root",
       layoutOptions: edges.length
-        ? { "elk.algorithm": "layered", "elk.direction": flowsDown(vm) ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL", "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
+        ? { "elk.algorithm": "layered", "elk.direction": flowsDown(vm) ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL", ...(flowsDown(vm) ? { "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.layered.cycleBreaking.strategy": "MODEL_ORDER" } : {}), "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
         : { "elk.algorithm": "rectpacking", "elk.spacing.nodeNode": "40", "elk.aspectRatio": "1.6", "elk.padding": "[top=0,left=0,bottom=0,right=0]" },
-      children: loose.map((k) => ({ id: k.id, width: sizes.get(k.id)!.w, height: sizes.get(k.id)!.h })),
+      // The start node leads and the done node ends, then the model's own order; ELK keeps it where the edges allow.
+      children: (flowsDown(vm) ? [...loose].sort((a, b) => rank(a) - rank(b)) : loose).map((k) => ({ id: k.id, width: sizes.get(k.id)!.w, height: sizes.get(k.id)!.h })),
       edges,
     };
     const out = new Map<string, { x: number; y: number }>();

@@ -61,8 +61,19 @@ export function syntheticMembers(index: ModelIndex, owner: Element): readonly El
   return a.synthetic;
 }
 
+const virtuals = new WeakMap<Element, { start: Element; done: Element }>();
+
+/** The `start` or `done` node of an owner, whether or not a statement uses it yet (one object per owner). */
+export function virtualNode(owner: Element, kind: "start" | "done"): Element {
+  let v = virtuals.get(owner);
+  if (!v) virtuals.set(owner, (v = { start: makeSynthetic(owner, "start", []), done: makeSynthetic(owner, "done", []) }));
+  return v[kind];
+}
+
 export function isSynthetic(e: Element): boolean {
-  return !!e.owner && cachedSynthetic(e.owner).includes(e);
+  if (!e.owner) return false;
+  const v = virtuals.get(e.owner);
+  return (v !== undefined && (v.start === e || v.done === e)) || cachedSynthetic(e.owner).includes(e);
 }
 
 // ------------------------------------------------------------------------------ text helpers
@@ -184,8 +195,8 @@ export function analyze(index: ModelIndex, owner: Element): Analysis {
   const text = state && !state.stale ? state.text : undefined;
   const out = EMPTY(owner);
   if (text === undefined) return out;
-  const start = makeSynthetic(owner, "start", []);
-  const done = makeSynthetic(owner, "done", []);
+  const start = virtualNode(owner, "start");
+  const done = virtualNode(owner, "done");
   const usedStart = { v: false }, usedDone = { v: false };
   const synth: Element[] = [];
   const byName = (name: string): Element | undefined => {

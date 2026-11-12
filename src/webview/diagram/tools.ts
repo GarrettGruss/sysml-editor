@@ -2,14 +2,15 @@
  * The palette and the properties panel of the diagram editor (HTML next to the SVG drawing), and
  * what they report to the test API. The panels only collect user input; the host runs the model edit.
  */
-import { paletteFor, type PaletteItem } from "../../diagram/palette.js";
-import type { ModelIntent, PropertyChanges } from "../../diagram/protocol.js";
-import type { ViewModel, VmNode } from "../../diagram/view-model.js";
+import { CONNECT_TOOLS, paletteFor, type PaletteItem } from "../../diagram/palette.js";
+import type { ConnectRelation, ModelIntent, PropertyChanges } from "../../diagram/protocol.js";
+import type { ViewModel, VmEdge, VmNode } from "../../diagram/view-model.js";
 
-type Relation = "satisfy" | "verify" | "derivation";
-const isConnect = (kind: string): boolean => kind === "connection" || kind === "satisfy" || kind === "verify" || kind === "derivation";
+type Relation = ConnectRelation;
+const isConnect = (kind: string): boolean => CONNECT_TOOLS.has(kind);
 export type Tool = { kind: "add"; item: PaletteItem } | { kind: "connect"; relation?: Relation };
 export type Field = "name" | "shortName" | "type" | "multiplicity" | "documentation";
+export type TransitionField = "trigger" | "guard" | "effect";
 export interface Suggestion { name: string; qualifiedName: string; library: boolean }
 
 export interface ToolsHost {
@@ -49,7 +50,9 @@ export class Tools {
   private kind?: string;
   private tool?: Tool;
   private shown?: VmNode;
-  private readonly inputs = new Map<Field, HTMLInputElement | HTMLTextAreaElement>();
+  /** The edge the panel shows (a transition, succession or message), instead of a node. */
+  private shownEdge?: VmEdge;
+  private readonly inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement>();
   private readonly list = el("datalist");
   private readonly body = el("div", "props-body");
   private readonly noticeLine = el("div", "props-notice");
@@ -103,12 +106,57 @@ export class Tools {
 
   private showNothing(message: string): void {
     this.shown = undefined;
+    this.shownEdge = undefined;
     this.inputs.clear();
     this.body.replaceChildren(el("p", "props-hint", message));
   }
 
+  /** Show an edge: a transition's trigger, guard and effect are text fields; other edges show what they are. */
+  setEdgeSelection(edge: VmEdge | undefined): void {
+    this.shown = undefined;
+    this.inputs.clear();
+    this.shownEdge = edge;
+    if (!edge) return this.showNothing("Select one element to edit its properties.");
+    const rows: HTMLElement[] = [];
+    const ro = (label: string, value: string, cls: string) => {
+      const row = el("div", "props-row");
+      row.append(el("label", undefined, label), el("div", `props-ro ${cls}`, value));
+      return row;
+    };
+    rows.push(ro("Kind", edge.elementKind ?? edge.style, "props-kind"));
+    const reason = !edge.resolved ? "This item is unresolved, so it has no properties to edit." : edge.derived ? "This edge is derived from the model and has no statement of its own." : edge.implied ? "This succession is written as part of a node declaration (`then ...`) and has no statement of its own." : edge.locked;
+    if (edge.transition) {
+      for (const f of ["trigger", "guard", "effect"] as const) {
+        const row = el("div", "props-row");
+        const label = el("label", undefined, f.charAt(0).toUpperCase() + f.slice(1));
+        const input = el("input");
+        input.id = `prop-${f}`;
+        input.type = "text";
+        input.dataset.field = f;
+        const value = edge.transition[f];
+        input.value = value;
+        input.disabled = reason !== undefined;
+        input.placeholder = f === "trigger" ? "e.g. TurnOn" : f === "guard" ? "e.g. level > 3" : "e.g. action logEvent";
+        label.htmlFor = input.id;
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); else if (e.key === "Escape") { input.value = value; input.blur(); } e.stopPropagation(); });
+        input.addEventListener("change", () => { if (input.value !== value) this.cb.onModel({ kind: "setTransition", id: edge.id, changes: { [f]: input.value } }); });
+        this.inputs.set(f, input);
+        row.append(label, input);
+        rows.push(row);
+      }
+    } else if (edge.label) rows.push(ro("Label", edge.label, "props-label"));
+    if (edge.order !== undefined) rows.push(ro("Time order", `${edge.order + 1}${edge.unordered ? " (the model leaves its order against another message open)" : ""}`, "props-order"));
+    if (reason) {
+      const note = el("p", "props-reason", reason);
+      note.setAttribute("role", "note");
+      rows.push(note);
+    }
+    this.body.replaceChildren(...rows);
+  }
+
   /** Show the node when exactly one is selected. */
   setSelection(vm: ViewModel | undefined, ids: readonly string[]): void {
+    this.shownEdge = undefined;
     const keepFocus = this.props.contains(document.activeElement) && ids.length === 1 && this.shown?.id === ids[0];
     if (!vm || ids.length !== 1) return this.showNothing(ids.length > 1 ? "Select a single element to edit its properties." : "Select one element to edit its properties.");
     const node = vm.nodes.find((n) => n.id === ids[0]);
@@ -215,7 +263,7 @@ export class Tools {
 
   // ---- test API ----------------------------------------------------------------------------
 
-  setField(field: Field, value: string): void {
+  setField(field: Field | TransitionField, value: string): void {
     const input = this.inputs.get(field);
     if (!input) throw new Error(`the properties panel has no ${field} field (select a single element first)`);
     if (input.disabled) throw new Error(`the ${field} field is disabled`);
@@ -231,7 +279,7 @@ export class Tools {
     return {
       palette: this.buttons.map((b) => b.textContent ?? ""),
       tool: this.tool?.kind === "add" ? this.tool.item.kind : this.tool?.kind,
-      properties: { visible: !!this.shown, ...(this.shown ? { id: this.shown.id } : {}), ...(p ? { kind: p.kind } : {}), ...(p?.qualifiedName !== undefined ? { qualifiedName: p.qualifiedName } : {}), fields, ...(note ? { note } : {}) },
+      properties: { visible: !!this.shown || !!this.shownEdge, ...(this.shown ? { id: this.shown.id } : this.shownEdge ? { id: this.shownEdge.id, kind: this.shownEdge.elementKind ?? this.shownEdge.style } : {}), ...(p ? { kind: p.kind } : {}), ...(p?.qualifiedName !== undefined ? { qualifiedName: p.qualifiedName } : {}), fields, ...(note ? { note } : {}) },
     };
   }
 }

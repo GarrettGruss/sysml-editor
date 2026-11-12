@@ -345,13 +345,14 @@ export function applyLayout(doc: DiagramDocument, boxes: readonly NodeBox[], rou
   let changed = false;
   const nodes = doc.nodes.map((n) => {
     const b = byId.get(n.id);
-    if (!b || n.x !== undefined || n.y !== undefined) return n;
+    if (!b || n.x !== undefined || (n.y !== undefined && doc.kind !== "sequence")) return n;
     changed = true;
-    return { ...n, x: b.x, y: b.y, w: b.w, h: b.h };
+    // A Sequence View stores the column (`x`, `w`) of a lifeline only; the rest follows from the messages.
+    return doc.kind === "sequence" ? { ...n, x: b.x, w: b.w } : { ...n, x: b.x, y: b.y, w: b.w, h: b.h };
   });
   const pts = new Map(routes.filter((r) => Array.isArray(r?.points) && r.points.length >= 2 && r.points.every((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y) && Math.abs(p.x) <= MAX_COORD && Math.abs(p.y) <= MAX_COORD)).map((r) => [r.id, r.points] as const));
   const edges = doc.edges.map((e) => {
-    const p = pts.get(e.id);
+    const p = doc.kind === "sequence" ? undefined : pts.get(e.id);
     if (!p || e.points !== undefined) return e;
     changed = true;
     return { ...e, points: p.map((q) => ({ x: q.x, y: q.y })) };

@@ -3,7 +3,7 @@
  * this class so the drawing technology can be replaced. This implementation is hand-built SVG,
  * with the interaction logic in `interaction.ts` and the drawing in `svg.ts`.
  */
-import { ELEMENT_MIME, type DiagramEdit, type DiagramMetrics, type ModelIntent, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
+import { ELEMENT_MIME, type ConnectRelation, type DiagramEdit, type DiagramMetrics, type ModelIntent, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
 import { absoluteBoxes, boundsOf, countOutsideParent, countOverCompartments, countOverlaps, type Box, type Measure, type Pt } from "./geometry.js";
 import { handleBoxes, Interaction, snap, type InteractionHost, type PointerInput, type Scene } from "./interaction.js";
@@ -59,6 +59,8 @@ export class SvgRenderer implements DiagramRenderer {
   /** First click of the connection tool. */
   private connectFrom?: string;
   private editor?: HTMLInputElement;
+  /** An edge (succession, transition, message) selected by a click on it; edges are not part of the node selection. */
+  private selectedEdge?: string;
 
   constructor(host: HTMLElement, private readonly measure: Measure, private readonly cb: RendererCallbacks) {
     this.svg = document.createElementNS(SVG_NS, "svg");
@@ -73,7 +75,7 @@ export class SvgRenderer implements DiagramRenderer {
     this.svg.append(this.world, this.overlay);
     host.append(this.svg);
     const ihost: InteractionHost = {
-      onSelection: (ids) => { this.repaintOverlay(); this.tools.setSelection(this.vm, ids); cb.onSelection(ids); },
+      onSelection: (ids) => { this.selectedEdge = undefined; this.repaint(); this.tools.setSelection(this.vm, ids); cb.onSelection(ids); },
       onPreview: (boxes, band) => { this.preview = boxes; this.band = band; this.repaint(); },
       onEdit: (edit) => cb.onEdit(edit),
       onPan: (dx, dy) => {
@@ -106,8 +108,11 @@ export class SvgRenderer implements DiagramRenderer {
     this.ia.setScene(this.scene);
     this.tools.setDiagram(viewModel);
     this.closeEditor();
+    const edge = this.selectedEdge !== undefined ? viewModel.edges.find((e) => e.id === this.selectedEdge) : undefined;
+    if (!edge) this.selectedEdge = undefined;
     this.repaint();
-    this.tools.setSelection(viewModel, this.ia.selection);
+    if (edge) this.tools.setEdgeSelection(edge);
+    else this.tools.setSelection(viewModel, this.ia.selection);
   }
 
   /** Boxes as drawn now: the stored layout with the gesture's preview on top. */
@@ -121,11 +126,49 @@ export class SvgRenderer implements DiagramRenderer {
   private repaint(): void {
     if (!this.vm) return;
     const rel = this.currentRel();
-    const r = buildSvg(this.vm, rel, this.measure, {}, { routes: this.layoutRoutes, selected: new Set(this.ia.selection) });
+    const r = buildSvg(this.vm, rel, this.measure, {}, { routes: this.layoutRoutes, selected: this.selectedSet() });
     this.drawn = { routes: r.routes, labels: r.labels };
     this.world.innerHTML = r.content;
     this.applyView();
     this.repaintOverlay();
+  }
+
+  private selectedSet(): Set<string> {
+    return new Set([...this.ia.selection, ...(this.selectedEdge !== undefined ? [this.selectedEdge] : [])]);
+  }
+
+  /** Distance from `p` to the nearest edge route within reach, if any. */
+  private edgeAt(p: Pt): string | undefined {
+    if (!this.vm) return undefined;
+    const reach = 5 / this.view.k + 1;
+    let best: { id: string; d: number } | undefined;
+    for (const [id, pts] of this.drawn.routes) {
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1]!, b = pts[i]!;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const len2 = dx * dx + dy * dy;
+        const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+        const d = Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+        if (d <= reach && (!best || d < best.d)) best = { id, d };
+      }
+    }
+    return best?.id;
+  }
+
+  /** An edge under the point, unless a node that is not a container is there (nodes win at their borders). */
+  private edgeHit(p: Pt): string | undefined {
+    const edge = this.edgeAt(p);
+    if (edge === undefined) return undefined;
+    const node = hit(this.scene, p);
+    return node === undefined || this.vm?.nodes.some((n) => n.parent === node) || this.vm?.nodes.find((n) => n.id === node)?.shape === "lifeline" ? edge : undefined;
+  }
+
+  selectEdge(id: string): void {
+    this.ia.setSelection([], false);
+    this.selectedEdge = id;
+    this.repaint();
+    this.tools.setEdgeSelection(this.vm?.edges.find((e) => e.id === id));
+    this.cb.onSelection([id]);
   }
 
   private selectionBoxes(): { boxes: Box[]; handles?: Box } {
@@ -190,6 +233,10 @@ export class SvgRenderer implements DiagramRenderer {
   // ---- selection -------------------------------------------------------------------------
 
   select(ids: string[]): void {
+    if (ids.length === 1 && this.vm?.edges.some((e) => e.id === ids[0]) && !this.vm.nodes.some((n) => n.id === ids[0])) {
+      this.selectEdge(ids[0]!);
+      return;
+    }
     this.ia.setSelection(ids, false);
     this.repaintOverlay();
   }
@@ -217,6 +264,10 @@ export class SvgRenderer implements DiagramRenderer {
         this.toolClick(this.toInput(e));
         return;
       }
+      if (e.button === 0 && !e.shiftKey) {
+        const edge = this.edgeHit(this.toInput(e));
+        if (edge !== undefined) { this.selectEdge(edge); return; }
+      }
       try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ }
       this.ia.pointerDown(this.toInput(e));
     });
@@ -231,6 +282,12 @@ export class SvgRenderer implements DiagramRenderer {
     svg.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       const p = this.toInput(e, 2);
+      const edge = this.edgeHit(p);
+      if (edge !== undefined) {
+        this.selectEdge(edge);
+        this.openEdgeMenu(edge, e.clientX, e.clientY);
+        return;
+      }
       const id = hit(this.scene, p);
       if (id === undefined) return;
       if (!this.ia.selection.includes(id)) this.ia.setSelection([id]);
@@ -249,6 +306,13 @@ export class SvgRenderer implements DiagramRenderer {
     }, { passive: false });
     svg.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && this.tool) { this.setTool(undefined); e.preventDefault(); return; }
+      if (this.selectedEdge !== undefined && (e.key === "Delete" || e.key === "Backspace")) {
+        const id = this.selectedEdge;
+        this.selectedEdge = undefined;
+        this.cb.onEdit({ kind: "remove", ids: [id] });
+        e.preventDefault();
+        return;
+      }
       if (e.key === "F2" && this.ia.selection.length === 1) { this.openEditor(this.ia.selection[0]!); e.preventDefault(); return; }
       if (e.key === " ") { this.space = true; e.preventDefault(); return; }
       if (this.ia.keyDown({ key: e.key, shift: e.shiftKey, mod: e.ctrlKey || e.metaKey })) e.preventDefault();
@@ -303,8 +367,24 @@ export class SvgRenderer implements DiagramRenderer {
     showMenu(document.body, x, y, items, (a) => this.invoke(a, id), () => this.svg.focus({ preventScroll: true }));
   }
 
+  private openEdgeMenu(id: string, cx: number, cy: number): void {
+    const e = this.vm?.edges.find((x) => x.id === id);
+    if (!e) return;
+    const modelEditable = e.resolved && !e.derived && !e.implied && e.locked === undefined;
+    const items: { label: string; action: MenuAction }[] = [
+      ...(e.derived ? [] : [{ label: "Remove from Diagram", action: "remove" as const }]),
+      ...(modelEditable ? [{ label: "Delete from Model\u2026", action: "deleteModel" as const }] : []),
+    ];
+    if (items.length) showMenu(document.body, cx, cy, items, (a) => this.invoke(a, id), () => this.svg.focus({ preventScroll: true }));
+  }
+
   /** The action a menu item performs (also what the test gesture "menu" calls). */
   invoke(action: MenuAction, id: string): void {
+    if (this.vm?.edges.some((e) => e.id === id)) {
+      if (action === "deleteModel") this.cb.onModel({ kind: "deleteFromModel", ids: [id] });
+      else if (action === "remove") { this.selectedEdge = undefined; this.cb.onEdit({ kind: "remove", ids: [id] }); }
+      return;
+    }
     if (action === "rename") this.openEditor(id);
     else if (action === "goto") this.cb.onModel({ kind: "goToDefinition", id });
     else if (action === "deleteModel") this.cb.onModel({ kind: "deleteFromModel", ids: this.ia.selection.includes(id) ? [...this.ia.selection] : [id] });
@@ -355,7 +435,8 @@ export class SvgRenderer implements DiagramRenderer {
     const source = this.connectFrom;
     const relation = this.tool?.kind === "connect" ? this.tool.relation : undefined;
     this.setTool(undefined);
-    if (source !== id) this.cb.onModel({ kind: "connect", sourceId: source, targetId: id, ...(relation ? { relation } : {}) });
+    // A message may go from a lifeline to itself; every other relationship needs two different ends.
+    if (source !== id || relation === "message") this.cb.onModel({ kind: "connect", sourceId: source, targetId: id, ...(relation ? { relation } : {}) });
   }
 
   private closeEditor(): void {
@@ -423,6 +504,21 @@ export class SvgRenderer implements DiagramRenderer {
     return c;
   }
 
+  /** A point of the edge's route that hits the edge itself. */
+  private pointOnEdge(id: string): Pt {
+    const pts = this.drawn.routes.get(id);
+    if (!pts || pts.length < 2) throw new Error(`no edge ${id}`);
+    let best = 0;
+    for (let i = 1; i < pts.length; i++) if (Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y) > Math.hypot(pts[best + 1]!.x - pts[best]!.x, pts[best + 1]!.y - pts[best]!.y)) best = i - 1;
+    const a = pts[best]!, b = pts[best + 1]!;
+    // The middle of the longest segment, moved along it when a node or another edge sits there.
+    for (const t of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+      const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      if (this.edgeHit(p) === id) return p;
+    }
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
   private fire(type: "pointerdown" | "pointermove" | "pointerup", p: Pt, o: { shift?: boolean } = {}): void {
     this.svg.dispatchEvent(new PointerEvent(type, { ...this.toClient(p), button: 0, buttons: type === "pointerup" ? 0 : 1, pointerId: 7, bubbles: true, cancelable: true, shiftKey: !!o.shift }));
   }
@@ -487,6 +583,16 @@ export class SvgRenderer implements DiagramRenderer {
         this.click(this.pointOn(g.target));
         break;
       }
+      case "selectEdge": {
+        const p = this.pointOnEdge(g.id);
+        this.click(p);
+        break;
+      }
+      case "dragEdge": {
+        const p = this.pointOnEdge(g.id);
+        this.dragFrom(p, 0, g.dy, 6);
+        break;
+      }
       case "inlineRename": {
         const p = this.pointOn(g.id);
         this.svg.dispatchEvent(new MouseEvent("dblclick", { ...this.toClient(p), button: 0, detail: 2, bubbles: true, cancelable: true }));
@@ -525,9 +631,9 @@ export class SvgRenderer implements DiagramRenderer {
       if (!box || g.getAttribute("data-shape") === "port") continue;
       for (const t of g.querySelectorAll<SVGTextElement>("text")) if (t.getBBox().width > box.w + 0.5) overflows++;
     }
-    const selected = this.ia.selection;
+    const selected = [...this.ia.selection, ...(this.selectedEdge !== undefined ? [this.selectedEdge] : [])];
     const named = selected.filter((id) => (this.world.querySelector(`g[data-node="${CSS.escape(id)}"]`)?.getAttribute("aria-label") ?? "").length > 0).length;
-    const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, style: e.style, ...(e.label !== undefined ? { label: e.label } : {}), points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
+    const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, style: e.style, ...(e.label !== undefined ? { label: e.label } : {}), ...(e.order !== undefined ? { order: e.order } : {}), ...(e.unordered ? { unordered: true } : {}), points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
     return {
       nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs), nodesOverCompartments: countOverCompartments(vm, abs, this.measure),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels),
@@ -540,7 +646,7 @@ export class SvgRenderer implements DiagramRenderer {
     if (!this.vm) return "";
     const palette = theme === "editor-dark" ? DARK_PALETTE : LIGHT_PALETTE;
     const rel = this.currentRel();
-    const r = buildSvg(this.vm, rel, this.measure, { palette }, { routes: this.layoutRoutes, selected: new Set(theme === "light" ? [] : this.ia.selection) });
+    const r = buildSvg(this.vm, rel, this.measure, { palette }, { routes: this.layoutRoutes, selected: theme === "light" ? new Set<string>() : this.selectedSet() });
     if (theme !== "light") {
       const { boxes, handles } = this.selectionBoxes();
       r.content += overlaySvg(boxes, handles, undefined, { palette });

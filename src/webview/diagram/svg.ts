@@ -245,7 +245,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const owner = n.attachedTo !== undefined && byId.has(n.attachedTo) ? abs.get(n.attachedTo) : undefined;
     if (owner) out += drawPortLabel(n, b, owner, o);
   }
-  return { content: out, bounds: boundsOf(abs.values(), 0), routes, labels };
+  return { content: out, bounds: boundsOf([...abs.values(), ...labels.values()], 0), routes, labels };
 }
 
 /** Selection outlines and resize handles (single selected non-port node), and the rubber band. */
