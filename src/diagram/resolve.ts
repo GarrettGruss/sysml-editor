@@ -1,5 +1,5 @@
 /** Resolving diagram references to model elements and back (design D3). No `vscode` import. */
-import type { Element, ModelIndex } from "../model/index.js";
+import { cachedSynthetic, syntheticMembers, type Element, type ModelIndex } from "../model/index.js";
 import type { DiagramDocument, ElementLocator, ElementReference } from "./format.js";
 
 export type SourceMapper = (uri: string) => string;
@@ -43,8 +43,9 @@ function preferSources(cands: readonly Element[], sources: readonly string[], so
  * Elements a locator can match under an owner: its members, looking through unnamed members
  * (which cannot be an owner in a locator, so their children count as owned by the nearest named one).
  */
-export function ownedCandidates(owner: Element): Element[] {
-  const out: Element[] = [];
+export function ownedCandidates(owner: Element, index?: ModelIndex): Element[] {
+  // `start`, `done` and the successions implied by `then` are not in the parse tree (see model/behavior.ts).
+  const out: Element[] = [...(index ? syntheticMembers(index, owner) : cachedSynthetic(owner))];
   const walk = (e: Element) => {
     for (const m of e.members) {
       out.push(m);
@@ -73,7 +74,7 @@ export function resolveReference(
   if (!loc) return undefined;
   const key = endsKey(loc.ends);
   for (const owner of preferSources(index.findByQualifiedName(loc.owner), doc.sources, sourceOf)) {
-    const matches = ownedCandidates(owner).filter((c) => c.qualifiedName === undefined && c.kind === loc.kind && endsKey(c.ends) === key);
+    const matches = ownedCandidates(owner, index).filter((c) => c.qualifiedName === undefined && c.kind === loc.kind && endsKey(c.ends) === key);
     if (matches.length) {
       if (loc.index === undefined) return matches.length === 1 ? matches[0] : undefined; // ambiguous without an index
       return matches[loc.index];
@@ -90,12 +91,12 @@ export function resolveDiagram(doc: DiagramDocument, index: ModelIndex, opts: Re
 }
 
 /** The reference for an element: `ref` when named, a locator otherwise (undefined if there is no named owner). */
-export function referenceFor(element: Element): ElementReference | undefined {
+export function referenceFor(element: Element, index?: ModelIndex): ElementReference | undefined {
   if (element.qualifiedName !== undefined) return { ref: element.qualifiedName };
   const owner = namedOwner(element);
   if (!owner || owner.qualifiedName === undefined) return undefined;
   const key = endsKey(element.ends);
-  const twins = ownedCandidates(owner).filter((c) => c.qualifiedName === undefined && c.kind === element.kind && endsKey(c.ends) === key);
+  const twins = ownedCandidates(owner, index).filter((c) => c.qualifiedName === undefined && c.kind === element.kind && endsKey(c.ends) === key);
   const locator: ElementLocator = { owner: owner.qualifiedName, kind: element.kind, ends: [...element.ends] };
   if (twins.length > 1) locator.index = twins.indexOf(element);
   return { locator };

@@ -91,7 +91,7 @@ function endNode(doc: DiagramDocument, index: ModelIndex, end: Parameters<typeof
  * Adding an element that is already on the diagram is a no-op returning the existing item.
  */
 export function addElement(doc: DiagramDocument, index: ModelIndex, element: Element, parentNodeId?: string, opts: ResolveOptions & { resolution?: Resolution } = {}): AddResult {
-  const ref = referenceFor(element);
+  const ref = referenceFor(element, index);
   if (!ref) return { doc, added: false };
   const key = referenceKey(ref);
   const existing = [...doc.nodes, ...doc.edges].find((i) => referenceKey(i) === key);
@@ -159,7 +159,7 @@ export function addElements(doc: DiagramDocument, index: ModelIndex, elements: r
     const parentEl = parent !== undefined ? res0.get(parent) : undefined;
     const owners = [...new Set([element, element.owner, parentEl, rootEl].filter((o): o is Element => !!o))];
     for (const owner of owners) {
-      for (const cand of ownedCandidates(owner)) {
+      for (const cand of ownedCandidates(owner, index)) {
         if (!relationOf(cand, index)) continue;
         const e = addElement(out.doc, index, cand, undefined, opts);
         out.doc = e.doc;

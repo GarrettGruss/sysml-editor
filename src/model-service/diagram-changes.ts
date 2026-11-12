@@ -55,7 +55,7 @@ export function placeElementChange(index: ModelIndex, element: () => Element | u
       const parent = placement.parentNode !== undefined && doc.nodes.some((n) => n.id === placement.parentNode) ? placement.parentNode : undefined;
       const r = addElement(doc, index, el, parent, { sourceOf: ctx.sourceOf });
       if (!r.added || !r.id) return r.doc;
-      const ref = referenceFor(el);
+      const ref = referenceFor(el, index);
       if (ref) {
         keys.push(referenceKey(ref));
         declared.set(referenceKey(ref), el.uri);
