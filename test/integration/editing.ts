@@ -475,8 +475,9 @@ export function editingTests(c: Ctx): Test[] {
       await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
       await vscode.commands.executeCommand("undo");
       await waitFor(() => doc.getText() === original, 5000, "one undo in the text editor reverses the whole agent edit");
-      await vscode.commands.executeCommand("workbench.action.files.save");
-      assert.ok(readFileSync(uriOf(model).fsPath).equals(bytesBefore));
+      // Save this document itself: the generic save command acts on whichever editor has focus.
+      await doc.save();
+      await waitFor(() => readFileSync(uriOf(model).fsPath).equals(bytesBefore), 5000, "the undone text is saved to disk");
       // identical results over both channels: refused calls give identical text, applied calls do too on identical starting text
       const refusal = { element: "EdAg2::vehicle1::engine" };
       const ra = await viaLm("sysml_delete_element", refusal);
