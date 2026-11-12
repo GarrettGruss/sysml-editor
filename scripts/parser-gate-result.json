@@ -1,0 +1,1045 @@
+{
+  "date": "2026-11-12T02:37:25.157Z",
+  "groups": {
+    "release examples": {
+      ".sysml": {
+        "files": 252,
+        "withErrors": 0,
+        "percentClean": 100
+      }
+    },
+    "kerml examples": {
+      ".kerml": {
+        "files": 58,
+        "withErrors": 58,
+        "percentClean": 0
+      }
+    },
+    "standard library": {
+      ".sysml": {
+        "files": 58,
+        "withErrors": 0,
+        "percentClean": 100
+      },
+      ".kerml": {
+        "files": 36,
+        "withErrors": 36,
+        "percentClean": 0
+      }
+    },
+    "community models": {
+      ".sysml": {
+        "files": 36,
+        "withErrors": 9,
+        "percentClean": 75
+      }
+    }
+  },
+  "totalFiles": 440,
+  "filesWithErrors": 103,
+  "overallPercentClean": 76.59,
+  "rejoinFailures": 440,
+  "rejoinFailingFiles": [
+    "fixtures/sysml-v2-release/sysml/src/examples/Analysis Examples/AnalysisAnnotation.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Analysis Examples/Dynamics.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Analysis Examples/Turbojet Stage Analysis.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Analysis Examples/Vehicle Analysis Demo.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Arrowhead Framework Example/AHFCoreLib.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Arrowhead Framework Example/AHFNorwayTopics.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Arrowhead Framework Example/AHFProfileLib.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Arrowhead Framework Example/AHFSequences.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Association Examples/ProductSelection_N_ary.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Association Examples/ProductSelection_OwnedEnds.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Association Examples/ProductSelection_UnownedEnds.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Camera Example/Camera.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Camera Example/PictureTaking.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Cause and Effect Examples/CauseAndEffectExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Cause and Effect Examples/MedicalDeviceFailure.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Comment Examples/Comments.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Flashlight Example/Flashlight Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Geometry Examples/CarWithEnvelopingShape.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Geometry Examples/CarWithShapeAndCSG.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Geometry Examples/ExternalShapeRefExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Geometry Examples/SimpleQuadcopter.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Geometry Examples/VehicleGeometryAndCoordinateFrames.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Import Tests/AliasImport.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Import Tests/CircularImport.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Import Tests/PrivateImportTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Import Tests/QualifiedNameImportTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Individuals Examples/AnalysisIndividualExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Individuals Examples/JohnIndividualExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Interaction Sequencing Examples/ServerSequenceModel.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Interaction Sequencing Examples/ServerSequenceModelOutside.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Interaction Sequencing Examples/ServerSequenceOutsideRealization-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Interaction Sequencing Examples/ServerSequenceOutsideRealization-3.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Interaction Sequencing Examples/ServerSequenceRealization-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Interaction Sequencing Examples/ServerSequenceRealization-3.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Mass Roll-up Example/MassConstraintExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Mass Roll-up Example/MassRollup.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Mass Roll-up Example/Vehicles.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Metadata Examples/IssueMetadataExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Metadata Examples/RationaleMetadataExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Metadata Examples/RequirementMetadataExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Metadata Examples/RiskMetadataExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Metadata Examples/VerificationMetadataExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Packet Example/PacketUsage.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Packet Example/Packets.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Requirements Examples/HSUVRequirements.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Requirements Examples/RequirementDerivationExample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Requirements Examples/VehicleRequirementDerivation.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Room Model/RoomModel.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ActionTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/AliasTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/AllocationTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/AnalysisTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/AssignmentTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/CalculationTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/CommentTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ConjugationTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ConnectionTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ConstraintTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ControlNodeTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/DecisionTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/DefaultValueTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/DependencyTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/EnumerationTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/FeaturePathTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ImportTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/IndividualTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/InterfaceTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ItemTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/MetadataTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/MultiplicityTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/OccurrenceTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ParameterTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/PartTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/RequirementTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/RootPackageTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/StateTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/StructuredControlTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/TextualRepresentationTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/TradeStudyTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/UseCaseTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/VariabilityTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/VerificationTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Simple Tests/ViewTest.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/State Space Representation Examples/CartSample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/State Space Representation Examples/EVSample.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Timeslice and Snapshot Examples/TimeVaryingAttribute.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Variability Examples/VehicleVariabilityModel.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Vehicle Example/SysML v2 Spec Annex A SimpleVehicleModel.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Vehicle Example/VehicleDefinitions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Vehicle Example/VehicleIndividuals.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/Vehicle Example/VehicleUsages.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/v1 Spec Examples/8.4.1 Wheel Hub Assembly/Wheel Package - Updated.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/v1 Spec Examples/8.4.1 Wheel Hub Assembly/Wheel Package.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/v1 Spec Examples/8.4.5 Constraining Decomposition/Vehicle Decomposition - Updated.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/v1 Spec Examples/8.4.5 Constraining Decomposition/Vehicle Decomposition.sysml",
+    "fixtures/sysml-v2-release/sysml/src/examples/v1 Spec Examples/D.4.7.8 Dynamics/HSUVDynamics.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/01. Packages/Comment Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/01. Packages/Documentation Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/01. Packages/Package Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/02. Part Definitions/Part Definition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/03. Generalization/Generalization Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/04. Subsetting/Subsetting Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/05. Redefinition/Redefinition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/06. Enumeration Definitions/Enumeration Definitions-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/06. Enumeration Definitions/Enumeration Definitions-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/07. Parts/Parts Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/07. Parts/Parts Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/08. Items/Items Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/09. Connections/Connections Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/10. Ports/Port Conjugation Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/10. Ports/Port Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/11. Interfaces/Interface Decomposition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/11. Interfaces/Interface Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/12. Binding Connectors/Binding Connectors Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/12. Binding Connectors/Binding Connectors Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/13. Flows/Flow Definition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/13. Flows/Flow Interface Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/13. Flows/Flow Usage Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/14. Action Definitions/Action Definition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/14. Action Definitions/Action Shorthand Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/14. Action Definitions/Action Succession Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/14. Action Definitions/Action Succession Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/15. Actions/Action Decomposition.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/16. Conditional Succession/Conditional Succession Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/16. Conditional Succession/Conditional Succession Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/17. Control/Camera.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/17. Control/Control Structures Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/17. Control/Decision Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/17. Control/Fork Join Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/17. Control/Merge Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/18. Action Performance/Action Performance Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/19. Terminate Actions/Terminate Actions Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/19. Terminate Actions/Terminate Actions Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/20. Assignment Actions/Assignment Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/21. Asynchronous Messaging/Messaging Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/21. Asynchronous Messaging/Messaging with Ports.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/22. Opaque Actions/Opaque Action Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/23. State Definitions/State Definition Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/23. State Definitions/State Definition Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/24. States/State Actions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/24. States/State Decomposition-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/24. States/State Decomposition-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/25. Transitions/Change and Time Triggers.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/25. Transitions/Local Clock Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/25. Transitions/Transition Actions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/26. State Exhibition/State Exhibition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/27. Occurrences/Event Occurrence Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/27. Occurrences/Interaction Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/27. Occurrences/Interaction Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/27. Occurrences/Interaction Realization-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/27. Occurrences/Interaction Realization-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/27. Occurrences/Message Payload Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/27. Occurrences/Time Slice and Snapshot Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/28. Individuals/Individuals and Roles-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/28. Individuals/Individuals and Snapshots Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/28. Individuals/Individuals and Time Slices.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/29. Expressions/Car Mass Rollup Example 1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/29. Expressions/Car Mass Rollup Example 2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/29. Expressions/MassRollup1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/29. Expressions/MassRollup2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/30. Calculations/Calculation Definitions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/30. Calculations/Calculation Usages-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/30. Calculations/Calculation Usages-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/31. Constraints/Analytical Constraints.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/31. Constraints/Constraint Assertions-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/31. Constraints/Constraint Assertions-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/31. Constraints/Constraints Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/31. Constraints/Constraints Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/31. Constraints/Derivation Constraints.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/31. Constraints/Time Constraints.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/32. Requirements/Requirement Definitions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/32. Requirements/Requirement Groups.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/32. Requirements/Requirement Satisfaction.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/32. Requirements/Requirement Usages.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/33. Analysis/Analysis Case Definition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/33. Analysis/Analysis Case Usage Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/33. Analysis/Trade Study Analysis Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/34. Verification/Verification Case Definition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/34. Verification/Verification Case Usage Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/35. Use Cases/Use Case Definition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/35. Use Cases/Use Case Usage Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/36. Variability/Variation Configuration.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/36. Variability/Variation Definitions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/36. Variability/Variation Usages.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/37. Dependencies/Dependency Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/38. Allocation/Allocation Definition Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/38. Allocation/Allocation Usage Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/39. Metadata/Metadata Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/39. Metadata/Metadata Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/40. Filtering/Filtering Example-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/40. Filtering/Filtering Example-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/41. Language Extension/Model Library Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/41. Language Extension/Semantic Metadata Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/41. Language Extension/User Keyword Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/42. Views/Viewpoint Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/training/42. Views/Views Example.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/01-Parts Tree/1a-Parts Tree.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/01-Parts Tree/1c-Parts Tree Redefinition.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/01-Parts Tree/1d-Parts Tree with Reference.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/02-Parts Interconnection/2a-Parts Interconnection.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/02-Parts Interconnection/2c-Parts Interconnection-Multiple Decompositions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3a-Function-based Behavior-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3a-Function-based Behavior-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3a-Function-based Behavior-3.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3c-Function-based Behavior-structure mod-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3c-Function-based Behavior-structure mod-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3c-Function-based Behavior-structure mod-3.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3d-Function-based Behavior-item.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/03-Function-based Behavior/3e-Function-based Behavior-item.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/04-Functional Allocation/4a-Functional Allocation.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/05-State-based Behavior/5-State-based Behavior-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/05-State-based Behavior/5-State-based Behavior-1a.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/05-State-based Behavior/5-State-based Behavior-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/06-Individual and Snapshots/6-Individual and Snapshots.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/07-Variant Configuration/7a-Variant Configuration - General Concept.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/07-Variant Configuration/7a1-Variant Configuration - General Concept-a.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/07-Variant Configuration/7b-Variant Configurations.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/08-Requirements/8-Requirements.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/09-Verification/9-Verification-simplified.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/10-Analysis and Trades/10a-Analysis.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/10-Analysis and Trades/10b-Trade-off Among Alternative Configurations.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/10-Analysis and Trades/10c-Fuel Economy Analysis.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/10-Analysis and Trades/10d-Dynamics Analysis.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/11-View and Viewpoint/11a-View-Viewpoint.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/11-View and Viewpoint/11b-Safety and Security Feature Views.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/12-Dependency Relationships/12a-Dependency.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/12-Dependency Relationships/12b-Allocation-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/12-Dependency Relationships/12b-Allocation.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/13-Model Containment/13a-Model Containment.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/13-Model Containment/13b-Safety and Security Features Element Group-1.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/13-Model Containment/13b-Safety and Security Features Element Group-2.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/13-Model Containment/13b-Safety and Security Features Element Group.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/14-Language Extensions/14a-Language Extensions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/14-Language Extensions/14b-Language Extensions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/14-Language Extensions/14c-Language Extensions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_01-Constants.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_02-Basic Value Properties.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_03-Value Expression.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_04-Logical Expressions.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_05-Unification of Expression and Constraint Definition.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_06-System of Quantities.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_07-System of Units and Scales.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_08-Range Restriction.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_10-Primitive Data Types.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_11-Variable Length Collection Types.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_12-Compound Value Type.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_13-Discretely Sampled Function Value.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_19-Materials with Properties.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/15-Properties-Values-Expressions/15_19a-Materials with Properties.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/17-Sequence Modeling/17a-Sequence-Modeling.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/17-Sequence Modeling/17b-Sequence-Modeling.sysml",
+    "fixtures/sysml-v2-release/sysml/src/validation/18-Use Case/18-Use Case.sysml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Address Book Example/AddressBookModel.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Association Examples/ProductSelection_N_ary.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Association Examples/ProductSelection_OwnedEnds.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Association Examples/ProductSelection_UnownedEnds.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Behavior Examples/Camera.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Behavior Examples/TakePicture.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Individuals Examples/JohnIndividualExample.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-2-Atoms.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-2-ModelingInstances.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-2-WithoutConnectors.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-3-OneToOneConnectors.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-4-OneToUnrestrictedConnectors.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-5-TimingForStructures.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-6-Sequences.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-7-DecisionsAndMerges.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-8-ChangingFeatureValues.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/MassRollup_1.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/MassRollup_2.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/Vehicles_1.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/Vehicles_2.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/Vehicles_3.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Massed Thing Example/MassedThings.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Named Collection Members Example/VehicleTanks.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Packet Example/PacketUsage.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Packet Example/Packets.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/ArgumentResolution.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Associations.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Behaviors.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Circular.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Classes.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Classifications.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Classifiers.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Comments.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Conjugation.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Connectors.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Dependencies.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Expansion.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Expressions.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/FeatureChains.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/FeatureInheritance.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Features.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Filtering.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Imports.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Inheritance.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Inverses.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/MetadataTest.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Redefinition.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Scoping.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/TextualRepresentation.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Types.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/ExtendedOccurrences.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/Moments.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/TimeVaryingFeaturesEnhanced.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/TimeVaryingSteps.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/TimeVaryingCarDriver.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/TimeVaryingFeatures.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Vehicle Example/VehicleDefinitions.kerml",
+    "fixtures/sysml-v2-release/kerml/src/examples/Vehicle Example/VehicleUsages.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Analysis/AnalysisTooling.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Analysis/SampledFunctions.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Analysis/StateSpaceRepresentation.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Analysis/TradeStudies.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Cause and Effect/CausationConnections.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Cause and Effect/CauseAndEffect.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Geometry/ShapeItems.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Geometry/SpatialItems.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Metadata/ImageMetadata.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Metadata/ModelingMetadata.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Metadata/ParametersOfInterestMetadata.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Metadata/RiskMetadata.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQ.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQAcoustics.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQAtomicNuclear.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQBase.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQCharacteristicNumbers.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQChemistryMolecular.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQCondensedMatter.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQElectromagnetism.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQInformation.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQLight.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQMechanics.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQSpaceTime.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/ISQThermodynamics.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/MeasurementRefCalculations.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/MeasurementReferences.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/Quantities.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/QuantityCalculations.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/SI.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/SIPrefixes.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/TensorCalculations.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/Time.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/USCustomaryUnits.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Quantities and Units/VectorCalculations.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Requirement Derivation/DerivationConnections.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Domain Libraries/Requirement Derivation/RequirementDerivation.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Data Type Library/Collections.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Data Type Library/ScalarValues.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Data Type Library/VectorValues.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/BaseFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/BooleanFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/CollectionFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/ComplexFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/ControlFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/DataFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/IntegerFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/NaturalFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/NumericalFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/OccurrenceFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/RationalFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/RealFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/ScalarFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/SequenceFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/StringFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/TrigFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/VectorFunctions.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Base.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Clocks.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/ControlPerformances.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/FeatureReferencingPerformances.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/KerML.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Links.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Metaobjects.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Objects.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Observation.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Occurrences.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Performances.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/SpatialFrames.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/StatePerformances.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Transfers.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/TransitionPerformances.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Triggers.kerml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Actions.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Allocations.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/AnalysisCases.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Attributes.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Calculations.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Cases.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Connections.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Constraints.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Flows.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Interfaces.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Items.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Metadata.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Parts.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Ports.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Requirements.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/StandardViewDefinitions.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/States.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/SysML.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/UseCases.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/VerificationCases.sysml",
+    "fixtures/sysml-v2-release/sysml.library/Systems Library/Views.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/DroneModelLogical.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/Drone_BaseArchitecture.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/EIT_System_Use_Cases.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/Fischertechnik.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/ForestFireDetectionSystemModel.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/ForestFireObservationDrone.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/HVACSystemRequirements.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/InternetModel_v1.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/MPLEExample_DirectCleanApproach_Vehicle.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/Metamodel.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/StopWatchStates.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/VehicleModel.sysml",
+    "fixtures/sysml-v2-models/models/SE_Models/lawnmowerPackage.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/AnalysisProblemSpace.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/BusinessCaseOpsCon.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/Concerns.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/Domain.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/MiningCorporationRequirementsDecl.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/MiningCorporationRequirementsDef.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/MiningFrigate.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/MiningFrigateRequirements.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/MiningFrigateRequirementsDef.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/MiningFrigateVerificationCases.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/DomainModel/cause-effect.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/LogicalArchitecture/ActionsHull.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/LogicalArchitecture/COTS.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/LogicalArchitecture/MiningFrigate.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/LogicalArchitecture/UseCasesHull.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/LogicalArchitecture/rollupAnalysis.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/LogicalArchitecture/standardPortsAndInterfaces.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/UseCases/OperationalUseCaseActions.sysml",
+    "fixtures/sysml-v2-models/models/example_EveOnlineMiningFrigate/UseCases/UseCasesFrigate.sysml",
+    "fixtures/sysml-v2-models/models/example_contribution/CalculationExample.sysml",
+    "fixtures/sysml-v2-models/models/example_contribution/example_nested/Boeing.sysml",
+    "fixtures/sysml-v2-models/models/example_family/family.sysml",
+    "fixtures/sysml-v2-models/models/example_sos/system-of-systems.sysml"
+  ],
+  "standardLibraryParseMs": 28356,
+  "pass": false,
+  "topErrors": [
+    {
+      "message": "mismatched input 'specializes' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 449
+    },
+    {
+      "message": "mismatched input 'feature' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 335
+    },
+    {
+      "message": "extraneous input 'return' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'then', 'timeslice', 'type', 'typed', 'use', 'var', 'variant', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}",
+      "count": 328
+    },
+    {
+      "message": "mismatched input '::' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 241
+    },
+    {
+      "message": "mismatched input '.' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 182
+    },
+    {
+      "message": "mismatched input ',' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 133
+    },
+    {
+      "message": "extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}",
+      "count": 100
+    },
+    {
+      "message": "mismatched input '(' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 98
+    },
+    {
+      "message": "mismatched input ')' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 92
+    },
+    {
+      "message": "mismatched input 'to' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 73
+    }
+  ],
+  "failingFiles": [
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Address Book Example/AddressBookModel.kerml",
+      "errors": 2,
+      "first": "4:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Association Examples/ProductSelection_N_ary.kerml",
+      "errors": 138,
+      "first": "3:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Association Examples/ProductSelection_OwnedEnds.kerml",
+      "errors": 70,
+      "first": "3:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Association Examples/ProductSelection_UnownedEnds.kerml",
+      "errors": 26,
+      "first": "3:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Behavior Examples/Camera.kerml",
+      "errors": 4,
+      "first": "1:0 extraneous input 'class' expecting {<EOF>, 'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Behavior Examples/TakePicture.kerml",
+      "errors": 11,
+      "first": "1:9 extraneous input 'TakePicture' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Individuals Examples/JohnIndividualExample.kerml",
+      "errors": 36,
+      "first": "4:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-2-Atoms.kerml",
+      "errors": 3,
+      "first": "10:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-2-ModelingInstances.kerml",
+      "errors": 25,
+      "first": "6:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-2-WithoutConnectors.kerml",
+      "errors": 17,
+      "first": "7:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-3-OneToOneConnectors.kerml",
+      "errors": 35,
+      "first": "10:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-4-OneToUnrestrictedConnectors.kerml",
+      "errors": 36,
+      "first": "9:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-5-TimingForStructures.kerml",
+      "errors": 130,
+      "first": "11:1 extraneous input 'struct' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-6-Sequences.kerml",
+      "errors": 27,
+      "first": "7:10 extraneous input 'Manufacture' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-7-DecisionsAndMerges.kerml",
+      "errors": 59,
+      "first": "12:10 extraneous input 'Manufacture' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/KerML Spec Annex A Examples/A-3-8-ChangingFeatureValues.kerml",
+      "errors": 131,
+      "first": "10:10 extraneous input 'Manufacture' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/MassRollup_1.kerml",
+      "errors": 4,
+      "first": "4:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/MassRollup_2.kerml",
+      "errors": 5,
+      "first": "5:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/Vehicles_1.kerml",
+      "errors": 20,
+      "first": "5:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/Vehicles_2.kerml",
+      "errors": 15,
+      "first": "5:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Mass Roll-up Example/Vehicles_3.kerml",
+      "errors": 21,
+      "first": "5:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Massed Thing Example/MassedThings.kerml",
+      "errors": 4,
+      "first": "4:8 no viable alternative at input 'publicclass'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Named Collection Members Example/VehicleTanks.kerml",
+      "errors": 28,
+      "first": "5:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Packet Example/PacketUsage.kerml",
+      "errors": 5,
+      "first": "5:9 mismatched input 'packet1' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Packet Example/Packets.kerml",
+      "errors": 18,
+      "first": "5:9 extraneous input ''packet header'' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/ArgumentResolution.kerml",
+      "errors": 9,
+      "first": "2:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Associations.kerml",
+      "errors": 15,
+      "first": "2:4 extraneous input 'datatype' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Behaviors.kerml",
+      "errors": 11,
+      "first": "2:13 extraneous input 'A' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Circular.kerml",
+      "errors": 5,
+      "first": "2:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Classes.kerml",
+      "errors": 25,
+      "first": "3:9 mismatched input 'f' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Classifications.kerml",
+      "errors": 1,
+      "first": "2:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Classifiers.kerml",
+      "errors": 24,
+      "first": "2:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Comments.kerml",
+      "errors": 2,
+      "first": "35:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Conjugation.kerml",
+      "errors": 7,
+      "first": "2:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Connectors.kerml",
+      "errors": 22,
+      "first": "3:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Dependencies.kerml",
+      "errors": 3,
+      "first": "14:9 extraneous input 'x' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Expansion.kerml",
+      "errors": 1,
+      "first": "3:9 extraneous input 'x' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Expressions.kerml",
+      "errors": 29,
+      "first": "21:10 extraneous input 'w' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/FeatureChains.kerml",
+      "errors": 51,
+      "first": "2:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/FeatureInheritance.kerml",
+      "errors": 3,
+      "first": "2:9 extraneous input 's' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Features.kerml",
+      "errors": 69,
+      "first": "2:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Filtering.kerml",
+      "errors": 7,
+      "first": "5:12 extraneous input 'ApprovalAnnotation' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Imports.kerml",
+      "errors": 14,
+      "first": "4:2 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Inheritance.kerml",
+      "errors": 8,
+      "first": "2:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Inverses.kerml",
+      "errors": 24,
+      "first": "2:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/MetadataTest.kerml",
+      "errors": 17,
+      "first": "6:2 extraneous input 'datatype' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Redefinition.kerml",
+      "errors": 9,
+      "first": "3:1 extraneous input 'classifier' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Scoping.kerml",
+      "errors": 13,
+      "first": "3:8 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/TextualRepresentation.kerml",
+      "errors": 4,
+      "first": "4:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Simple Tests/Types.kerml",
+      "errors": 56,
+      "first": "2:15 mismatched input 'A' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/ExtendedOccurrences.kerml",
+      "errors": 40,
+      "first": "2:4 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/Moments.kerml",
+      "errors": 13,
+      "first": "5:4 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/TimeVaryingFeaturesEnhanced.kerml",
+      "errors": 42,
+      "first": "4:4 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/Enhancements/TimeVaryingSteps.kerml",
+      "errors": 65,
+      "first": "2:10 extraneous input 'TakePicture' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/TimeVaryingCarDriver.kerml",
+      "errors": 111,
+      "first": "6:4 extraneous input 'struct' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Variable Feature Examples/TimeVaryingFeatures.kerml",
+      "errors": 82,
+      "first": "2:4 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Vehicle Example/VehicleDefinitions.kerml",
+      "errors": 10,
+      "first": "10:1 extraneous input 'class' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/kerml/src/examples/Vehicle Example/VehicleUsages.kerml",
+      "errors": 66,
+      "first": "11:9 extraneous input 'T1' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Data Type Library/Collections.kerml",
+      "errors": 40,
+      "first": "16:13 no viable alternative at input 'abstractdatatype'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Data Type Library/ScalarValues.kerml",
+      "errors": 22,
+      "first": "11:10 no viable alternative at input 'abstractdatatype'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Data Type Library/VectorValues.kerml",
+      "errors": 12,
+      "first": "13:10 no viable alternative at input 'abstractdatatype'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/BaseFunctions.kerml",
+      "errors": 30,
+      "first": "14:19 extraneous input ''=='' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/BooleanFunctions.kerml",
+      "errors": 26,
+      "first": "10:10 mismatched input ''not'' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/CollectionFunctions.kerml",
+      "errors": 42,
+      "first": "15:10 mismatched input ''=='' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/ComplexFunctions.kerml",
+      "errors": 65,
+      "first": "10:9 mismatched input 'i' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/ControlFunctions.kerml",
+      "errors": 69,
+      "first": "14:19 extraneous input ''.'' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/DataFunctions.kerml",
+      "errors": 46,
+      "first": "12:19 mismatched input ''=='' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/IntegerFunctions.kerml",
+      "errors": 80,
+      "first": "10:10 mismatched input 'abs' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/NaturalFunctions.kerml",
+      "errors": 50,
+      "first": "10:10 mismatched input ''+'' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/NumericalFunctions.kerml",
+      "errors": 72,
+      "first": "10:19 extraneous input 'isZero' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/OccurrenceFunctions.kerml",
+      "errors": 41,
+      "first": "20:10 mismatched input ''==='' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/RationalFunctions.kerml",
+      "errors": 88,
+      "first": "10:10 extraneous input 'rat' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/RealFunctions.kerml",
+      "errors": 88,
+      "first": "10:10 mismatched input 're' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/ScalarFunctions.kerml",
+      "errors": 76,
+      "first": "9:19 mismatched input ''+'' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/SequenceFunctions.kerml",
+      "errors": 52,
+      "first": "13:10 mismatched input ''#'' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/StringFunctions.kerml",
+      "errors": 32,
+      "first": "10:10 mismatched input ''+'' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/TrigFunctions.kerml",
+      "errors": 29,
+      "first": "9:9 mismatched input 'pi' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Function Library/VectorFunctions.kerml",
+      "errors": 162,
+      "first": "23:19 extraneous input 'isZeroVector' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Base.kerml",
+      "errors": 15,
+      "first": "8:10 no viable alternative at input 'abstractclassifier'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Clocks.kerml",
+      "errors": 44,
+      "first": "14:9 no viable alternative at input 'privatestruct'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/ControlPerformances.kerml",
+      "errors": 49,
+      "first": "17:10 mismatched input 'DecisionPerformance' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/FeatureReferencingPerformances.kerml",
+      "errors": 103,
+      "first": "21:19 mismatched input 'FeatureReferencingPerformance' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/KerML.kerml",
+      "errors": 634,
+      "first": "11:12 mismatched input 'AnnotatingElement' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Links.kerml",
+      "errors": 12,
+      "first": "10:13 no viable alternative at input 'abstractassoc'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Metaobjects.kerml",
+      "errors": 7,
+      "first": "12:20 mismatched input 'Metaobject' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Objects.kerml",
+      "errors": 106,
+      "first": "24:10 no viable alternative at input 'abstractstruct'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Observation.kerml",
+      "errors": 31,
+      "first": "20:12 no viable alternative at input 'privatestruct'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Occurrences.kerml",
+      "errors": 479,
+      "first": "23:10 no viable alternative at input 'abstractclass'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Performances.kerml",
+      "errors": 73,
+      "first": "22:19 mismatched input 'Performance' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/SpatialFrames.kerml",
+      "errors": 74,
+      "first": "19:12 no viable alternative at input 'privatestruct'"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/StatePerformances.kerml",
+      "errors": 115,
+      "first": "22:10 mismatched input 'StatePerformance' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Transfers.kerml",
+      "errors": 95,
+      "first": "17:16 mismatched input 'Transfer' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/TransitionPerformances.kerml",
+      "errors": 49,
+      "first": "21:19 extraneous input 'TransitionPerformance' expecting {'default', ':=', ';', '=', '{'}"
+    },
+    {
+      "file": "fixtures/sysml-v2-release/sysml.library/Kernel Libraries/Kernel Semantic Library/Triggers.kerml",
+      "errors": 26,
+      "first": "16:1 extraneous input 'struct' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/DroneModelLogical.sysml",
+      "errors": 14,
+      "first": "8:12 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/Drone_BaseArchitecture.sysml",
+      "errors": 2,
+      "first": "28:4 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/EIT_System_Use_Cases.sysml",
+      "errors": 29,
+      "first": "4:4 extraneous input 'actor' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/ForestFireDetectionSystemModel.sysml",
+      "errors": 2,
+      "first": "4:4 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/ForestFireObservationDrone.sysml",
+      "errors": 2,
+      "first": "3:4 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/HVACSystemRequirements.sysml",
+      "errors": 5,
+      "first": "3:4 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/Metamodel.sysml",
+      "errors": 10,
+      "first": "3:4 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/SE_Models/VehicleModel.sysml",
+      "errors": 114,
+      "first": "3:4 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    },
+    {
+      "file": "fixtures/sysml-v2-models/models/example_contribution/CalculationExample.sysml",
+      "errors": 4,
+      "first": "2:1 extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}"
+    }
+  ]
+}

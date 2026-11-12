@@ -35,18 +35,25 @@
     }
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "build": "node esbuild.mjs",
-    "test": "vitest run",
-    "test:integration": "npm run build && tsc -p tsconfig.integration.json && node out/test/integration/runTest.js"
+    "typecheck": "npm run generate:parser && tsc --noEmit",
+    "build": "npm run generate:parser && node esbuild.mjs",
+    "test": "npm run generate:parser && vitest run",
+    "test:integration": "npm run build && tsc -p tsconfig.integration.json && node out/test/integration/runTest.js",
+    "generate:parser": "antlr-ng -Dlanguage=TypeScript -v -o src/parser/generated --lib vendor/sysml-v2-grammar vendor/sysml-v2-grammar/SysMLv2Lexer.g4 vendor/sysml-v2-grammar/SysMLv2Parser.g4",
+    "gate:parser": "npm run generate:parser && tsx scripts/parser-gate.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/vscode": "^1.146.0",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.1.0",
+    "antlr-ng": "^1.0.10",
     "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "antlr4ng": "^3.0.16"
   }
 }

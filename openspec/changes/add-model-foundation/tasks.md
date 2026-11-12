@@ -9,8 +9,8 @@
 
 ## 2. Parser and model index
 
-- [ ] 2.1 Vendor the ANTLR4 SysML v2 grammar (pinned to release 2026-09.1) with its licence notice and upstream commit, add `antlr4ng`, and generate the TypeScript parser as a build step; verify `npm run build` regenerates it and a one-line model parses
-- [ ] 2.2 Run the parser acceptance gate (design D2) over every fixture `.sysml` and `.kerml` file: syntax-error rate, byte-for-byte token re-join, and standard library load time; record the results and the pass/fail decision in design.md
+- [x] 2.1 Vendor the ANTLR4 SysML v2 grammar (pinned to release 2026-09.1) with its licence notice and upstream commit, add `antlr4ng`, and generate the TypeScript parser as a build step; verify `npm run build` regenerates it and a one-line model parses
+- [x] 2.2 Run the parser acceptance gate (design D2) over every fixture `.sysml` and `.kerml` file: syntax-error rate, byte-for-byte token re-join, and standard library load time; record the results and the pass/fail decision in design.md
 - [ ] 2.3 Only if 2.2 fails and the vendored grammar cannot be patched: write our own full-grammar parser in TypeScript from `fixtures/sysml-v2-release/bnf`, behind the same interface; verify it passes the same gate
 - [ ] 2.4 Implement the model layer on the parse tree (elements, kinds, ownership, qualified names, short names, types, multiplicities, documentation, exact source ranges) behind a parser-independent interface; verify unit tests per construct category against fixture files
 - [ ] 2.5 Implement `ModelIndex` (per-document parse, workspace-wide qualified-name index, cross-file import resolution, change events, debounced incremental re-parse); verify unit tests for resolution across files and for change events

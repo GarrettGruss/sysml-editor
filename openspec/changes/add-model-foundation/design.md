@@ -54,6 +54,29 @@ Fallback: if the gate fails and the gaps cannot be fixed by patching the vendore
 
 Alternatives considered: a hand-written Langium grammar for a subset (the earlier decision; rejected on coverage, and the Langium-based `sysml-2ls` was archived in favour of a faster rewrite); the OMG Pilot Implementation as a Java server (needs a JVM, no syntax tree access from TypeScript); `tree-sitter-sysml` and Rust parsers compiled to WebAssembly (early releases, unverified coverage).
 
+#### Gate results (2026-11-11)
+
+Grammar: `daltskin/sysml-v2-grammar` tag v2026.09.1 (commit 27a1344), MIT, vendored unpatched in `vendor/sysml-v2-grammar/`. Run with `npm run gate:parser` (details in `scripts/parser-gate-result.json`). Result: **FAIL**.
+
+| Group | Ext | Files | With errors | Clean |
+|---|---|---|---|---|
+| Release examples | .sysml | 252 | 0 | 100% |
+| KerML examples | .kerml | 58 | 58 | 0% |
+| Standard library | .sysml | 58 | 0 | 100% |
+| Standard library | .kerml | 36 | 36 | 0% |
+| Community models | .sysml | 36 | 9 | 75% |
+
+- Overall: 337 of 440 files clean (76.59%), against the 99% criterion.
+- Token re-join: 440 of 440 files fail. The upstream lexer discards whitespace and `//` line notes (`-> skip`) instead of sending them to a hidden channel, so the token stream cannot reproduce the source. Block comments (`REGULAR_COMMENT`) are kept as tokens.
+- Standard library parse time: about 28.4 s for 94 files (including the re-join check; measured wall-clock in one Node process, unoptimised, with all 36 `.kerml` files hitting error recovery). Too slow to be acceptable without caching or grammar changes.
+
+Causes of failure:
+1. KerML is not supported: the grammar is SysML only. All 94 `.kerml` files fail on KerML keywords (`class`, `classifier`, `struct`, `datatype`, `assoc`, `specializes`, `feature`, `return`), e.g. `kerml/src/examples/Address Book Example/AddressBookModel.kerml` ("extraneous input 'class'"). The standard library needs this, so the KerML part of the grammar has to be added.
+2. Community models, 9 files: first error is mostly on an `import` or `actor` statement inside a package body (e.g. `SE_Models/VehicleModel.sysml` 3:4, `SE_Models/DroneModelLogical.sysml` 8:12 "extraneous input 'import'", `SE_Models/EIT_System_Use_Cases.sysml` 4:4 "extraneous input 'actor'"). Cause not yet investigated.
+3. Whitespace and line notes skipped by the lexer (re-join failure above): fixable by patching two lexer rules to `-> channel(HIDDEN)`.
+
+Consequence: patching is needed for the lexer (small) and for KerML (large: the KerML grammar must be written or added). Decision between patching the vendored grammar and task 2.3 (own parser) is open.
+
 ### D8: Tree view
 `TreeDataProvider<ModelNode>` driven by ModelIndex change events with per-node `onDidChangeTreeData` firing to preserve expansion. Uses `TreeDragAndDropController` to support drag into diagram webviews (`application/vnd.code.tree.sysmlModel` mime).
 
