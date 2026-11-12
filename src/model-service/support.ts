@@ -1,9 +1,10 @@
 /** Pure helpers for the interactive model edits (inputs, confirmation texts, completion). `vscode`-free. */
 import { referencesAfterDelete } from "../edit/delete.js";
 import { nameClash } from "../edit/insert.js";
+import { describeDependents } from "../edit/behavior.js";
 import type { SourceLocation } from "../edit/types.js";
 import { isLibraryUri, type Element, type ModelIndex } from "../model/index.js";
-import { ALL_KINDS, USAGE_KINDS } from "./kinds.js";
+import { ALL_KINDS, CONTROL_KINDS, USAGE_KINDS } from "./kinds.js";
 
 export interface KindChoice {
   kind: string;
@@ -32,6 +33,10 @@ export interface DeleteImpact {
   unjudged: number;
   /** A few of the references, for the confirmation text. */
   locations: SourceLocation[];
+  /** Successions, transitions, flows and message orderings that connect the element and are deleted with it (their text). */
+  statements?: string[];
+  /** The statement text of an unnamed element (a succession, transition or message). */
+  label?: string;
 }
 
 function count(e: Element): number {
@@ -51,7 +56,16 @@ export function deleteImpact(index: ModelIndex, el: Element): DeleteImpact {
   } catch {
     /* the scan is a hint for the confirmation text only */
   }
-  return { ownedMembers: own, references, unjudged, locations };
+  let statements: string[] = [];
+  try {
+    statements = describeDependents(index, el);
+  } catch {
+    /* a hint only */
+  }
+  let label: string | undefined;
+  const text = el.name === undefined ? index.getDocument(el.uri)?.text.slice(el.range.start.offset, el.range.end.offset).replace(/\s+/g, " ").trim() : undefined;
+  if (text) label = text.length > 70 ? text.slice(0, 67) + "..." : text;
+  return { ownedMembers: own, references, unjudged, locations, statements, ...(label ? { label } : {}) };
 }
 
 /** `file.sysml:12` for a reference location. */
@@ -67,17 +81,19 @@ export function spot(l: SourceLocation): string {
 }
 
 export function confirmationText(el: Element, impact: DeleteImpact): { message: string; detail: string } {
-  const what = `${el.kind} '${el.name ?? "(unnamed)"}'`;
+  const what = el.name === undefined && impact.label ? `${el.kind} \`${impact.label}\`` : `${el.kind} '${el.name ?? "(unnamed)"}'`;
   const bits: string[] = [];
   if (impact.ownedMembers) bits.push(`It owns ${impact.ownedMembers} element${impact.ownedMembers === 1 ? "" : "s"}, which are deleted with it.`);
   if (impact.references) bits.push(`It is referenced in ${impact.references} place${impact.references === 1 ? "" : "s"} elsewhere${impact.locations.length ? ` (${impact.locations.slice(0, 3).map(spot).join(", ")}${impact.references > 3 ? ", ..." : ""})` : ""}; those references are left as they are and will no longer resolve.`);
   if (impact.unjudged) bits.push(`${impact.unjudged} other mention${impact.unjudged === 1 ? "" : "s"} of ${impact.unjudged === 1 ? "its name or a name inside it" : "these names"} (for example inside expressions) could not be checked, so ${impact.unjudged === 1 ? "it" : "they"} may also stop resolving.`);
+  const stmts = impact.statements ?? [];
+  if (stmts.length) bits.push(`It is connected by ${stmts.length} statement${stmts.length === 1 ? "" : "s"}, which ${stmts.length === 1 ? "is" : "are"} deleted with it: ${stmts.map((t) => `\`${t}\``).join(", ")}.`);
   if (!bits.length) bits.push("Nothing else owns or references it.");
   return { message: `Delete ${what} from the model?`, detail: `${bits.join(" ")} The declaration is removed from the .sysml file and saved. Undo restores it.` };
 }
 
 /** Whether Delete from Model needs to ask (owned members or references elsewhere). */
-export const needsConfirmation = (i: DeleteImpact): boolean => i.ownedMembers > 0 || i.references > 0 || i.unjudged > 0;
+export const needsConfirmation = (i: DeleteImpact): boolean => i.ownedMembers > 0 || i.references > 0 || i.unjudged > 0 || (i.statements?.length ?? 0) > 0;
 
 /** Declaration kinds of definitions that can type a usage kind (`part` is typed by `part def`). */
 export function definitionKindFor(usageKind: string): string | undefined {
@@ -106,4 +122,4 @@ export function typeCandidates(index: ModelIndex, el: Element, query: string, li
   return out.slice(0, limit);
 }
 
-export const ADD_KINDS: KindChoice[] = ALL_KINDS.map((kind) => ({ kind, label: kindLabel(kind) }));
+export const ADD_KINDS: KindChoice[] = [...ALL_KINDS, ...CONTROL_KINDS].map((kind) => ({ kind, label: kindLabel(kind) }));

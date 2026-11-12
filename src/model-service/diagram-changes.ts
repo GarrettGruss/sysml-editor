@@ -9,6 +9,7 @@ import { addElement } from "../diagram/create.js";
 import { removeItems } from "../diagram/edits.js";
 import type { DiagramDocument, DiagramEdge, DiagramNode } from "../diagram/format.js";
 import { referenceFor, referenceKey, type SourceMapper } from "../diagram/resolve.js";
+import type { ElementReference } from "../diagram/format.js";
 
 export interface ChangeContext {
   uri: string;
@@ -101,13 +102,20 @@ export function restoreItems(doc: DiagramDocument, items: { nodes: DiagramNode[]
 }
 
 /** Delete from Model: the entries for the deleted element and everything below it go from every diagram. */
-export function removeEntriesChange(qns: string[], label: string): DiagramChange {
+export function removeEntriesChange(qns: string[], label: string, keys: readonly string[] = []): DiagramChange {
   const removed = new Map<string, { nodes: DiagramNode[]; edges: DiagramEdge[] }>();
   return {
     target: "all",
     label,
     apply(doc, ctx) {
-      const r = removeReferencesTo(doc, qns);
+      // Unnamed statements (and what was drawn for them) are found by their structural references.
+      const byKey = keys.length ? [...doc.nodes, ...doc.edges].filter((i) => keys.includes(referenceKey(i))).map((i) => i.id) : [];
+      const r = removeReferencesTo(byKey.length ? removeItems(doc, byKey) : doc, qns);
+      if (byKey.length) {
+        const kept = new Set([...r.doc.nodes, ...r.doc.edges].map((i) => i.id));
+        const extra = { nodes: doc.nodes.filter((n) => !kept.has(n.id) && !r.removed.nodes.some((x) => x.id === n.id)), edges: doc.edges.filter((e) => !kept.has(e.id) && !r.removed.edges.some((x) => x.id === e.id)) };
+        r.removed = { nodes: [...r.removed.nodes, ...extra.nodes], edges: [...r.removed.edges, ...extra.edges] };
+      }
       if (r.removed.nodes.length || r.removed.edges.length) removed.set(ctx.uri, r.removed);
       return r.doc;
     },
@@ -141,5 +149,41 @@ export function dropEntriesChange(keys: readonly string[], label: string): Diagr
       return items ? restoreItems(doc, items) : doc;
     },
     removedItems: (uri) => removed.get(uri),
+  };
+}
+
+/**
+ * An edge whose statement was rewritten (a transition changed from the shorthand to the explicit form) keeps its place on the
+ * diagram: its locator is replaced by the one of the new statement. Applies to the saved state of every diagram file.
+ */
+export function retargetChange(oldKey: string | undefined, next: () => ElementReference | undefined, label: string): DiagramChange {
+  const was = new Map<string, ElementReference>();
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      const to = next();
+      if (!oldKey || !to || referenceKey(to) === oldKey) return doc;
+      let changed = false;
+      const edges = doc.edges.map((e) => {
+        if (referenceKey(e) !== oldKey) return e;
+        changed = true;
+        was.set(ctx.uri + "\0" + e.id, e.locator ? { locator: e.locator } : { ref: e.ref! });
+        const { ref: _r, locator: _l, ...rest } = e;
+        return { ...rest, ...to } as DiagramEdge;
+      });
+      return changed ? { ...doc, edges } : doc;
+    },
+    revert(doc, ctx) {
+      let changed = false;
+      const edges = doc.edges.map((e) => {
+        const old = was.get(ctx.uri + "\0" + e.id);
+        if (!old) return e;
+        changed = true;
+        const { ref: _r, locator: _l, ...rest } = e;
+        return { ...rest, ...old } as DiagramEdge;
+      });
+      return changed ? { ...doc, edges } : doc;
+    },
   };
 }

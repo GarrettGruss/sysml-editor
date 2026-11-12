@@ -5,7 +5,7 @@
  */
 import { isLibraryUri, type Element } from "../model/index.js";
 import type { OpFailure, OpOk, OpResult, Properties, Target } from "../model-service/service.js";
-import { ALL_KINDS } from "../model-service/kinds.js";
+import { CREATABLE_KINDS } from "../model-service/kinds.js";
 import { ToolError, type EditContext, type ToolContext, type ToolDefinition } from "./types.js";
 
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
@@ -67,7 +67,7 @@ function placementNote(ctx: ToolContext, r: OpOk, target: { path: string } | und
 }
 
 /** Every kind that can be added somewhere; the service checks the kind against the owner (`allowedChildKinds`). */
-const KINDS = [...ALL_KINDS];
+const KINDS = [...CREATABLE_KINDS];
 
 const diagramProp = { type: "string" as const, description: "Optional workspace-relative path of a .sysmld diagram to place the new element on (as a node, or an edge for a relationship). The diagram file is updated on top of its last saved state; pending layout in an open diagram stays unsaved." };
 

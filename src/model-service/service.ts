@@ -10,11 +10,14 @@ import {
   isPlanCurrent, sourceMatches, sourceOf,
   detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, planRemoveDerivation, planRemoveSatisfy,
   planRemoveVerify, planSetCommentBody, planVerify, type MoveTarget,
+  planAddMessage, planAddSuccession, planAddTransition, planDeleteBehavior, planSetTransition, type MessageSpec, type TransitionParts,
   type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { placeElementChange, removeEntriesChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { placeElementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { referenceFor } from "../diagram/resolve.js";
+import { analyze, isSynthetic } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
 
 export interface ElementInfo {
@@ -140,6 +143,10 @@ export interface Target {
   /** The element it is shown in, when that is not its owner (the usage that inherits it). */
   context?: Element;
 }
+
+import { dependentsOf } from "../edit/index.js";
+import { referenceKey as referenceKeyOf } from "../diagram/resolve.js";
+const dependentStatements = dependentsOf;
 
 const nameOfUri = (uri: string) => decodeURIComponent(uri.split(/[?#]/, 1)[0]!.split("/").pop() ?? uri);
 
@@ -422,12 +429,20 @@ export class ModelService {
       await this.host.sync();
       const first = this.fresh(t.element);
       const top = first?.qualifiedName !== undefined ? [first.qualifiedName] : [];
+      // Unnamed statements (successions, transitions, messages) are found in diagrams by their locators.
+      const keys: string[] = [];
       return this.run(
         () => {
           const el = this.fresh(t.element);
-          return el ? planDeleteElement(this.index, el) : fail("The element is out of date; refresh and try again.");
+          if (!el) return fail("The element is out of date; refresh and try again.");
+          keys.length = 0;
+          for (const d of [el, ...dependentStatements(this.index, el)]) {
+            const ref = d.qualifiedName === undefined ? referenceFor(d, this.index) : undefined;
+            if (ref) keys.push(referenceKeyOf(ref));
+          }
+          return planDeleteBehavior(this.index, el);
         },
-        () => ({ ...(top.length ? { change: () => removeEntriesChange(top, `Delete ${t.element.name ?? t.element.kind}`) } : {}) }),
+        () => ({ ...(top.length || keys.length ? { change: () => removeEntriesChange(top, `Delete ${t.element.name ?? t.element.kind}`, keys) } : {}) }),
         origin,
         () => [t.element.uri],
       );
@@ -571,6 +586,115 @@ export class ModelService {
         () => [owner.uri],
       );
     });
+  }
+
+  // ---- behaviour: successions, transitions, messages ------------------------------------------
+
+  /** A statement written into `owner` (a succession, transition or message), placed on the diagram it was drawn on. */
+  private statementIn(owner: Element, kind: string, plan: (o: Element) => PlanResult | OpFailure, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } }, label: string): Promise<OpResult> {
+    return this.serial(async () => {
+      let created: Element | undefined;
+      const sig = (m: Element) => `${m.kind}\0${m.name ?? ""}\0${m.ends.join("|")}\0${this.index.getDocument(m.uri)?.text.slice(m.range.start.offset, m.range.end.offset) ?? ""}`;
+      const pre = new Map<string, number>();
+      const ownerQn = owner.qualifiedName;
+      const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === owner.uri && x.kind === owner.kind) ?? this.index.findByQualifiedName(ownerQn)[0] : this.fresh(owner));
+      return this.run(
+        () => {
+          const o = findOwner();
+          if (!o) return fail("The element to add to is out of date; refresh and try again.");
+          pre.clear();
+          for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
+          return plan(o);
+        },
+        () => ({
+          element: () => {
+            const seen = new Map<string, number>();
+            created = findOwner()?.members.find((m) => {
+              if (m.kind !== kind) return false;
+              const k = sig(m);
+              const n = (seen.get(k) ?? 0) + 1;
+              seen.set(k, n);
+              return n > (pre.get(k) ?? 0);
+            });
+            return created;
+          },
+          ...(opts.placement?.diagram ? { change: () => placeElementChange(this.index, () => created, { diagram: opts.placement!.diagram! }, label) } : {}),
+        }),
+        opts.diagram ? { diagram: opts.diagram } : undefined,
+        () => [owner.uri],
+      );
+    });
+  }
+
+  /** `first a then b;` in `owner` (the two nodes are its members, or its start and done nodes). */
+  addSuccession(owner: Element, source: Element, target: Element, opts: Origin & { guard?: string; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    return this.statementIn(owner, "succession", (o) => {
+      const a = this.resolveNode(o, source), b = this.resolveNode(o, target);
+      if (!a || !b) return fail("A node of the succession is out of date; refresh and try again.");
+      return planAddSuccession(this.index, o, a, b, opts.guard);
+    }, opts, "Add succession");
+  }
+
+  /** `transition first a [accept T] [if g] [do e] then b;` in `owner`. */
+  addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    return this.statementIn(owner, "transition", (o) => {
+      const a = this.resolveNode(o, source), b = this.resolveNode(o, target);
+      if (!a || !b) return fail("A state of the transition is out of date; refresh and try again.");
+      return planAddTransition(this.index, o, a, b, parts);
+    }, opts, "Add transition");
+  }
+
+  /** `message [name] [of T] from a to b;` in the interaction `owner`, after its last message. */
+  addMessage(owner: Element, from: string, to: string, spec: { name?: string; itemType?: string } = {}, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    return this.statementIn(owner, "message", (o) => {
+      const ms: MessageSpec = { ...(spec.name !== undefined && spec.name !== "" ? { name: spec.name } : {}) };
+      if (spec.itemType !== undefined && spec.itemType.trim() !== "") {
+        const t = this.index.findByQualifiedName(spec.itemType.trim())[0] ?? this.index.resolve(spec.itemType.trim(), o);
+        ms.itemType = t ?? spec.itemType.trim();
+      }
+      return planAddMessage(this.index, o, from, to, ms);
+    }, opts, "Add message");
+  }
+
+  /** Change trigger, guard or effect of a transition: the whole statement is written again from its parts. */
+  setTransition(transition: Element, parts: TransitionParts, origin?: Origin): Promise<OpResult> {
+    return this.serial(async () => {
+      let oldKey: string | undefined;
+      let now: Element | undefined;
+      let want: { src: string; tgt: string; trigger?: string; guard?: string; effect?: string } | undefined;
+      const ownerQn = transition.owner?.qualifiedName;
+      const norm = (x: string | undefined) => (x ?? "").replace(/\s+/g, " ").trim();
+      return this.run(
+        () => {
+          const el = this.fresh(transition);
+          if (!el) return fail("The transition is out of date; refresh and try again.");
+          const ref = referenceFor(el, this.index);
+          oldKey = ref ? referenceKeyOf(ref) : undefined;
+          const info = el.owner ? analyze(this.index, el.owner).transitions.find((t) => t.statement === el) : undefined;
+          if (info) want = { src: info.source.name ?? info.source.kind, tgt: info.target.name ?? info.target.kind, trigger: parts.trigger ?? info.trigger, guard: parts.guard ?? info.guard, effect: parts.effect ?? info.effect };
+          return planSetTransition(this.index, el, parts);
+        },
+        () => ({
+          element: () => {
+            // The rewritten statement names its source: find it again by its ends and parts.
+            const o = ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === transition.uri) : undefined;
+            if (!o || !want) return undefined;
+            const w = want;
+            now = analyze(this.index, o).transitions.find((t) => (t.source.name ?? t.source.kind) === w.src && (t.target.name ?? t.target.kind) === w.tgt && norm(t.trigger) === norm(w.trigger) && norm(t.guard) === norm(w.guard) && norm(t.effect) === norm(w.effect))?.statement;
+            return now;
+          },
+          change: () => retargetChange(oldKey, () => (now ? referenceFor(now, this.index) : undefined), "Change transition"),
+        }),
+        origin,
+        () => [transition.uri],
+      );
+    });
+  }
+
+  /** The member of `owner` the element stands for now (or its start/done node), re-read from the current model. */
+  private resolveNode(owner: Element, el: Element): Element | undefined {
+    if (isSynthetic(el)) return analyze(this.index, owner).synthetic.find((s) => s.kind === el.kind && s.owner === owner) ?? analyze(this.index, owner).nodes.find((n) => n.kind === el.kind && isSynthetic(n)) ?? el;
+    return el.qualifiedName !== undefined ? owner.members.find((m) => m.qualifiedName === el.qualifiedName) : this.fresh(el);
   }
 
   private freshEnd(t: Target, owner: Element): Element | string | undefined {
