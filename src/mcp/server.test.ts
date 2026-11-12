@@ -10,18 +10,25 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { ModelIndex } from "../model/index.js";
 import { callTool, toolDefinitions, type ToolContext } from "../agent-tools/index.js";
 import { FakeDiagrams, fixtureDiagram, fixtureText } from "../agent-tools/test-support.js";
+import { FakeHost } from "../model-service/fake-host.js";
+import { ModelService } from "../model-service/service.js";
 import { discoveryFilePath, readLiveServer, removeDiscoveryFile, writeDiscoveryFile } from "./discovery.js";
 import { startMcpServer, tokenMatches, type RunningMcpServer } from "./server.js";
 
 const ROOT = "file:///w/";
 const index = new ModelIndex();
-index.setDocument(ROOT + "m.sysml", "package P { part def Engine; part def Car { part engine : Engine; } }");
+const M_TEXT = "package P { part def Engine; part def Car { part engine : Engine; part gearbox; } }";
+index.setDocument(ROOT + "m.sysml", M_TEXT);
 index.setDocument(ROOT + "bad.sysml", "package Q { part x : Nope; }");
 index.setDocument(ROOT + "ports.sysml", fixtureText("ports.sysml"));
 const diagrams = new FakeDiagrams();
 diagrams.files.set("ports-general.sysmld", fixtureDiagram("ports-general.sysmld"));
+const host = new FakeHost(index);
+host.buffers.set(ROOT + "m.sysml", M_TEXT);
+host.disk.set(ROOT + "m.sysml", M_TEXT);
 const ctx: ToolContext = {
   diagrams,
+  edits: { service: new ModelService(host), isTrusted: () => true, diagramUri: async (p) => ROOT + p },
   index,
   uriToPath: (u) => (u.startsWith(ROOT) ? u.slice(ROOT.length) : undefined),
   pathToUri: (p) => (index.getDocument(ROOT + p) ? ROOT + p : undefined),
@@ -38,6 +45,11 @@ const INPUTS: Record<string, unknown> = {
   sysml_add_to_diagram: { path: "ports-general.sysmld", elements: ["Ports::Power"] },
   sysml_remove_from_diagram: { path: "ports-general.sysmld", ids: ["n3"] },
   sysml_layout_diagram: { path: "ports-general.sysmld" },
+  sysml_create_element: { owner: "P::Car", kind: "part", name: "wheel", type: "Engine" },
+  sysml_delete_element: { element: "P::Car::engine" },
+  sysml_rename_element: { element: "P::Engine", newName: "Motor" },
+  sysml_set_element_properties: { element: "P::Car::engine", multiplicity: "2" },
+  sysml_create_relationship: { kind: "connection", owner: "P::Car", source: "P::Car::engine", target: "P::Car::gearbox" },
 };
 
 let home: string;
@@ -91,6 +103,9 @@ describe("MCP server over HTTP", () => {
     const client = await connect(server.token);
     for (const [name, input] of Object.entries(INPUTS)) {
       const reset = () => {
+        host.buffers.set(ROOT + "m.sysml", M_TEXT);
+        host.disk.set(ROOT + "m.sysml", M_TEXT);
+        index.setDocument(ROOT + "m.sysml", M_TEXT);
         diagrams.files.delete("car.sysmld");
         diagrams.files.set("ports-general.sysmld", fixtureDiagram("ports-general.sysmld"));
       };

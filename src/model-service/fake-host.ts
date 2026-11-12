@@ -7,7 +7,12 @@ import type { DiagramChange } from "./diagram-changes.js";
 import type { ApplyOutcome, ModelHost, OpOk } from "./service.js";
 
 export class FakeHost implements ModelHost {
-  readonly index = new ModelIndex();
+  readonly index: ModelIndex;
+
+  constructor(index: ModelIndex = new ModelIndex()) {
+    this.index = index;
+  }
+
   /** Open buffer text per document. */
   readonly buffers = new Map<string, string>();
   /** Text on disk per document. */
