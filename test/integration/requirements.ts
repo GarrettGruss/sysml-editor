@@ -235,6 +235,7 @@ export function requirementsTests(c: Ctx): Test[] {
       // remove all three again
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-derived-from-remove]" });
       await waitFor(() => (onDisk(file).match(/#derivation connection/g) ?? []).length === 1, 90000, "the derivation is removed");
+      await eventually(async () => assert.deepStrictEqual((await detail()).derivedFrom, []), "and the view has refreshed (the next click uses its keys)");
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-verify-remove]" });
       await waitFor(() => !/verify [^;]*brakeDistance/.test(onDisk(file)), 60000, "the verify is removed");
       await eventually(async () => assert.strictEqual(row(await m(), "R4").cells.verify, "0"), "and the view has refreshed");

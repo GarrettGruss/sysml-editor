@@ -123,13 +123,12 @@ function button(label: string, testid: string, onClick: () => void, opts: { titl
 }
 
 /** A one-line question shown under `anchor` (prompt() is not available in a webview). */
-function ask(anchor: HTMLElement, placeholder: string, testid: string, done: (value: string) => void, extra?: (box: HTMLElement) => void): void {
+function ask(anchor: HTMLElement, placeholder: string, testid: string, done: (value: string) => void, multiline = false): void {
   anchor.parentElement?.querySelector(`.ask[data-for="${testid}"]`)?.remove();
-  const input = h("input", { type: "text", placeholder, "aria-label": placeholder, "data-testid": testid + "-input" });
+  const input: HTMLInputElement | HTMLTextAreaElement = multiline ? h("textarea", { rows: "3", placeholder, "aria-label": placeholder, "data-testid": testid + "-input" }) : h("input", { type: "text", placeholder, "aria-label": placeholder, "data-testid": testid + "-input" });
   const ok = button("Add", testid + "-ok", () => submit());
   const cancel = button("Cancel", testid + "-cancel", () => box.remove());
   const box = h("div", { class: "ask", "data-for": testid }, input, ok, cancel);
-  extra?.(box);
   const submit = () => {
     const v = input.value.trim();
     if (!v) return;
@@ -137,8 +136,10 @@ function ask(anchor: HTMLElement, placeholder: string, testid: string, done: (va
     done(v);
   };
   input.addEventListener("keydown", (ev) => {
-    if (ev.key === "Enter") submit();
-    else if (ev.key === "Escape") box.remove();
+    if (ev.key === "Enter" && !(multiline && ev.shiftKey)) {
+      ev.preventDefault();
+      submit();
+    } else if (ev.key === "Escape") box.remove();
   });
   anchor.after(box);
   input.focus();
@@ -281,7 +282,7 @@ function sectionView(s: SectionVM, parentQn: string, prevQn: string | undefined)
   const sec = h("section", { id: cssId(s.qn), "data-qn": s.qn, "data-testid": "section", class: "section level-" + Math.min(s.level, 4) }, head, ...blocksView(s.blocks));
   const adds = h("div", { class: "adds" });
   adds.append(
-    button("Add paragraph", "add-paragraph", () => ask(adds, "Paragraph text", "ask-paragraph", (t) => intent({ type: "addParagraph", pkgQn: s.qn, text: t })), { disabled: !s.editable }),
+    button("Add paragraph", "add-paragraph", () => ask(adds, "Paragraph text (Shift+Enter for a new line)", "ask-paragraph", (t) => intent({ type: "addParagraph", pkgQn: s.qn, text: t }), true), { disabled: !s.editable }),
     button("Add requirement", "add-requirement", () => ask(adds, "Requirement name", "ask-requirement", (n) => intent({ type: "addRequirement", kind: "requirement", id: "", name: n, ownerQn: s.qn })), { disabled: !s.editable }),
     button("Add subsection", "add-subsection", () => ask(adds, "Subsection heading", "ask-subsection", (n) => intent({ type: "addSection", parentQn: s.qn, name: n })), { disabled: !s.editable }),
     button("Add section after", "add-section-after", () => ask(adds, "Section heading", "ask-section-after", (n) => intent({ type: "addSection", parentQn: parentQn, name: n, afterQn: s.qn, ...(s.appendix ? { appendix: true } : {}) })), { disabled: !s.editable }),
@@ -342,7 +343,7 @@ function documentView(s: RequirementsState): HTMLElement {
   top.append(
     button("Add section", "add-section", () => ask(top, "Section heading", "ask-section", (n) => intent({ type: "addSection", parentQn: d.rootQn, name: n })), { disabled: !d.editable }),
     button("Add appendix", "add-appendix", () => ask(top, "Appendix heading", "ask-appendix", (n) => intent({ type: "addSection", parentQn: d.rootQn, name: n, appendix: true })), { disabled: !d.editable }),
-    button("Add paragraph", "add-root-paragraph", () => ask(top, "Paragraph text", "ask-root-paragraph", (t) => intent({ type: "addParagraph", pkgQn: d.rootQn, text: t })), { disabled: !d.editable }),
+    button("Add paragraph", "add-root-paragraph", () => ask(top, "Paragraph text (Shift+Enter for a new line)", "ask-root-paragraph", (t) => intent({ type: "addParagraph", pkgQn: d.rootQn, text: t }), true), { disabled: !d.editable }),
   );
   wrap.append(top);
   return wrap;

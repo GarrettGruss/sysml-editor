@@ -58,7 +58,7 @@ textarea { resize: vertical; min-height: 2.4em; }
 .empty { color: var(--muted); padding: 16px 0; }
 .empty.error { color: var(--danger); }
 .ask { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
-.ask input { max-width: 320px; }
+.ask input, .ask textarea { max-width: 420px; }
 /* document */
 .document { display: block; padding-top: 12px; max-width: 920px; }
 .titleblock h1 { margin: 12px 0 2px 0; font-size: 28px; font-weight: 600; }
