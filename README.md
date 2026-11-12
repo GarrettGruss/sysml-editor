@@ -24,3 +24,7 @@ The SysML activity bar icon opens the **SysML Model** view: a native tree of the
 Test fixtures in `fixtures/` are git submodules: run `git submodule update --init` after cloning (tests that need them are skipped otherwise).
 
 To try the extension, open this folder in VS Code and press F5 (Extension Development Host).
+
+## AI agents
+
+Agents can read and validate the open SysML model through Language Model Tools and MCP; see [docs/agents.md](docs/agents.md).

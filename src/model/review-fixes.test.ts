@@ -135,3 +135,32 @@ describe("listeners", () => {
     expect(seen).toEqual([["file:///a.sysml"]]);
   });
 });
+
+describe("fixes found by measuring unresolved names on the official models", () => {
+  it("resolves a non-wildcard import of an alias by the alias name", () => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///a.sysml", `package P { package D { part def Vehicle; alias Car for Vehicle; }
+      package U { private import D::Car; part v : Car; } }`);
+    const v = ix.findByQualifiedName("P::U::v")[0]!;
+    expect(ix.resolve("Car", v)?.qualifiedName).toBe("P::D::Vehicle");
+  });
+
+  it("`import all` sees private members and private imports of the target", () => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///a.sysml", `package P { package P1 { part def A; } package P2 { private import P1::*; private part def H; }
+      package Q { public import all P2::*; part z : A; part h : H; }
+      package R { public import P2::*; part z : A; part h : H; } }`);
+    const at = (qn: string) => ix.findByQualifiedName(qn)[0]!;
+    expect(ix.resolve("A", at("P::Q::z"))?.qualifiedName).toBe("P::P1::A");
+    expect(ix.resolve("H", at("P::Q::h"))?.qualifiedName).toBe("P::P2::H");
+    expect(ix.resolve("A", at("P::R::z"))).toBeUndefined();
+    expect(ix.resolve("H", at("P::R::h"))).toBeUndefined();
+  });
+
+  it("indexes KerML declarations with the `all` modifier under their own name", () => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///a.kerml", "package P { assoc all HB specializes HL; struct all Point specializes Object { } }");
+    expect(ix.findByQualifiedName("P::HB")).toHaveLength(1);
+    expect(ix.findByQualifiedName("P::Point")).toHaveLength(1);
+  });
+});

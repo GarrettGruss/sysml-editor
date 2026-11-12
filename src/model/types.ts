@@ -25,6 +25,8 @@ export interface ImportInfo {
   wildcard: boolean;
   /** `::**`: also all nested members, at any depth. */
   recursive: boolean;
+  /** `import all`: also private members and private imports of the target are imported. */
+  all?: boolean;
 }
 
 export interface Element {

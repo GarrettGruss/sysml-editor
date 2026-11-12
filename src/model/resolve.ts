@@ -107,7 +107,7 @@ export class Resolver {
   }
 
   /** What `seg` means inside `ns` when reached from outside: public members, aliases, public imports. */
-  private exported(ns: Element, seg: string, guard: Set<Element>): Element[] {
+  private exported(ns: Element, seg: string, guard: Set<Element>, all = false): Element[] {
     const out: Element[] = [];
     const key = ns;
     if (guard.has(key)) {
@@ -117,7 +117,7 @@ export class Resolver {
     const g2 = new Set(guard).add(key);
     const members = this.equivalents(ns).flatMap((s) => s.members);
     for (const m of members) {
-      if (m.kind === "import" || m.kind === "expose" || m.visibility === "private") continue;
+      if (m.kind === "import" || m.kind === "expose" || (!all && m.visibility === "private")) continue;
       if (m.name !== seg && m.shortName !== seg) continue;
       if (m.kind === "alias") {
         const t = this.aliasTarget(m, guard);
@@ -126,7 +126,7 @@ export class Resolver {
     }
     if (out.length) return out;
     for (const imp of members) {
-      if (imp.kind !== "import" || !imp.importInfo || imp.visibility !== "public") continue;
+      if (imp.kind !== "import" || !imp.importInfo || (!all && imp.visibility !== "public")) continue;
       for (const r of this.viaImport(imp, seg, g2)) pushUnique(out, r);
     }
     return out;
@@ -143,10 +143,11 @@ export class Resolver {
     const out: Element[] = [];
     for (const t of targets) {
       if (!info.wildcard) {
-        if (t.name === seg || t.shortName === seg) pushUnique(out, t);
+        // An imported alias is named by the import (the target resolves through the alias).
+        if (t.name === seg || t.shortName === seg || splitQualified(info.target).at(-1) === seg) pushUnique(out, t);
         if (info.recursive) for (const d of this.descendants(t, seg)) pushUnique(out, d);
       } else {
-        for (const m of this.exported(t, seg, g2)) pushUnique(out, m);
+        for (const m of this.exported(t, seg, g2, info.all)) pushUnique(out, m);
         if (info.recursive) for (const d of this.descendants(t, seg)) pushUnique(out, d);
       }
     }

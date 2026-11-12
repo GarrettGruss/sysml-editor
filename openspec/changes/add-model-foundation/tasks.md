@@ -28,14 +28,14 @@
 
 ## 4. Agent foundation
 
-- [ ] 4.1 Implement shared tool definitions in a transport-free `agent-tools` module (names, descriptions, input schemas, handlers on the model service) for `list_files`, `get_element_tree` (with a default depth limit and subtree requests), `get_element`, and `validate` (syntax errors and unresolved names with file and line); verify handler unit tests against fixtures, including the "Depth limit" and three "Validate model" scenarios
-- [ ] 4.2 Host the MCP server in the extension (MCP TypeScript SDK, loopback HTTP, per-session token) and ship the stdio bridge `dist/mcp-bridge.js`; verify an MCP client outside VS Code lists the tools through the bridge while VS Code is open, and gets the "VS Code must be open" error when it is not
-- [ ] 4.3 Register the server through an MCP server definition provider; verify it appears in VS Code's MCP server list for the workspace
-- [ ] 4.4 Implement the Language Model Tools adapter: generate `contributes.languageModelTools` from the shared definitions at build time and register handlers with `vscode.lm.registerTool`; verify the "In-editor agent reads an element" and "Unsaved buffers visible" scenarios
-- [ ] 4.5 Confirm the minimum VS Code version that has the MCP provider and Language Model Tools APIs as stable and set `engines.vscode`; verify the extension loads on that version
-- [ ] 4.6 Implement the `sysml.agent.channels` setting (both/mcp/lmTools); verify each value exposes the expected tools
-- [ ] 4.7 Add a channel contract test that runs every tool over MCP and Language Model Tools, including on a file with unsaved edits; verify identical results
-- [ ] 4.8 Document both channels (bridge config for generic MCP clients, VS Code setup, the setting, and that VS Code must be open) in `docs/agents.md`; verify the documented MCP config connects
+- [x] 4.1 Implement shared tool definitions in a transport-free `agent-tools` module (names, descriptions, input schemas, handlers on the model service) for `sysml_list_files`, `sysml_get_element_tree` (with a default depth limit and subtree requests), `sysml_get_element`, and `sysml_validate` (syntax errors and unresolved names with file and line); verify handler unit tests against fixtures, including the "Depth limit" and three "Validate model" scenarios
+- [x] 4.2 Host the MCP server in the extension (MCP TypeScript SDK, loopback HTTP, per-session token) and ship the stdio bridge `dist/mcp-bridge.js`; verify an MCP client outside VS Code lists the tools through the bridge while VS Code is open, and gets the "VS Code must be open" error when it is not
+- [x] 4.3 Register the server through an MCP server definition provider; verify it appears in VS Code's MCP server list for the workspace
+- [x] 4.4 Implement the Language Model Tools adapter: generate `contributes.languageModelTools` from the shared definitions at build time and register handlers with `vscode.lm.registerTool`; verify the "In-editor agent reads an element" and "Unsaved buffers visible" scenarios
+- [x] 4.5 Confirm the minimum VS Code version that has the MCP provider and Language Model Tools APIs as stable and set `engines.vscode`; verify the extension loads on that version
+- [x] 4.6 Implement the `sysml.agent.channels` setting (both/mcp/lmTools); verify each value exposes the expected tools
+- [x] 4.7 Add a channel contract test that runs every tool over MCP and Language Model Tools, including on a file with unsaved edits; verify identical results
+- [x] 4.8 Document both channels (bridge config for generic MCP clients, VS Code setup, the setting, and that VS Code must be open) in `docs/agents.md`; verify the documented MCP config connects
 
 ## 5. Integration
 
