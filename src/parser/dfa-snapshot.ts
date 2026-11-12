@@ -8,9 +8,9 @@ import { SysMLv2Parser } from "./generated/SysMLv2Parser.js";
  *
  * Restored states carry an empty ATN config set, so they can answer only the lookahead paths
  * they have already seen. A path the snapshot lacks yields a spurious syntax error instead of
- * a new DFA edge. `parse()` therefore treats any failure while the snapshot is active as
- * suspect: it calls `purgeSnapshotDfas()` (drop everything, rebuild lazily from the ATN) and
- * parses again. Clean results from seeded DFAs are identical to unseeded ones.
+ * a new DFA edge. A failure on the snapshot is therefore only provisional: the precise result
+ * comes from a parser with a normally built cache (the parse worker, or `parse()`'s same-thread
+ * fallback). Clean results from seeded DFAs are identical to unseeded ones.
  */
 export interface DecisionSnapshot {
   /** decision number */
