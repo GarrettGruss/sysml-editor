@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
-  "compilerOptions": { "noEmit": false, "module": "node16", "moduleResolution": "node16", "outDir": "out", "rootDir": ".", "types": ["node", "node"] },
+  "compilerOptions": { "noEmit": false, "module": "node16", "moduleResolution": "node16", "outDir": "out", "rootDir": ".", "types": ["node"] },
   "include": ["test/integration"]
 }

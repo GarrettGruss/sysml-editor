@@ -8,7 +8,7 @@ All semantic model state SHALL be read from and written to `.sysml` textual file
 - **THEN** all views show exactly what the `.sysml` files declare, and nothing else
 
 ### Requirement: Full language coverage
-The extension SHALL parse the complete SysML v2 textual notation of the targeted release, including expressions and behavioral constructs it does not display. A file that is valid SysML v2 SHALL NOT be reported as having syntax errors.
+The extension SHALL parse the complete SysML v2 textual notation of the targeted release, including expressions and behavioral constructs it does not display. A file that is valid SysML v2 SHALL NOT be reported as having syntax errors. User-written KerML files are not loaded.
 
 #### Scenario: Official examples parse
 - **WHEN** the example, training, and validation models of the targeted SysML v2 release are loaded
