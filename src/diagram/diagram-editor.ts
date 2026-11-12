@@ -58,6 +58,10 @@ export class SysmlDiagramDocument implements vscode.CustomDocument {
   pendingSelect?: string[];
   /** Resolvers of callers waiting for the webview's answer to an Auto-layout command. */
   layoutWaiters: Array<() => void> = [];
+  /** Own writes of the file in flight (state.disk already has their text); file watcher events during them are stale. */
+  writing = 0;
+  /** Set when a watcher event was skipped during an own write: the file is read once more afterwards. */
+  recheck?: () => void;
   private readonly disposables: vscode.Disposable[] = [];
   /**
    * `key` names the document's panels; it is the URI for a document open in an editor. A `renderOnly` document backs a
@@ -173,6 +177,12 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop()!));
     const onDisk = async () => {
       try {
+        if (doc.writing > 0) {
+          // state.disk is ahead of the file while our own write is in flight: reading now would mistake the older text for an
+          // external change and reload it over what the model edit just put in memory. Look again when the write is done.
+          doc.recheck = () => void onDisk();
+          return;
+        }
         const change = noteExternalChange(doc.state, (await readSettled(() => read(uri))) as string);
         if (change === "reload") this.rerender(doc);
         else if (change === "conflict") {
@@ -187,6 +197,21 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       dispose: () => { if (this.docs.get(uri.toString()) === doc) this.docs.delete(uri.toString()); },
     });
     return doc;
+  }
+
+  /** Writes the diagram file of an open document; watcher events meanwhile are not taken for external changes. */
+  private async writeOwn(doc: SysmlDiagramDocument, text: string): Promise<void> {
+    doc.writing++;
+    try {
+      await writeDiagramFile(doc.uri, encoder.encode(text));
+    } finally {
+      doc.writing--;
+      if (doc.writing === 0 && doc.recheck) {
+        const again = doc.recheck;
+        doc.recheck = undefined;
+        again();
+      }
+    }
   }
 
   async saveCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
@@ -210,7 +235,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const previous = s.disk;
     s.disk = s.text(); // our own write must not look like an external change
     try {
-      await writeDiagramFile(doc.uri, encoder.encode(s.text()));
+      await this.writeOwn(doc, s.text());
     } catch (e) {
       s.disk = previous;
       throw e;
@@ -395,7 +420,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       for (const [k, u] of change.createdIn?.() ?? []) doc.state.createdIn.set(k, u);
     }
     doc.state.snapshot = undefined;
-    if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
+    if (r.kind === "write") await this.writeOwn(doc, r.text);
     this.rerender(doc);
     return r.kind === "write";
   }
@@ -790,7 +815,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
       const r = followRename(doc.state, updates ?? [], disk);
       if (r.kind === "reloaded") this.rerender(doc);
-      else if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
+      else if (r.kind === "write") await this.writeOwn(doc, r.text);
     } catch (e) {
       this.log(`diagram rename follow failed: ${e instanceof Error ? e.message : String(e)}`);
     }
