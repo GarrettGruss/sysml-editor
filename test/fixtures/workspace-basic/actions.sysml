@@ -11,7 +11,7 @@ package Delivery {
       out item parcel : Parcel;
     }
     then decide;
-      if pack.parcel == null then retry;
+      if pack.weight >= 100 then retry;
       else ship;
     action retry;
     then pack;

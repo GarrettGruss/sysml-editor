@@ -539,7 +539,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         for (const id of intent.ids) {
           const t = this.targetOf(doc, id);
           if (!t) continue;
-          const r = await actions.delete(t, { origin });
+          // An edge (succession, transition, message) is an unnamed statement: always ask, naming its text.
+          const r = await actions.delete(t, { origin, ...(d.edges.some((e) => e.id === id) ? { alwaysConfirm: true } : {}) });
           if (r && !r.ok) this.notice(doc, r.reason);
         }
         return;

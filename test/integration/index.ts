@@ -5,6 +5,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
+import { behaviorTests } from "./behavior.js";
 import { interactionTests } from "./diagram-interaction.js";
 import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
@@ -85,13 +86,15 @@ export type Gesture =
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[] }
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
-  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" }
+  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" }
+  | { kind: "selectEdge"; id: string }
+  | { kind: "dragEdge"; id: string; dy: number }
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
-  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation"; value: string }
+  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
   | { kind: "flush" };
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
 export interface Metrics {
-  nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string }[];
+  nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean }[];
   overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
   inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
@@ -185,12 +188,12 @@ export async function run(): Promise<void> {
     return undefined;
   };
   const eventually = async (fn: () => Promise<void>, what: string, ms = 15000): Promise<void> => {
-    const end = Date.now() + ms;
+    const end = performance.now() + ms; // monotonic: the wall clock of a WSL machine can jump by an hour mid-run
     for (;;) {
       try {
         return await fn();
       } catch (e) {
-        if (Date.now() > end) throw new Error(`timed out waiting for: ${what}: ${e instanceof Error ? e.message : String(e)}`);
+        if (performance.now() > end) throw new Error(`timed out waiting for: ${what}: ${e instanceof Error ? e.message : String(e)}`);
         await sleep(100);
       }
     }
@@ -337,7 +340,7 @@ export async function run(): Promise<void> {
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
-      assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Design", "Notes", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
+      assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Delivery", "Design", "Lamp", "Mobility", "Notes", "Ordering", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
       assert.ok(ix.uris().some((u) => ix.isReadOnly(u)), "library is loaded");
       const lib = labels(api.provider.getChildren());
       assert.ok(!lib.includes("ScalarValues") && !lib.includes("ISQ"), "library packages are not roots");
@@ -624,6 +627,7 @@ export async function run(): Promise<void> {
     ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...requirementsTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];

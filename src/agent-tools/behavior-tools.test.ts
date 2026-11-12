@@ -55,7 +55,7 @@ describe("Generate a state diagram", () => {
     const a = setup(fx("actions"));
     const af = (await call(a.ctx, "sysml_create_diagram", { root: "Delivery::deliverOrder", kind: "actionFlow", path: "a.sysmld" })).json.diagram;
     const behaviors = af.edges.map((e: { behavior?: { type: string; guard?: string; implied?: boolean; item?: string } }) => e.behavior!);
-    expect(behaviors.filter((b: { guard?: string }) => b.guard).map((b: { guard?: string }) => b.guard)).toEqual(["pack.parcel == null", "else"]);
+    expect(behaviors.filter((b: { guard?: string }) => b.guard).map((b: { guard?: string }) => b.guard)).toEqual(["pack.weight >= 100", "else"]);
     expect(behaviors.find((b: { type: string }) => b.type === "flow")).toMatchObject({ item: "Parcel", from: "pack.parcel", to: "ship.parcel" });
     expect(af.nodes.filter((n: { element?: { kind: string } }) => ["start", "done", "decide"].includes(n.element?.kind ?? "")).length).toBe(3);
     const s = setup(fx("interaction"));

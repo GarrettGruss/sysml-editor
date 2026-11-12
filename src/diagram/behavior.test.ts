@@ -183,7 +183,7 @@ describe("sequence views", () => {
 describe("notation", () => {
   it("action flow: guards in brackets, control nodes, start and done, a dashed flow", async () => {
     const r = await build(load(WS + "actions.sysml"), "Delivery::deliverOrder", "actionFlow");
-    expect(r.vm.edges.filter((e) => e.style === "succession").map((e) => e.label ?? "")).toEqual(expect.arrayContaining(["[pack.parcel == null]", "[else]"]));
+    expect(r.vm.edges.filter((e) => e.style === "succession").map((e) => e.label ?? "")).toEqual(expect.arrayContaining(["[pack.weight >= 100]", "[else]"]));
     expect(r.vm.nodes.map((n) => n.shape).sort()).toEqual(["action", "action", "action", "action", "decision", "done", "start"]);
     expect(r.svg.content).toContain('data-style="flow"');
     expect(r.vm.nodes.find((n) => n.shape === "action" && n.label === "pack : Pack")?.keyword).toBe("«action»");

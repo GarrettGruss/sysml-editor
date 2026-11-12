@@ -88,4 +88,36 @@ describe("behaviour operations", () => {
     expect(host.diagramOnDisk(D).edges).toEqual([]);
     expect(analyze(host.index, q("P::Pt")).successions).toEqual([]);
   });
+
+  test("rule: staleness: a change between planning and applying re-plans once, and a second change fails untouched", async () => {
+    const { host, svc, q } = setup(fx("states"));
+    host.beforeApply = () => host.buffers.set(U, "// header\n" + host.buffers.get(U)!);
+    ok(await svc.addTransition(q("Lamp::lamp"), q("Lamp::lamp::operating"), q("Lamp::lamp::off"), { trigger: "Overheat" }));
+    expect(host.buffers.get(U)).toMatch(/^\/\/ header\n/);
+    expect(host.buffers.get(U)).toContain("transition first operating accept Overheat then off;");
+    const b = setup(fx("states"));
+    let n = 0;
+    const orig = b.host.applyAndSave.bind(b.host);
+    b.host.applyAndSave = async (e, s2) => { b.host.buffers.set(U, `// ${n++}\n` + b.host.buffers.get(U)!); return orig(e, s2); };
+    const r = await b.svc.addTransition(b.q("Lamp::lamp"), b.q("Lamp::lamp::operating"), b.q("Lamp::lamp::off"));
+    expect(r.ok).toBe(false);
+    expect(b.host.applied).toHaveLength(0);
+  });
+  test("rule: reference writing: an item type from another package is written so it resolves, with its import", async () => {
+    const { host, svc, q } = setup("package Other { item def Order; }\npackage P { part def Pt { part a; part b; } }\n");
+    ok(await svc.addMessage(q("P::Pt"), "a", "b", { name: "m", itemType: "Other::Order" }));
+    const t = host.disk.get(U)!;
+    expect(t).toMatch(/import Other::(Order|\*);/);
+    expect(t).toMatch(/message m of (Other::)?Order from a to b;/);
+    expect(host.index.getDocument(U)!.errors).toEqual([]);
+  });
+  test("rule: syntax errors, library and read-only files are refused", async () => {
+    const { host, svc, q } = setup(fx("states"));
+    const lamp = q("Lamp::lamp");
+    host.buffers.set(U, host.buffers.get(U)! + "\npackage Broken { part x : ; }");
+    host.index.setDocument(U, host.buffers.get(U)!);
+    const r = await svc.addTransition(lamp, q("Lamp::lamp::off"), q("Lamp::lamp::operating"));
+    expect(r.ok).toBe(false);
+    expect((r as { reason: string }).reason).toMatch(/syntax error/);
+  });
 });

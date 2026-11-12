@@ -10,7 +10,6 @@ package Lamp {
 
   state lamp : LampStates {
     attribute powerAvailable;
-    entry logEvent;
 
     first start then off;
 
