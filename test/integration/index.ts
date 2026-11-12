@@ -189,6 +189,75 @@ export async function run(): Promise<void> {
       assert.ok(viaMcp.text.includes("UnsavedClutch"), "MCP sees unsaved content");
       assert.strictEqual(viaLm, viaMcp.text);
     }],
+    ["end to end: tree, both tool channels and the document agree through edit, syntax error and fix", async () => {
+      await api.agent.apply();
+      assert.ok(api.agent.mcpEndpoint(), "MCP server is running");
+      const lm = async (name: string, input: object) => {
+        const r = await vscode.lm.invokeTool(name, { toolInvocationToken: undefined, input });
+        return r.content.map((p) => (p as vscode.LanguageModelTextPart).value).join("");
+      };
+      const mcp = async (name: string, input: object) => {
+        const r = await api.agent.testCallToolOverMcp(name, input);
+        assert.strictEqual(r.isError, false, `${name} over MCP: ${r.text}`);
+        return r.text;
+      };
+      const both = async (name: string, input: object) => {
+        const a = await lm(name, input);
+        const b = await mcp(name, input);
+        assert.strictEqual(a, b, `${name}: identical over both channels`);
+        return JSON.parse(a);
+      };
+      const doc = await vscode.workspace.openTextDocument(vehicleUri);
+
+      // (1) the tree as the provider presents it
+      assert.ok(labels(api.provider.getChildren()).includes("Vehicle"));
+      assert.ok(!labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"));
+
+      // (2) an unsaved edit adds a part def
+      const add = new vscode.WorkspaceEdit();
+      add.insert(vehicleUri, new vscode.Position(1, 0), "  part def Trailer;\n");
+      assert.ok(await vscode.workspace.applyEdit(add));
+      assert.ok(doc.isDirty, "edit is unsaved");
+      await waitFor(() => labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"), 2000, "Trailer in the tree");
+
+      // (3) tree, both channels and document text agree
+      const treeJson = await both("sysml_get_element_tree", { root: "Vehicle", depth: 2 });
+      const names = (treeJson.nodes[0].children as { name: string }[]).map((c) => c.name);
+      assert.ok(names.includes("Trailer"), `tool tree has Trailer: ${names}`);
+      assert.deepStrictEqual(
+        names.slice().sort(),
+        labels(api.provider.getChildren(rootOf("Vehicle"))).sort(),
+        "tool tree and view tree list the same children",
+      );
+      const el = (await both("sysml_get_element", { qualifiedName: "Vehicle::Trailer" })).elements[0];
+      assert.strictEqual(el.name, "Trailer");
+      assert.match(String(el.file), /vehicle\.sysml$/);
+      assert.ok(doc.lineAt(el.startLine - 1).text.includes("part def Trailer;"), "element line points at the declaration in the document");
+      assert.ok(doc.getText().includes("part def Trailer;"));
+
+      // (4) a syntax error: validate reports it on both channels, the tree keeps the previous contents
+      const brokenLine = 3; // 1-based line of the text inserted below
+      const bad = new vscode.WorkspaceEdit();
+      bad.insert(vehicleUri, new vscode.Position(brokenLine - 1, 0), "  part def 123;\n");
+      assert.ok(await vscode.workspace.applyEdit(bad));
+      await waitFor(() => (ix.getDocument(vehicleUri.toString())?.errors.length ?? 0) > 0, 2000, "error recorded");
+      const broken = await both("sysml_validate", { file: "vehicle.sysml" });
+      const syntax = (broken.problems as { file: string; line: number; severity: string }[]).filter((p) => p.severity === "error");
+      assert.ok(syntax.length > 0, "validate reports the syntax error");
+      assert.ok(syntax.some((p) => p.line === brokenLine && /vehicle\.sysml$/.test(p.file)), `error on line ${brokenLine}: ${JSON.stringify(syntax)}`);
+      assert.ok(doc.lineAt(brokenLine - 1).text.includes("123"), "the reported line holds the broken text");
+      assert.ok(labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"), "tree keeps the previous contents");
+      const keep = await both("sysml_get_element_tree", { root: "Vehicle", depth: 2 });
+      assert.ok((keep.nodes[0].children as { name: string }[]).some((c) => c.name === "Trailer"), "tool tree keeps the previous contents");
+
+      // (5) fix it: validate is clean for the file
+      const fix = new vscode.WorkspaceEdit();
+      fix.delete(vehicleUri, new vscode.Range(brokenLine - 1, 0, brokenLine, 0));
+      assert.ok(await vscode.workspace.applyEdit(fix));
+      await waitFor(() => (ix.getDocument(vehicleUri.toString())?.errors.length ?? 1) === 0, 2000, "error cleared");
+      const clean = await both("sysml_validate", { file: "vehicle.sysml" });
+      assert.deepStrictEqual(clean.problems, []);
+    }],
     ["MCP rejects a wrong token; bridge reports no server for an unknown workspace", async () => {
       const ep = api.agent.mcpEndpoint()!;
       const res = await fetch(ep.url, { method: "POST", headers: { Authorization: "Bearer wrong", "content-type": "application/json" }, body: "{}" });
