@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { request } from "node:http";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
@@ -8,7 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ModelIndex } from "../model/index.js";
 import { callTool, toolDefinitions, type ToolContext } from "../agent-tools/index.js";
-import { discoveryFilePath } from "./discovery.js";
+import { discoveryFilePath, readLiveServer, removeDiscoveryFile, writeDiscoveryFile } from "./discovery.js";
 import { startMcpServer, tokenMatches, type RunningMcpServer } from "./server.js";
 
 const ROOT = "file:///w/";
@@ -35,7 +36,7 @@ let server: RunningMcpServer;
 beforeAll(async () => {
   home = mkdtempSync(path.join(tmpdir(), "sysml-mcp-"));
   workspace = path.join(home, "ws");
-  server = await startMcpServer({ context: () => ctx, workspace, home });
+  server = await startMcpServer({ context: () => ctx, workspaces: [workspace], home });
 });
 afterAll(async () => {
   await server.stop();
@@ -104,6 +105,28 @@ describe("MCP server over HTTP", () => {
     expect((await post({ Authorization: "Bearer wrong" })).status).toBe(401);
     await expect(connect("wrong")).rejects.toThrow();
   });
+  it("rejects any Origin and a foreign Host with 403, even with a valid token", async () => {
+    const get = (headers: Record<string, string>) =>
+      new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = request(
+          { host: "127.0.0.1", port: server.port, path: "/mcp", method: "POST", headers: { "content-type": "application/json", ...headers } },
+          (res) => {
+            let body = "";
+            res.on("data", (d: Buffer) => (body += d.toString()));
+            res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+          },
+        );
+        req.on("error", reject);
+        req.end("{}");
+      });
+    const auth = { Authorization: `Bearer ${server.token}` };
+    expect((await get({ ...auth, Origin: "http://evil.example" })).status).toBe(403);
+    expect((await get({ Origin: "http://evil.example" })).status).toBe(403); // no token result revealed
+    expect((await get({ ...auth, Host: "evil.example" })).status).toBe(403);
+    expect((await get({ ...auth, Host: `127.0.0.1:${server.port + 1}` })).status).toBe(403);
+    expect((await get({ ...auth, Host: `localhost:${server.port}` })).status).not.toBe(403);
+    expect((await get({})).status).toBe(401);
+  });
   it("binds to loopback and writes the discovery file", () => {
     expect(server.url).toContain("127.0.0.1");
     expect(existsSync(discoveryFilePath(workspace, home))).toBe(true);
@@ -134,12 +157,74 @@ describe("stdio bridge", () => {
     expect(err.trim()).toBe("VS Code must be open on this workspace");
   }, 30_000);
 
+  it("reports a stale entry when the recorded server is not reachable", async () => {
+    const ws = path.join(home, "stale");
+    writeDiscoveryFile({ port: 1, token: "x", pid: process.pid, workspace: ws }, home);
+    const child = spawn(process.execPath, args(ws), { env: env(), stdio: ["pipe", "ignore", "pipe"] });
+    let err = "";
+    child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) + "\n");
+    const code = await new Promise<number | null>((r) => child.on("close", r));
+    expect(code).toBe(1);
+    expect(err).toContain("Stale server entry for this workspace; reopen it in VS Code");
+    removeDiscoveryFile(ws, home);
+  }, 30_000);
+
   it("exits 1 after the server stops", async () => {
     const ws = path.join(home, "stopped");
-    const s = await startMcpServer({ context: () => ctx, workspace: ws, home });
+    const s = await startMcpServer({ context: () => ctx, workspaces: [ws], home });
     await s.stop();
     const child = spawn(process.execPath, args(ws), { env: env() });
     const code = await new Promise<number | null>((r) => child.on("close", r));
     expect(code).toBe(1);
   }, 30_000);
+});
+
+describe("two windows on one workspace", () => {
+  it("keeps the other server's discovery entry when either stops", async () => {
+    const ws = path.join(home, "shared");
+    // A foreign live process (our parent) owns the primary file.
+    writeDiscoveryFile({ port: 1, token: "foreign", pid: process.ppid, workspace: ws }, home);
+    const mine = await startMcpServer({ context: () => ctx, workspaces: [ws], home });
+    expect(readLiveServer(ws, home)?.token).toBeDefined();
+    await mine.stop();
+    expect(readLiveServer(ws, home)?.token).toBe("foreign");
+    const again = await startMcpServer({ context: () => ctx, workspaces: [ws], home });
+    removeDiscoveryFile(ws, home, { pid: process.ppid, token: "foreign" });
+    expect(readLiveServer(ws, home)?.token).toBe(again.token);
+    await again.stop();
+    expect(readLiveServer(ws, home)).toBeUndefined();
+  });
+  it("writes one entry per workspace folder", async () => {
+    const a = path.join(home, "ra");
+    const b = path.join(home, "rb");
+    const s = await startMcpServer({ context: () => ctx, workspaces: [a, b], home });
+    expect(readLiveServer(a, home)?.token).toBe(s.token);
+    expect(readLiveServer(b, home)?.token).toBe(s.token);
+    await s.stop();
+    expect(readLiveServer(b, home)).toBeUndefined();
+  });
+  it("returns a generic 500 body and logs the detail", async () => {
+    const logs: string[] = [];
+    const s = await startMcpServer({
+      context: () => {
+        throw new Error("secret detail");
+      },
+      log: (m) => logs.push(m),
+      home,
+    });
+    try {
+      const r = await fetch(s.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream", Authorization: `Bearer ${s.token}` },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "sysml_list_files", arguments: {} } }),
+      });
+      const text = await r.text();
+      expect(text).not.toContain("secret detail");
+      expect(text).toContain("Internal error");
+      expect(logs.join("\n")).toContain("secret detail");
+    } finally {
+      await s.stop();
+    }
+  });
 });

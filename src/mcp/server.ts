@@ -17,8 +17,10 @@ const MAX_BODY = 1_000_000;
 export interface McpServerOptions {
   /** Called per tool call, so handlers always see the current model. */
   context: () => ToolContext;
-  /** Workspace folder; when set, a discovery file is written on start and removed on stop. */
-  workspace?: string;
+  /** Workspace folder paths; a discovery entry is written for each on start and removed on stop. */
+  workspaces?: string[];
+  /** Receives internal error detail (responses carry only a generic message). Default: discard. */
+  log?: (msg: string) => void;
   /** Overrides the home directory used for the discovery file (tests). */
   home?: string;
   serverVersion?: string;
@@ -56,7 +58,13 @@ function createProtocolServer(opts: McpServerOptions): Server {
     })),
   }));
   server.setRequestHandler(CallToolRequestSchema, (req) => {
-    const r = callTool(req.params.name, req.params.arguments, opts.context());
+    let r;
+    try {
+      r = callTool(req.params.name, req.params.arguments, opts.context());
+    } catch (e) {
+      (opts.log ?? (() => {}))(`MCP tool call failed: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
+      throw new Error("Internal error");
+    }
     return { content: [{ type: "text" as const, text: r.text }], ...(r.isError ? { isError: true } : {}) };
   });
   return server;
@@ -92,9 +100,15 @@ function reply(res: ServerResponse, status: number, body: unknown, headers: Reco
 
 export async function startMcpServer(opts: McpServerOptions): Promise<RunningMcpServer> {
   const token = randomBytes(32).toString("hex");
+  const log = opts.log ?? (() => {});
+  let port = 0;
 
   const http: HttpServer = createServer((req, res) => {
     void (async () => {
+      // Browsers always send Origin on cross-site requests; no legitimate client of this server does.
+      if (req.headers.origin !== undefined) return reply(res, 403, { error: "forbidden" });
+      const host = req.headers.host;
+      if (host !== `127.0.0.1:${port}` && host !== `localhost:${port}`) return reply(res, 403, { error: "forbidden" });
       if (!tokenMatches(req.headers.authorization, token)) {
         return reply(res, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
       }
@@ -116,7 +130,8 @@ export async function startMcpServer(opts: McpServerOptions): Promise<RunningMcp
         await server.connect(transport);
         await transport.handleRequest(req, res, body);
       } catch (e) {
-        reply(res, 500, { jsonrpc: "2.0", error: { code: -32603, message: e instanceof Error ? e.message : String(e) }, id: null });
+        log(`MCP request failed: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
+        reply(res, 500, { jsonrpc: "2.0", error: { code: -32603, message: "Internal error" }, id: null });
       }
     })();
   });
@@ -125,9 +140,14 @@ export async function startMcpServer(opts: McpServerOptions): Promise<RunningMcp
     http.once("error", reject);
     http.listen(0, "127.0.0.1", resolve);
   });
-  const port = (http.address() as AddressInfo).port;
-  if (opts.workspace !== undefined) {
-    writeDiscoveryFile({ port, token, pid: process.pid, workspace: opts.workspace }, opts.home);
+  port = (http.address() as AddressInfo).port;
+  const workspaces = opts.workspaces ?? [];
+  try {
+    for (const workspace of workspaces) writeDiscoveryFile({ port, token, pid: process.pid, workspace }, opts.home);
+  } catch (e) {
+    for (const workspace of workspaces) removeDiscoveryFile(workspace, opts.home, { pid: process.pid, token });
+    http.close();
+    throw e;
   }
 
   let stopped: Promise<void> | undefined;
@@ -137,7 +157,7 @@ export async function startMcpServer(opts: McpServerOptions): Promise<RunningMcp
     url: `http://127.0.0.1:${port}${MCP_PATH}`,
     stop() {
       stopped ??= new Promise<void>((resolve) => {
-        if (opts.workspace !== undefined) removeDiscoveryFile(opts.workspace, opts.home);
+        for (const workspace of workspaces) removeDiscoveryFile(workspace, opts.home, { pid: process.pid, token });
         http.close(() => resolve());
         http.closeAllConnections();
       });

@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { readLiveServer } from "./mcp/discovery.js";
 
 export const NO_SERVER_MESSAGE = "VS Code must be open on this workspace";
+export const STALE_SERVER_MESSAGE = "Stale server entry for this workspace; reopen it in VS Code";
 
 function workspaceArg(argv: string[]): string | undefined {
   const i = argv.indexOf("--workspace");
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
   };
   stdio.onmessage = (m) => {
     upstream.send(m).catch((e: unknown) => {
-      console.error(`${NO_SERVER_MESSAGE} (${e instanceof Error ? e.message : String(e)})`);
+      console.error(`${STALE_SERVER_MESSAGE} (${e instanceof Error ? e.message : String(e)})`);
       shutdown(1);
     });
   };
@@ -46,7 +47,10 @@ async function main(): Promise<void> {
   };
   stdio.onclose = () => shutdown(0);
   stdio.onerror = (e) => console.error(e.message);
-  upstream.onerror = (e) => console.error(e.message);
+  upstream.onerror = (e) => {
+    console.error(`${STALE_SERVER_MESSAGE} (${e.message})`);
+    shutdown(1);
+  };
   await upstream.start();
   await stdio.start();
 }
