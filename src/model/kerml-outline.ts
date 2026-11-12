@@ -337,10 +337,8 @@ class Reader {
         i++;
       }
     }
-    if (el.name !== undefined) {
-      let o = owner;
-      while (o && o.qualifiedName === undefined) o = o.owner;
-      el.qualifiedName = (o ? o.qualifiedName + "::" : "") + quoteName(el.name);
+    if (el.name !== undefined && (!owner || owner.qualifiedName !== undefined)) {
+      el.qualifiedName = (owner ? owner.qualifiedName + "::" : "") + quoteName(el.name);
     }
 
     this.pos = i;

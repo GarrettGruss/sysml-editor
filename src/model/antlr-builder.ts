@@ -200,6 +200,21 @@ class SourceMap {
     return { offset, line: lo, column: offset - this.lineStarts[lo]! };
   }
 
+  /** Convert an ANTLR error position (1-based line, code point column) to a 0-based line and UTF-16 column. */
+  errorPos(text: string, line: number, cpColumn: number): { line: number; column: number } {
+    const l = Math.min(Math.max(line - 1, 0), this.lineStarts.length - 1);
+    const start = this.lineStarts[l]!;
+    if (!this.cpToUnit) return { line: l, column: cpColumn };
+    let u = 0;
+    let n = 0;
+    for (const ch of text.slice(start)) {
+      if (n >= cpColumn || ch === "\n") break;
+      u += ch.length;
+      n++;
+    }
+    return { line: l, column: u };
+  }
+
   range(start: Token | null, stop: Token | null): SourceRange | undefined {
     if (!start || start.tokenIndex < 0 || start.type === EOF) return undefined;
     const s = this.pos(start.start);
@@ -341,11 +356,9 @@ class Builder {
       );
       if (t?.symbol.text) el.documentation = processDocComment(t.symbol.text);
     }
-    // Qualified name: prefix is the nearest named ancestor.
-    if (el.name !== undefined) {
-      let o = owner;
-      while (o && o.qualifiedName === undefined) o = o.owner;
-      el.qualifiedName = (o ? o.qualifiedName + "::" : "") + quoteName(el.name);
+    // Qualified name: undefined when any ancestor is unnamed.
+    if (el.name !== undefined && (!owner || owner.qualifiedName !== undefined)) {
+      el.qualifiedName = (owner ? owner.qualifiedName + "::" : "") + quoteName(el.name);
     }
     return el;
   }
@@ -593,6 +606,7 @@ export function buildDocumentModel(uri: string, text: string, tree: ParserRuleCo
 /** The default DocumentParser, backed by the ANTLR parser. */
 export const antlrDocumentParser: DocumentParser = (uri, text): ParsedDocument => {
   const r = parse(text);
-  const errors = r.errors.map((e) => ({ line: e.line - 1, column: e.column, message: e.message }));
+  const map = new SourceMap(text);
+  const errors = r.errors.map((e) => ({ ...map.errorPos(text, e.line, e.column), message: e.message }));
   return { model: buildDocumentModel(uri, text, r.tree), errors };
 };

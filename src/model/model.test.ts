@@ -216,7 +216,7 @@ describe("relationship statements", () => {
     const inner = mm.roots[0]!.members[0]!.members[0]!;
     expect(inner.owner!.name).toBeUndefined();
     expect(inner.owner!.owner!.name).toBe("P");
-    expect(inner.qualifiedName).toBe("P::inner");
+    expect(inner.qualifiedName).toBeUndefined();
   });
 });
 

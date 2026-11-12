@@ -42,7 +42,8 @@
     "generate:parser": "antlr-ng -Dlanguage=TypeScript -v -o src/parser/generated --lib vendor/sysml-v2-grammar vendor/sysml-v2-grammar/SysMLv2Lexer.g4 vendor/sysml-v2-grammar/SysMLv2Parser.g4",
     "generate:dfa": "npm run generate:parser && tsx scripts/generate-dfa-snapshot.ts",
     "bench:parser": "npm run generate:parser && tsx scripts/parser-bench.ts",
-    "gate:parser": "npm run generate:parser && tsx scripts/parser-gate.ts"
+    "gate:parser": "npm run generate:parser && tsx scripts/parser-gate.ts",
+    "gate:parser:record": "npm run generate:parser && tsx scripts/parser-gate.ts --write"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -1,3 +1,5 @@
+import { SYSML_KEYWORDS } from "./keywords.js";
+
 const PLAIN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 /** Remove the quotes of an unrestricted name and process escapes; plain names are unchanged. */
@@ -17,9 +19,9 @@ export function unquoteName(text: string): string {
   return text;
 }
 
-/** Quote a name segment if it is not a plain identifier. */
+/** Quote a name segment if it is not a plain identifier or is a reserved word. */
 export function quoteName(name: string): string {
-  if (PLAIN.test(name)) return name;
+  if (PLAIN.test(name) && !SYSML_KEYWORDS.has(name)) return name;
   return "'" + name.replace(/[\\']/g, (c) => "\\" + c) + "'";
 }
 
