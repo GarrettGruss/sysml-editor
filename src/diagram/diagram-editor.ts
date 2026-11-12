@@ -4,8 +4,11 @@
  */
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import type { Element } from "../model/index.js";
+import { isLibraryUri, type Element } from "../model/index.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
+import { readSettled } from "./read-settled.js";
+import { writeDiagramFile } from "./write-uri.js";
+import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
 import { addElements } from "./create.js";
 import { applyAutoLayout, applyBoxPatches, removeItems } from "./edits.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
@@ -18,6 +21,8 @@ import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, Diagra
 export const VIEW_TYPE = "sysml.diagram";
 const REFRESH_DEBOUNCE_MS = 50;
 const REQUEST_TIMEOUT_MS = 30_000;
+export const MAX_DROPPED_NAMES = 200;
+const RENDER_TIMEOUT_MS = 20_000;
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -39,8 +44,14 @@ export class SysmlDiagramDocument implements vscode.CustomDocument {
   selection: string[] = [];
   /** Ids to select once the next render has reached the webview. */
   pendingSelect?: string[];
+  /** Resolvers of callers waiting for the webview's answer to an Auto-layout command. */
+  layoutWaiters: Array<() => void> = [];
   private readonly disposables: vscode.Disposable[] = [];
-  constructor(readonly uri: vscode.Uri, readonly state: DiagramState) {}
+  /**
+   * `key` names the document's panels; it is the URI for a document open in an editor. A `renderOnly` document backs a
+   * short-lived panel that only produces an image: it never writes files, edits or follows the selection.
+   */
+  constructor(readonly uri: vscode.Uri, readonly state: DiagramState, readonly key: string = uri.toString(), readonly renderOnly = false) {}
   onDispose(...d: vscode.Disposable[]): void {
     this.disposables.push(...d);
   }
@@ -96,6 +107,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   private readonly subs: vscode.Disposable[] = [];
   private readonly errorLog: string[] = [];
   private requestId = 0;
+  private renderCount = 0;
   private timer?: ReturnType<typeof setTimeout>;
   ui: DiagramUi = defaultUi;
   /** Called when a node is selected in a diagram and the tree should follow (set by the extension). */
@@ -143,7 +155,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop()!));
     const onDisk = async () => {
       try {
-        const change = noteExternalChange(doc.state, await read(uri));
+        const change = noteExternalChange(doc.state, (await readSettled(() => read(uri))) as string);
         if (change === "reload") this.rerender(doc);
         else if (change === "conflict") {
           void vscode.window.showWarningMessage(`${uri.path.split("/").pop()} changed on disk while it has unsaved changes. Saving will ask whether to overwrite it.`);
@@ -180,7 +192,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const previous = s.disk;
     s.disk = s.text(); // our own write must not look like an external change
     try {
-      await vscode.workspace.fs.writeFile(doc.uri, encoder.encode(s.text()));
+      await writeDiagramFile(doc.uri, encoder.encode(s.text()));
     } catch (e) {
       s.disk = previous;
       throw e;
@@ -189,7 +201,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   async saveCustomDocumentAs(doc: SysmlDiagramDocument, dest: vscode.Uri): Promise<void> {
-    await vscode.workspace.fs.writeFile(dest, encoder.encode(doc.state.text()));
+    await writeDiagramFile(dest, encoder.encode(doc.state.text()));
   }
 
   async revertCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
@@ -208,7 +220,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const root = vscode.Uri.joinPath(this.extensionUri, "dist", "webview");
     const webview = webviewPanel.webview;
     webview.options = { enableScripts: true, localResourceRoots: [root] };
-    const key = doc.uri.toString();
+    const key = doc.key;
     const p: Panel = { panel: webviewPanel, ready: false };
     this.panels.set(key, (this.panels.get(key) ?? new Set()).add(p));
     webviewPanel.onDidDispose(() => {
@@ -259,6 +271,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   private onMessage(doc: SysmlDiagramDocument, p: Panel, m: WebviewToHost): void {
+    if (doc.renderOnly && !["ready", "layoutChanged", "pngResult", "metricsResult", "gestureResult", "error"].includes(m.type)) return;
     switch (m.type) {
       case "ready":
         p.ready = true;
@@ -270,7 +283,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         doc.state.mergeLayout(Array.isArray(m.nodes) ? m.nodes : [], Array.isArray(m.edges) ? m.edges : []);
         break;
       case "edit":
-        this.userEdit(doc, m.edit);
+        // An edit made on a render of an earlier load (revert, external change) must not be applied to the document now.
+        if (m.generation !== doc.state.generation) this.log(`diagram: dropped an edit from generation ${String(m.generation)} (document is at ${doc.state.generation})`);
+        else this.userEdit(doc, m.edit);
+        if (m.edit?.kind === "autoLayout") this.layoutDone(doc);
         break;
       case "selection":
         doc.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
@@ -354,7 +370,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (!ids.length) return;
     doc.selection = ids;
     let sent = false;
-    for (const p of this.panels.get(doc.uri.toString()) ?? []) {
+    for (const p of this.panels.get(doc.key) ?? []) {
       if (p.ready && p.lastHash !== undefined) { this.post(p, { type: "select", ids }); sent = true; }
     }
     doc.pendingSelect = sent ? undefined : ids;
@@ -382,7 +398,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   private addByName(doc: SysmlDiagramDocument, names: string[]): void {
-    const els = names.flatMap((n) => (typeof n === "string" ? [...this.model.index.findByQualifiedName(n).slice(0, 1)] : []));
+    // A drop payload comes from outside the extension: bounded, and never standard library content.
+    const els = names.slice(0, MAX_DROPPED_NAMES).flatMap((n) => (typeof n === "string" ? [...this.model.index.findByQualifiedName(n).filter((e) => !isLibraryUri(e.uri)).slice(0, 1)] : []));
     if (!els.length) return;
     try {
       this.addElementsTo(doc, els);
@@ -413,7 +430,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
 
   /** Ask the active (or given) diagram's webview to run a command. */
   runCommand(doc: SysmlDiagramDocument | undefined, name: DiagramCommand): boolean {
-    const p = [...(this.panels.get(doc?.uri.toString() ?? "") ?? [])].find((x) => x.ready);
+    const p = [...(this.panels.get(doc?.key ?? "") ?? [])].find((x) => x.ready);
     if (!p) return false;
     this.post(p, { type: "command", name });
     return true;
@@ -424,7 +441,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
     const end = performance.now() + 60_000;
     while (!this.docs.has(uri.toString()) || ![...(this.panels.get(uri.toString()) ?? [])].some((p) => p.ready)) {
-      if (performance.now() > end) throw new Error(`The diagram ${uri.path.split("/").pop()} did not open`);
+      if (performance.now() > end) throw new Error(`The diagram ${uri.path.split("/").pop()} did not open${this.errorSuffix()}`);
       await new Promise((r) => setTimeout(r, 50));
     }
     this.selectIds(this.docs.get(uri.toString())!, ids);
@@ -444,21 +461,22 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
 
   /** Re-resolve, write detected renames to the file, and send the view model to every ready panel. */
   private rerender(doc: SysmlDiagramDocument): void {
-    for (const p of this.panels.get(doc.uri.toString()) ?? []) this.syncPage(doc, p);
+    for (const p of this.panels.get(doc.key) ?? []) this.syncPage(doc, p);
     const r = refresh(doc.state, this.model.index, this.opts(doc));
     if (!r) return;
-    if (r.updates) void this.followRename(doc, r.updates);
-    for (const p of this.panels.get(doc.uri.toString()) ?? []) {
+    if (r.updates && !doc.renderOnly) void this.followRename(doc, r.updates);
+    for (const p of this.panels.get(doc.key) ?? []) {
       if (!p.ready) continue;
-      const h = hashViewModel(r.viewModel);
+      // The generation is part of the key: after a reload the webview must learn the new one even if the drawing is the same.
+      const h = `${doc.state.generation}:${hashViewModel(r.viewModel)}`;
       if (h === p.lastHash) continue;
       p.lastHash = h;
-      this.post(p, { type: "render", viewModel: r.viewModel });
+      this.post(p, { type: "render", viewModel: r.viewModel, generation: doc.state.generation });
     }
     if (doc.pendingSelect) {
       const ids = doc.pendingSelect;
       doc.pendingSelect = undefined;
-      for (const p of this.panels.get(doc.uri.toString()) ?? []) if (p.ready && p.lastHash !== undefined) this.post(p, { type: "select", ids });
+      for (const p of this.panels.get(doc.key) ?? []) if (p.ready && p.lastHash !== undefined) this.post(p, { type: "select", ids });
     }
   }
 
@@ -467,7 +485,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
       const r = followRename(doc.state, updates ?? [], disk);
       if (r.kind === "reloaded") this.rerender(doc);
-      else if (r.kind === "write") await vscode.workspace.fs.writeFile(doc.uri, encoder.encode(r.text));
+      else if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
     } catch (e) {
       this.log(`diagram rename follow failed: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -477,11 +495,116 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     void p.panel.webview.postMessage(m);
   }
 
+  // ---- agent support ---------------------------------------------------------------------
+
+  /** The document open in an editor for `uri`, if any. */
+  openDocument(uri: vscode.Uri): SysmlDiagramDocument | undefined {
+    return this.docs.get(uri.toString());
+  }
+
+  /** URIs of the diagrams open in editors. */
+  openUris(): string[] {
+    return [...this.docs.keys()];
+  }
+
+  private async waitUntil(cond: () => boolean, ms: number, what: string, key?: string): Promise<void> {
+    const end = performance.now() + ms;
+    while (!cond()) {
+      if (performance.now() > end) throw new Error(`timed out waiting for ${what}${this.errorSuffix()}`);
+      if (key !== undefined && !this.panels.has(key)) throw new Error(`the diagram panel was closed while waiting for ${what}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
+  private renderedPanel(key: string): Panel | undefined {
+    return [...(this.panels.get(key) ?? [])].find((p) => p.ready && p.lastHash !== undefined);
+  }
+
+  /**
+   * A PNG (base64) of the diagram in the fixed light theme. If an editor shows it, that webview is used. Otherwise a
+   * short-lived webview panel renders it: VS Code has no hidden or background webview (a webview in a tab that is not
+   * visible is not loaded), so the panel is opened beside the active editor without taking focus (`preserveFocus`), and
+   * is disposed as soon as the image is exported. `text` is the diagram's content, used when no editor shows it.
+   */
+  async renderImage(uri: vscode.Uri, text: string): Promise<string> {
+    const open = this.docs.get(uri.toString());
+    if (open && !open.renderOnly) {
+      try {
+        await this.waitUntil(() => this.renderedPanel(open.key) !== undefined, 10_000, "the open diagram to render", open.key);
+        return await this.exportPngLimited(open.key);
+      } catch (e) {
+        this.log(`diagram image from the open editor failed (${e instanceof Error ? e.message : String(e)}); rendering in a temporary panel`);
+      }
+    }
+    // One temporary panel at a time; a bounded number of requests wait.
+    return this.renderQueue.run(() => this.renderTemporarily(uri, text));
+  }
+
+  private readonly renderQueue = new RenderQueue();
+
+  /** A PNG of at most 1 MB: re-exported at a lower scale when larger; throws "image too large" when it still does not fit. */
+  private exportPngLimited(key: string): Promise<string> {
+    return exportWithinLimit((maxWidth) => this.exportPng(key, "light", maxWidth));
+  }
+
+  private async renderTemporarily(uri: vscode.Uri, text: string): Promise<string> {
+    await this.model.ready.catch(() => undefined);
+    const key = `render:${++this.renderCount}:${uri.toString()}`;
+    const doc = new SysmlDiagramDocument(uri, new DiagramState(text), key, true);
+    if (!doc.state.doc) throw new Error("the diagram does not parse");
+    const root = vscode.Uri.joinPath(this.extensionUri, "dist", "webview");
+    const panel = vscode.window.createWebviewPanel(
+      "sysml.diagram.render",
+      "SysML diagram (rendering)",
+      { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+      { enableScripts: true, localResourceRoots: [root], retainContextWhenHidden: true },
+    );
+    const p: Panel = { panel, ready: false };
+    this.panels.set(key, new Set([p]));
+    const subs = [panel.webview.onDidReceiveMessage((m: WebviewToHost) => this.onMessage(doc, p, m)), panel.onDidDispose(() => this.panels.delete(key))];
+    try {
+      this.syncPage(doc, p);
+      await this.waitUntil(() => p.ready && p.lastHash !== undefined, RENDER_TIMEOUT_MS, "the temporary diagram panel to render", key);
+      return await this.exportPngLimited(key);
+    } finally {
+      this.panels.delete(key);
+      for (const d of subs) d.dispose();
+      panel.dispose();
+      doc.dispose();
+    }
+  }
+
+  private layoutDone(doc: SysmlDiagramDocument): void {
+    const waiters = doc.layoutWaiters;
+    doc.layoutWaiters = [];
+    for (const w of waiters) w();
+  }
+
+  /**
+   * Run the Auto-layout command in the open editor, the same code path as the command, and wait until the webview has
+   * answered with its edit (or nothing changed). Rejects when the editor does not answer in time.
+   */
+  async autoLayout(doc: SysmlDiagramDocument): Promise<void> {
+    await this.waitUntil(() => this.renderedPanel(doc.key) !== undefined, 10_000, "the diagram editor to render", doc.key);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = new Promise<void>((resolve, reject) => {
+      doc.layoutWaiters.push(resolve);
+      timer = setTimeout(() => reject(new Error(`the diagram editor did not finish the layout in ${RENDER_TIMEOUT_MS} ms${this.errorSuffix()}`)), RENDER_TIMEOUT_MS);
+    });
+    try {
+      if (!this.runCommand(doc, "autoLayout")) throw new Error("the diagram editor is not ready");
+      await done;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // ---- test support ----------------------------------------------------------------------
 
-  private request<T extends WebviewToHost["type"]>(uri: vscode.Uri, make: (id: number) => HostToWebview): Promise<Extract<WebviewToHost, { type: T }>> {
-    const p = [...(this.panels.get(uri.toString()) ?? [])].find((x) => x.ready);
-    if (!p) return Promise.reject(new Error(`no ready diagram panel for ${uri.toString()}`));
+  private request<T extends WebviewToHost["type"]>(key: string | vscode.Uri, make: (id: number) => HostToWebview): Promise<Extract<WebviewToHost, { type: T }>> {
+    const k = typeof key === "string" ? key : key.toString();
+    const p = [...(this.panels.get(k) ?? [])].find((x) => x.ready);
+    if (!p) return Promise.reject(new Error(`no ready diagram panel for ${k}`));
     const id = ++this.requestId;
     return new Promise((resolve, reject) => {
       const t = setTimeout(() => { this.pending.delete(id); reject(new Error(`diagram webview did not answer within ${REQUEST_TIMEOUT_MS} ms (errors: ${this.errorLog.join(" | ")})`)); }, REQUEST_TIMEOUT_MS);
@@ -490,8 +613,13 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     });
   }
 
-  private async exportPng(uri: vscode.Uri, theme: PngTheme): Promise<string> {
-    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme }));
+  /** The webview's logged errors, for messages about a webview that did not come up. */
+  private errorSuffix(): string {
+    return this.errorLog.length ? ` (webview errors: ${this.errorLog.slice(-5).join(" | ")})` : "";
+  }
+
+  private async exportPng(uri: vscode.Uri | string, theme: PngTheme, maxWidth?: number): Promise<string> {
+    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme, ...(maxWidth !== undefined ? { maxWidth } : {}) }));
     if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
     return r.base64;
   }
@@ -501,7 +629,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
       const end = performance.now() + 60_000;
       while (![...(this.panels.get(uri.toString()) ?? [])].some((p) => p.ready)) {
-        if (performance.now() > end) throw new Error(`diagram editor for ${uri.toString()} did not become ready`);
+        if (performance.now() > end) throw new Error(`diagram editor for ${uri.toString()} did not become ready${this.errorSuffix()}`);
         await new Promise((r) => setTimeout(r, 50));
       }
     },

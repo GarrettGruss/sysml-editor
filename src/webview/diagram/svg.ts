@@ -102,7 +102,7 @@ function drawPortLabel(n: VmNode, b: Box, owner: Box, o: SvgOptions): string {
 
 const DASHED = new Set(["typing", "satisfy", "verify", "derivation"]);
 
-function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, measure: Measure, avoid: Box[]): { svg: string; label?: Box } {
+function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined): string {
   const first = pts[0]!;
   const second = pts[1] ?? first;
   const last = pts[pts.length - 1]!;
@@ -121,13 +121,8 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, measure: Measure, avoid: 
     }
     default: break;
   }
-  let label: Box | undefined;
-  if (e.label) {
-    const w = measure(e.label, "small") + 4;
-    label = placeLabel(pts, w, 13, avoid);
-    g += text(o, label.x + w / 2, label.y + 10, e.label, "small", e.resolved ? "subtext" : "warn", "middle");
-  }
-  return { svg: g + "</g>", ...(label ? { label } : {}) };
+  if (e.label && label) g += text(o, label.x + label.w / 2, label.y + 10, e.label, "small", e.resolved ? "subtext" : "warn", "middle");
+  return g + "</g>";
 }
 
 function depth(vm: ViewModel): Map<string, number> {
@@ -163,6 +158,8 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const owner = n?.attachedTo !== undefined ? abs.get(n.attachedTo) : undefined;
     return { box, ...(owner ? { owner } : {}) };
   };
+  // Route every edge first, in document order: a later edge keeps off the lines of the earlier ones.
+  const drawn: { e: VmEdge; pts: Pt[]; ends: Box[] }[] = [];
   for (const e of vm.edges) {
     const s = abs.get(e.source);
     const t = abs.get(e.target);
@@ -176,12 +173,20 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     };
     const skip = new Set([...related(e.source), ...related(e.target)]);
     const obstacles = vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!);
-    const pts = edgeRoute(endOf(e.source), endOf(e.target), extras.routes?.get(e.id) ?? e.points, obstacles);
+    const pts = edgeRoute(endOf(e.source), endOf(e.target), extras.routes?.get(e.id) ?? e.points, obstacles, drawn.map((d) => d.pts));
     routes.set(e.id, pts);
-    const r = drawEdge(e, pts, o, measure, [s, t, ...obstacles]);
-    out += r.svg;
-    if (r.label) labels.set(e.id, r.label);
+    drawn.push({ e, pts, ends: [s, t] });
   }
+  // Then the labels, which keep off every node, every other edge and every other label.
+  const allNodes = order.map((n) => abs.get(n.id)!);
+  const parents = new Set(vm.nodes.map((n) => n.parent).filter((x): x is string => x !== undefined));
+  const containers = order.filter((n) => parents.has(n.id)).map((n) => abs.get(n.id)!);
+  for (const d of drawn) {
+    if (!d.e.label) continue;
+    const others = drawn.filter((x) => x !== d).map((x) => x.pts);
+    labels.set(d.e.id, placeLabel(d.pts, measure(d.e.label, "small") + 4, 13, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
+  }
+  for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id));
   for (const n of order) {
     if (n.shape !== "port") continue;
     const b = abs.get(n.id)!;

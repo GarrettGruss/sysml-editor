@@ -1,7 +1,8 @@
 # Using SysML Editor with AI agents
 
-The extension gives AI agents read access to the SysML v2 model of the open workspace. The tools see the same
-model as the editor, including unsaved edits. They only work while VS Code is open on that workspace.
+The extension gives AI agents read access to the SysML v2 model of the open workspace, and lets them read and edit
+diagrams (`.sysmld` files). The tools see the same model as the editor, including unsaved edits. They only work while
+VS Code is open on that workspace.
 
 ## Tools
 
@@ -11,8 +12,69 @@ model as the editor, including unsaved edits. They only work while VS Code is op
 | `sysml_get_element_tree` | Browse the element hierarchy (default depth limit; request a subtree by qualified name). |
 | `sysml_get_element` | Details of one element: kind, type, multiplicity, documentation, members, relationships, file and lines. |
 | `sysml_validate` | Syntax errors and unresolved names, with file and line, for one file or the whole workspace. |
+| `sysml_list_diagrams` | List the `.sysmld` diagram files with kind, root element, node count, whether each parses and whether it is open in an editor. |
+| `sysml_read_diagram` | One diagram as JSON (kind, root, nodes and edges with resolved names, kinds and types, containment, positions, unresolved references). `includeImage: true` adds a PNG. |
+| `sysml_create_diagram` | Create a diagram of a given kind for a root element (optionally only some members) and return its path and description. |
+| `sysml_add_to_diagram` | Add elements (qualified names) to a diagram. |
+| `sysml_remove_from_diagram` | Remove nodes or edges (ids from `sysml_read_diagram`) from a diagram. |
+| `sysml_layout_diagram` | Arrange a diagram again (automatic layout). |
 
-Results are JSON text. None of the tools writes files.
+Results are JSON text. The model tools (`sysml_list_files`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_validate`) never write
+files. The four diagram write tools (`sysml_create_diagram`, `sysml_add_to_diagram`, `sysml_remove_from_diagram`,
+`sysml_layout_diagram`) change only `.sysmld` files, never the model or any `.sysml` file; they are marked as not read-only
+(`readOnlyHint: false` over MCP, the `edits-diagram` tag in the manifest).
+
+## Diagram edits: open or closed
+
+Each write tool call is one edit, applied without an approval prompt:
+
+- **The diagram is open in an editor**: the change is applied to the open document as an undoable edit and left **unsaved**.
+  The tab shows as modified, the editor updates at once, and the user can undo it (Ctrl+Z) or save it. `sysml_read_diagram` of an
+  open diagram describes the in-memory content, including unsaved changes (`open` and `unsaved` in the result say so).
+  `sysml_layout_diagram` runs the same code path as the Auto-layout command.
+- **The diagram is not open**: the change is written to the `.sysmld` file. `sysml_layout_diagram` cannot compute a layout
+  without the editor, so for a closed diagram it clears the stored positions and routes in the file; the layout is
+  computed the next time the diagram is opened or rendered.
+- `sysml_create_diagram` always writes a new file. Without `path` it goes beside the root's source file under the root's name
+  (a library element or a source outside the workspace uses the first workspace folder) and never overwrites: a taken name gets a number.
+  An explicit `path` must be workspace-relative, end in `.sysmld`, stay inside the workspace, and must not exist.
+
+The result of each write says how it was applied (`applied`: `editor`, `file` or `none`) and includes the diagram as it is now.
+
+### Paths, symlinks and excluded files
+
+Tool inputs are treated as untrusted. Every diagram path is checked before any read or write:
+
+- It must lie inside a workspace folder by its **real path**: the real path of the target (or of its deepest existing parent
+  folder, for a new file) must be inside the real path of a workspace folder. A symbolic link that points outside the workspace
+  is refused, whether it is a folder on the way or the file itself. Links that stay inside the workspace work.
+- A **dangling symbolic link** is never written through: for `sysml_create_diagram` any existing entry at the target name,
+  a dangling link included, counts as taken.
+- Paths matched by `sysml.exclude` or `files.exclude` (the same rule the diagram file index uses) are refused with an error
+  for read, edit, create and layout, and do not appear in `sysml_list_diagrams`.
+- A closed diagram is re-checked just before it is written. If the file changed on disk since it was read, the call fails with
+  "the diagram changed on disk; read it again" and nothing is written. If an editor opened the diagram in the meantime,
+  the edit is applied to the open document instead.
+
+### Untrusted workspaces
+
+In an untrusted workspace (`vscode.workspace.isTrusted` is false) the four write tools return an error and change nothing.
+The read tools (`sysml_list_diagrams`, `sysml_read_diagram`, including images) keep working.
+
+### Images
+
+`sysml_read_diagram` with `includeImage: true` returns the JSON text plus a PNG (`image/png`, light theme, at most 1600 px wide),
+rendered by the diagram view: an `image` content item next to the text over MCP, a `LanguageModelDataPart.image` next to the
+text part over Language Model Tools. If the diagram is open in an editor, that editor's view is used. Otherwise VS Code has no
+way to render a webview invisibly (a webview in a tab that is not visible is not loaded), so the extension opens a short-lived
+panel titled "SysML diagram (rendering)" beside the active editor **without taking focus**, exports the image and closes the
+panel. The active editor, its tab and the focus stay as they were, and no tab is left open, but the panel is briefly visible
+(and when there is no editor group beside the current one, a group appears and disappears again). If rendering fails or takes
+longer than 20 seconds, the call still succeeds: the JSON is returned with `image: { available: false, reason }`.
+
+Limits: temporary render panels are used one at a time, and at most 8 requests may wait; further requests get
+`image: { available: false, reason: "too many pending image requests" }`. An image larger than 1 MB is exported again at
+half the width (repeatedly, down to 400 px); if it still exceeds 1 MB the reason is `"image too large"`.
 
 ## Channels
 
@@ -81,4 +143,6 @@ The workspace is the folder opened in VS Code. The bridge finds the running serv
   while the bridge is idle it also exits with code 1 and a message on stderr.
 - **Output limits**: `sysml_validate` returns at most 200 problems (the note gives the total; call it per file);
   `sysml_list_files` at most 500 files; `sysml_get_element` at most 200 owned members (with `ownedMembersTotal`) and 20
-  declarations; `sysml_get_element_tree` at most 500 nodes.
+  declarations; `sysml_get_element_tree` at most 500 nodes; `sysml_list_diagrams` at most 500 diagrams;
+  `sysml_read_diagram` at most 500 nodes, 1000 edges and 500 unresolved items (with a note); `sysml_create_diagram` and
+  `sysml_add_to_diagram` at most 200 elements per call; `sysml_remove_from_diagram` at most 200 ids.

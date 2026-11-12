@@ -177,6 +177,10 @@
         "toolReferenceName": "sysmlListFiles",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {},
@@ -190,6 +194,10 @@
         "toolReferenceName": "sysmlGetElementTree",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -215,6 +223,10 @@
         "toolReferenceName": "sysmlGetElement",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -236,6 +248,10 @@
         "toolReferenceName": "sysmlValidate",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -244,6 +260,200 @@
               "description": "Workspace-relative path of one file. Default: whole workspace."
             }
           },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_list_diagrams",
+        "displayName": "SysML: List Diagrams",
+        "modelDescription": "List the diagram files (.sysmld) of the workspace. A diagram is a view of the SysML model (general view, interconnection view or requirements view) that stores which elements are shown and where, never the model itself. Returns JSON: { diagrams: [{ path, kind, root, nodeCount, parses, open }] } with paths relative to the workspace root; `parses: false` marks a file that is not a valid diagram (it then has `problems` instead of kind, root and nodeCount). `open` is true when the diagram is open in an editor, in which case its in-memory content is listed. Use sysml_read_diagram to see one diagram's content.",
+        "toolReferenceName": "sysmlListDiagrams",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_read_diagram",
+        "displayName": "SysML: Read Diagram",
+        "modelDescription": "Read one diagram: its kind, root element, and every node and edge with the element it shows (name, qualified name, kind, types, relationship ends), containment (`parent`), stored positions (x, y, w, h, relative to the parent node, when known), edge routes and unresolved references (items whose element no longer exists). If the diagram is open in an editor, its in-memory content is described, including unsaved changes. Returns JSON { path, open, unsaved, kind, root, sources, nodes, edges, unresolved }. With `includeImage: true` the result also carries a PNG of the diagram (light theme, at most 1600 px wide) rendered by the diagram view as a second content item. If the diagram is not open, it is rendered in a short-lived editor tab beside the current one that is closed again at once (focus and the active editor stay as they are); if rendering fails or times out, the JSON is returned with an `image` note saying the image is unavailable and why. Large diagrams are truncated with a note.",
+        "toolReferenceName": "sysmlReadDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "includeImage": {
+              "type": "boolean",
+              "default": false,
+              "description": "Also return a PNG image of the diagram. Default false."
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_create_diagram",
+        "displayName": "SysML: Create Diagram",
+        "modelDescription": "Create a new diagram file for a model element and return its path and description. `root` is the qualified name of the element shown as the diagram's root (for example Vehicle::Car); the diagram is pre-populated with the root and its direct members (for a requirements view, the requirements and what the relationships tie them to). `kind` is general (definitions and usages with specialization, composition and typing), interconnection (parts nested in a part, with ports and connections) or requirements. `elements` optionally restricts the members shown to those qualified names. `path` is workspace-relative and must end in .sysmld; by default the file is created beside the root's source file under the element's name, and an existing file is never overwritten (a numbered name is used, or an explicit existing path is rejected). The new diagram has no stored positions; the editor lays it out when it is opened. Changes the diagram file only, never the model. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlCreateDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the root element, e.g. Vehicle::Car."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "general",
+                "interconnection",
+                "requirements"
+              ],
+              "description": "general, interconnection or requirements."
+            },
+            "elements": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Qualified names of the members to show (at most 200). Default: all visible direct members."
+            },
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative path of the new .sysmld file. Default: beside the root's source file."
+            }
+          },
+          "required": [
+            "root",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_add_to_diagram",
+        "displayName": "SysML: Add To Diagram",
+        "modelDescription": "Add model elements to an existing diagram as nodes (relationship statements such as satisfy or connect become edges when both ends are on the diagram). `elements` are qualified names. Elements already on the diagram are left alone. Changes the diagram only, never the model, as one edit: if the diagram is open in an editor the change is applied to the open document as an undoable, unsaved edit (the tab shows it as modified); if it is not open the file is written. Returns JSON with `applied` (editor, file or none), what was added and the diagram as it is now. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlAddToDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "elements": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Qualified names of the elements to add (at most 200)."
+            }
+          },
+          "required": [
+            "path",
+            "elements"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_remove_from_diagram",
+        "displayName": "SysML: Remove From Diagram",
+        "modelDescription": "Remove nodes or edges from a diagram by their ids (from sysml_read_diagram). Removing a node also removes its child nodes and every edge attached to any of them. Only the diagram changes: the model and the .sysml files are never touched. One edit: applied as an undoable, unsaved edit when the diagram is open in an editor, written to the file otherwise. Returns JSON with `applied` (editor, file or none), `removed` and the diagram as it is now. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlRemoveFromDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Node or edge ids to remove (at most 200)."
+            }
+          },
+          "required": [
+            "path",
+            "ids"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_layout_diagram",
+        "displayName": "SysML: Layout Diagram",
+        "modelDescription": "Arrange all nodes and edges of a diagram again (automatic layout), discarding manual positions. If the diagram is open in an editor this runs the editor's Auto-layout command: the new layout is shown at once as an undoable, unsaved edit. If it is not open, the stored positions and routes are cleared in the file so that the layout is computed the next time the diagram is opened or rendered (the returned description then has no positions). Only the diagram changes. Returns JSON with `applied` (editor, file or none) and the diagram as it is now. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlLayoutDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            }
+          },
+          "required": [
+            "path"
+          ],
           "additionalProperties": false
         }
       }

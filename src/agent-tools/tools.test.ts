@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
-import { callTool, toolDefinitions, NODE_CAP, type ToolContext, type ToolResult } from "./index.js";
+import { invokeTool, toolDefinitions, NODE_CAP, type ToolContext, type ToolResult } from "./index.js";
+
+/** The existing tools are synchronous. */
+const callTool = (name: string, input: unknown, ctx: ToolContext) => invokeTool(name, input, ctx) as ToolResult;
 
 const ROOT = "file:///w/";
 function setup(files: Record<string, string>): ToolContext {
@@ -34,11 +37,14 @@ const VEHICLE = `package VehicleModel {
 }`;
 
 describe("tool definitions", () => {
-  it("are snake_case, read-only, and described", () => {
-    expect(toolDefinitions.map((t) => t.name)).toEqual(["sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate"]);
+  it("are snake_case and described; the model tools are read-only", () => {
+    expect(toolDefinitions.map((t) => t.name)).toEqual([
+      "sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate",
+      "sysml_list_diagrams", "sysml_read_diagram", "sysml_create_diagram", "sysml_add_to_diagram", "sysml_remove_from_diagram", "sysml_layout_diagram",
+    ]);
     for (const t of toolDefinitions) {
       expect(t.name).toMatch(/^[a-z]+(_[a-z]+)*$/);
-      expect(t.readOnly).toBe(true);
+      if (!/diagram/.test(t.name)) expect(t.readOnly).toBe(true);
       expect(t.description.length).toBeGreaterThan(80);
       expect(t.inputSchema.type).toBe("object");
     }

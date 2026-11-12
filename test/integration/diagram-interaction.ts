@@ -329,7 +329,7 @@ export function interactionTests(c: Ctx): Test[] {
         await c.eventually(async () => assert.strictEqual(nodeOf(await metrics(f), "n1").shape, "unresolved"), "undo brings the unresolved node back");
         // Remove from Diagram on the unresolved node
         await gesture(f, { kind: "select", id: "n1" });
-        await gesture(f, { kind: "key", key: "Backspace" });
+        await gesture(f, { kind: "key", key: "Delete" });
         await waitFor(() => !doc(f).nodes.some((n) => n.id === "n1"), 5000, "the unresolved node is removed");
         assert.deepStrictEqual(api.diagram.errors(), []);
       } finally {
@@ -355,7 +355,7 @@ export function interactionTests(c: Ctx): Test[] {
         assert.ok(await vscode.workspace.applyEdit(edit));
         await waitFor(() => node(f, "n2").ref === "TmpR::Car::motor", 15000, "the reference follows the rename");
         assert.strictEqual(node(f, "n2").x, 300);
-        await waitFor(() => (JSON.parse(readFileSync(uriOf(f).fsPath, "utf8")).nodes as { ref: string }[]).some((n) => n.ref === "TmpR::Car::motor"), 10000, "the rename is written to the file at once");
+        await waitFor(() => { try { return (JSON.parse(readFileSync(uriOf(f).fsPath, "utf8")).nodes as { ref: string }[]).some((n) => n.ref === "TmpR::Car::motor"); } catch { return false; } }, 10000, "the rename is written to the file at once");
         assert.strictEqual(dirty(f), false, "a rename is not an unsaved change");
         await c.eventually(async () => assert.strictEqual(nodeOf(await metrics(f), "n2").shape, "usage"), "it is still drawn as resolved");
       } finally {

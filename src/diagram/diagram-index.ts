@@ -15,24 +15,39 @@ export interface DiagramHit {
 
 export class DiagramFileIndex {
   private readonly docs = new Map<string, DiagramDocument>();
+  /** Files that exist but do not parse: kept (flagged), so they can be listed, but they show no element. */
+  private readonly unparsed = new Set<string>();
 
-  /** Parse and store a file's text; a file that does not parse is not indexed. */
+  /** Parse and store a file's text. A file that does not parse is remembered as unparsed and returns false. */
   set(uri: string, text: string): boolean {
     const r = parseDiagram(text);
     if (!r.ok) {
       this.docs.delete(uri);
+      this.unparsed.add(uri);
       return false;
     }
+    this.unparsed.delete(uri);
     this.docs.set(uri, r.doc);
     return true;
   }
 
   delete(uri: string): void {
     this.docs.delete(uri);
+    this.unparsed.delete(uri);
   }
 
+  /** URIs of the files that parse. */
   uris(): string[] {
     return [...this.docs.keys()].sort();
+  }
+
+  /** URIs of every indexed file, parsed or not. */
+  allUris(): string[] {
+    return [...this.docs.keys(), ...this.unparsed].sort();
+  }
+
+  isUnparsed(uri: string): boolean {
+    return this.unparsed.has(uri);
   }
 
   get(uri: string): DiagramDocument | undefined {

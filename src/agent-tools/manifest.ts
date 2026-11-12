@@ -9,6 +9,8 @@ export interface LmToolManifestEntry {
   canBeReferencedInPrompt: boolean;
   /** Context-key expression; VS Code lists manifest tools even without an implementation, so this hides them in `mcp` mode. */
   when: string;
+  /** `read-only` or `edits-diagram`, so clients can tell the write tools. */
+  tags: string[];
   inputSchema: unknown;
 }
 
@@ -24,6 +26,7 @@ export function lmToolManifest(): LmToolManifestEntry[] {
     toolReferenceName: "sysml" + words(t.name).map(cap).join(""),
     canBeReferencedInPrompt: true,
     when: "config.sysml.agent.channels != 'mcp'",
+    tags: ["sysml", t.readOnly ? "read-only" : "edits-diagram"],
     inputSchema: t.inputSchema,
   }));
 }

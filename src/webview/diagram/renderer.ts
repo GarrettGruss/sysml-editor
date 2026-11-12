@@ -352,7 +352,7 @@ export class SvgRenderer implements DiagramRenderer {
   getMetrics(): Metrics {
     const vm = this.vm;
     const empty: Metrics = {
-      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0,
+      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
       portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
     if (!vm) return empty;

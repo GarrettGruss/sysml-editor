@@ -16,6 +16,13 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 const post = (m: WebviewToHost) => vscode.postMessage(m);
+const fail = (e: unknown) => post({ type: "error", message: e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e) });
+window.addEventListener("error", (e) => fail(e.error ?? e.message));
+window.addEventListener("unhandledrejection", (e) => fail(e.reason));
+// `ready` goes out before anything else can fail: messages are delivered after this script has run, so
+// the listener registered below still sees the first render, and an error in set-up is reported rather than silent.
+post({ type: "ready" });
+let generation: number | undefined;
 
 const ctx = document.createElement("canvas").getContext("2d")!;
 const measure: Measure = (text: string, style: TextStyle) => {
@@ -28,7 +35,7 @@ const elk = new ELK() as unknown as ElkLike;
 const saved = vscode.getState();
 const renderer = new SvgRenderer(document.body, measure, {
   onView: (view) => vscode.setState({ view }),
-  onEdit: (edit: DiagramEdit) => post({ type: "edit", edit }),
+  onEdit: (edit: DiagramEdit) => post({ type: "edit", edit, ...(generation !== undefined ? { generation } : {}) }),
   onSelection: (ids) => post({ type: "selection", ids }),
   onRelink: (id) => post({ type: "relink", id }),
   onDrop: (names) => post({ type: "dropElements", names }),
@@ -50,11 +57,12 @@ function withKnownPositions(vm: ViewModel): ViewModel {
   };
 }
 
-async function render(vm: ViewModel): Promise<void> {
+async function render(vm: ViewModel, gen: number): Promise<void> {
   renderer.ia.flushNudge();
   current = vm;
   const layout = await layoutDiagram(withKnownPositions(vm), elk, measure);
   renderer.render(vm, layout);
+  generation = gen;
   lastBoxes = new Map([...layout.boxes].map(([id, b]) => [id, { x: b.x, y: b.y }]));
   if (first) {
     first = false;
@@ -72,6 +80,7 @@ async function render(vm: ViewModel): Promise<void> {
 async function autoLayout(): Promise<void> {
   const vm = current;
   if (!vm) return;
+  const gen = generation;
   const stripped: ViewModel = {
     ...vm,
     nodes: vm.nodes.map(({ geometry: _g, ...n }) => n),
@@ -80,7 +89,7 @@ async function autoLayout(): Promise<void> {
   const layout = await layoutDiagram(stripped, elk, measure);
   const boxes: NodeBox[] = vm.nodes.flatMap((n) => (layout.boxes.has(n.id) ? [{ id: n.id, ...layout.boxes.get(n.id)! }] : []));
   const edges = vm.edges.filter((e) => !e.derived && layout.routes.has(e.id)).map((e) => ({ id: e.id, points: layout.routes.get(e.id)! }));
-  post({ type: "edit", edit: { kind: "autoLayout", boxes, edges } });
+  post({ type: "edit", edit: { kind: "autoLayout", boxes, edges }, ...(gen !== undefined ? { generation: gen } : {}) });
 }
 
 function toolbar(): void {
@@ -109,13 +118,13 @@ toolbar();
 const MAX_SIDE = 16_000;
 const MAX_PIXELS = 16_000_000;
 
-async function exportPng(theme: PngTheme): Promise<string> {
+async function exportPng(theme: PngTheme, maxWidth = 1600): Promise<string> {
   const svg = renderer.toSvgString(theme);
   const m = /width="(\d+)" height="(\d+)"/.exec(svg);
   const w = Number(m?.[1] ?? 800);
   const h = Number(m?.[2] ?? 600);
   // Cap by width, height and total pixels so the canvas is never too large to encode.
-  const scale = Math.min(2, 1600 / w, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_PIXELS / (w * h)));
+  const scale = Math.min(2, maxWidth / w, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_PIXELS / (w * h)));
   const cw = Math.max(1, Math.floor(w * scale));
   const ch = Math.max(1, Math.floor(h * scale));
   const img = new Image();
@@ -135,22 +144,18 @@ async function exportPng(theme: PngTheme): Promise<string> {
   return b64;
 }
 
-const fail = (e: unknown) => post({ type: "error", message: e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e) });
-window.addEventListener("error", (e) => fail(e.error ?? e.message));
-window.addEventListener("unhandledrejection", (e) => fail(e.reason));
-
 window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
   const m = ev.data;
   switch (m.type) {
     case "render":
-      queue = queue.then(() => render(m.viewModel)).catch(fail);
+      queue = queue.then(() => render(m.viewModel, m.generation)).catch(fail);
       break;
     case "getMetrics":
       queue = queue.then(() => post({ type: "metricsResult", requestId: m.requestId, ...renderer.getMetrics() })).catch(fail);
       break;
     case "exportPng":
       queue = queue
-        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme) }))
+        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
     case "command":
@@ -172,4 +177,3 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
   }
 });
-post({ type: "ready" });

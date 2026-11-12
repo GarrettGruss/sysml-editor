@@ -57,8 +57,9 @@ export type TestGesture =
   | { kind: "flush" };
 
 export type HostToWebview =
-  | { type: "render"; viewModel: ViewModel }
-  | { type: "exportPng"; requestId: number; theme: PngTheme }
+  /** `generation` is the document generation (bumped by every load); the webview echoes it in its edits so stale ones can be dropped. */
+  | { type: "render"; viewModel: ViewModel; generation: number }
+  | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number }
   | { type: "getMetrics"; requestId: number }
   | { type: "command"; name: DiagramCommand }
   | { type: "select"; ids: string[] }
@@ -91,8 +92,16 @@ export interface DiagramMetrics {
   edgesThroughEndNodes: number;
   /** Edge labels whose box overlaps one of the edge's end nodes. */
   labelsOverEndNodes: number;
+  /** Edge labels crossed by their own edge's line. */
+  labelsOnOwnEdge: number;
   /** Ports whose centre is more than 2 px from their owner's border. */
   portsOffBorder: number;
+  /** Edge labels intersecting any node box grown by 2 px (containers that hold the label excepted). */
+  labelsOverNodes: number;
+  /** Pairs of intersecting edge labels. */
+  labelsOverLabels: number;
+  /** Pairs of segments of different edges that are collinear and overlap by more than 4 px. */
+  edgeOverlaps: number;
   selected: string[];
   /** Labels of the open context menu's items (empty when none is open). */
   menu: string[];
@@ -109,7 +118,8 @@ export type WebviewToHost =
   | { type: "ready" }
   /** Positions the webview computed for nodes that had none (relative to the parent node), and routes for edges. */
   | { type: "layoutChanged"; nodes: NodeBox[]; edges: EdgePoints[] }
-  | { type: "edit"; edit: DiagramEdit }
+  /** `generation` is that of the last render the edit was made on. */
+  | { type: "edit"; edit: DiagramEdit; generation?: number }
   | { type: "selection"; ids: string[] }
   | { type: "relink"; id: string }
   | { type: "showElement" }

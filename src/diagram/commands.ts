@@ -9,31 +9,80 @@ import { createDiagram } from "./create.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { VIEW_TYPE } from "./diagram-editor.js";
 import { DiagramFileIndex } from "./diagram-index.js";
+import { readSettled } from "./read-settled.js";
+import { createDiagramFile } from "./write-uri.js";
 import { serializeDiagram, type DiagramDocument, type DiagramKind } from "./format.js";
 import { DIAGRAM_EXTENSION, KIND_LABELS, defaultDiagramFileName, fileNameProblem, listElements, uniqueFileName } from "./new-diagram.js";
 import { makeSourceMapper } from "./resolve.js";
+import { makeIndexFilter } from "../workspace/exclude.js";
 
 const decoder = new TextDecoder();
 const exists = async (uri: vscode.Uri) => vscode.workspace.fs.stat(uri).then(() => true, () => false);
 
-/** Keeps the index of diagram files current: a scan at start, then a watcher. */
+/** Keeps the index of diagram files current: a scan at start, then a watcher. Honours `sysml.exclude` and `files.exclude`. */
 export class DiagramFiles implements vscode.Disposable {
   readonly index = new DiagramFileIndex();
-  readonly ready: Promise<void>;
+  ready: Promise<void>;
   private readonly subs: vscode.Disposable[] = [];
+  /** Per-URI sequence number of the latest read or delete: an older read that finishes later is discarded. */
+  private readonly latest = new Map<string, number>();
+  private counter = 0;
+  private filterKey = "";
+  private filter: (rel: string) => boolean = () => false;
 
   constructor() {
     const pattern = "**/*.sysmld";
     const watcher = vscode.workspace.createFileSystemWatcher(pattern);
-    const load = async (uri: vscode.Uri) => {
-      try {
-        this.index.set(uri.toString(), decoder.decode(await vscode.workspace.fs.readFile(uri)));
-      } catch {
-        this.index.delete(uri.toString());
-      }
-    };
-    this.subs.push(watcher, watcher.onDidCreate(load), watcher.onDidChange(load), watcher.onDidDelete((u) => this.index.delete(u.toString())));
-    this.ready = Promise.resolve(vscode.workspace.findFiles(pattern, "**/node_modules/**")).then((uris) => Promise.all(uris.map(load))).then(() => undefined);
+    this.subs.push(
+      watcher,
+      watcher.onDidCreate((u) => void this.load(u)),
+      watcher.onDidChange((u) => void this.load(u)),
+      watcher.onDidDelete((u) => this.drop(u)),
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (e.affectsConfiguration("sysml.exclude") || e.affectsConfiguration("files.exclude")) this.ready = this.scan();
+      }),
+    );
+    this.ready = this.scan();
+  }
+
+  private excluded(uri: vscode.Uri): boolean {
+    const sysml = vscode.workspace.getConfiguration("sysml").get<string[]>("exclude", ["**/node_modules/**"]);
+    const files = vscode.workspace.getConfiguration("files").get<Record<string, unknown>>("exclude");
+    const key = JSON.stringify([sysml, files]);
+    if (key !== this.filterKey) {
+      this.filterKey = key;
+      this.filter = makeIndexFilter(sysml, files);
+    }
+    return this.filter(vscode.workspace.asRelativePath(uri, false));
+  }
+
+  private drop(uri: vscode.Uri): void {
+    this.latest.set(uri.toString(), ++this.counter);
+    this.index.delete(uri.toString());
+  }
+
+  private async load(uri: vscode.Uri): Promise<void> {
+    const key = uri.toString();
+    if (this.excluded(uri)) return this.drop(uri);
+    const n = ++this.counter;
+    this.latest.set(key, n);
+    let text: string | undefined;
+    try {
+      text = await readSettled(async () => decoder.decode(await vscode.workspace.fs.readFile(uri)));
+    } catch {
+      text = undefined;
+    }
+    if (this.latest.get(key) !== n) return; // a newer read or delete has been issued
+    if (text === undefined) this.index.delete(key);
+    else this.index.set(key, text);
+  }
+
+  private async scan(): Promise<void> {
+    // No exclude argument: VS Code's own `files.exclude` applies to the search; `sysml.exclude` is applied in `excluded`.
+    const found = await Promise.resolve(vscode.workspace.findFiles("**/*.sysmld", undefined));
+    const wanted = new Set(found.filter((u) => !this.excluded(u)).map((u) => u.toString()));
+    for (const known of this.index.allUris()) if (!wanted.has(known)) this.drop(vscode.Uri.parse(known));
+    await Promise.all(found.filter((u) => wanted.has(u.toString())).map((u) => this.load(u)));
   }
 
   dispose(): void {
@@ -61,6 +110,18 @@ async function pickElement(deps: DiagramCommandDeps, title: string): Promise<Ele
   return (await deps.diagrams.ui.pick(items, { title, placeHolder: "Type the name of a model element", matchOnDescription: true }))?.element;
 }
 
+/**
+ * Where a diagram of `element` goes by default: beside its source file when that lies inside a workspace
+ * folder, otherwise (library element, file outside every folder, non-file source) the first workspace folder.
+ */
+export function diagramTargetFolder(element: Element): { dir: vscode.Uri; folder: vscode.WorkspaceFolder } | undefined {
+  const source = vscode.Uri.parse(element.uri);
+  const own = !isLibraryUri(element.uri) && source.scheme === "file" ? vscode.workspace.getWorkspaceFolder(source) : undefined;
+  if (own) return { dir: vscode.Uri.joinPath(source, ".."), folder: own };
+  const first = vscode.workspace.workspaceFolders?.[0];
+  return first && { dir: first.uri, folder: first };
+}
+
 /** "New Diagram…": choose a kind and a file name, write the file pre-populated from the element, open it. */
 export async function newDiagram(deps: DiagramCommandDeps, node?: ModelNode): Promise<vscode.Uri | undefined> {
   await deps.model.ready;
@@ -74,13 +135,12 @@ export async function newDiagram(deps: DiagramCommandDeps, node?: ModelNode): Pr
   const kind = (await deps.diagrams.ui.pick(kinds, { title: `New Diagram: ${element.name}`, placeHolder: "Choose the kind of diagram" }))?.diagramKind;
   if (!kind) return undefined;
 
-  const source = vscode.Uri.parse(element.uri);
-  const folder = vscode.workspace.getWorkspaceFolder(source) ?? vscode.workspace.workspaceFolders?.[0];
-  const dir = !isLibraryUri(element.uri) && source.scheme === "file" ? vscode.Uri.joinPath(source, "..") : folder?.uri;
-  if (!dir) {
+  const target = diagramTargetFolder(element);
+  if (!target) {
     void vscode.window.showWarningMessage("Open a folder to create a diagram file.");
     return undefined;
   }
+  const { dir, folder } = target;
   const taken = new Set((await vscode.workspace.fs.readDirectory(dir).then((d) => d, () => [])).map(([n]) => n));
   const suggested = uniqueFileName(defaultDiagramFileName(element.name ?? "diagram"), (n) => taken.has(n));
   const typed = await deps.diagrams.ui.input({
@@ -97,9 +157,13 @@ export async function newDiagram(deps: DiagramCommandDeps, node?: ModelNode): Pr
     return undefined;
   }
   const uri = vscode.Uri.joinPath(dir, typed);
-  if (await exists(uri)) return undefined; // never overwrite (it may have appeared since the listing)
+  if (await exists(uri)) {
+    // Never overwrite: the file appeared after the listing above.
+    void vscode.window.showWarningMessage(`New Diagram: ${typed} was created by something else in the meantime, so nothing was written. Run New Diagram again to choose another name.`);
+    return undefined;
+  }
   const doc: DiagramDocument = createDiagram(deps.model.index, element.qualifiedName, kind, { sourceOf: makeSourceMapper(folder?.uri.toString()) });
-  await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(serializeDiagram(doc)));
+  await createDiagramFile(uri, new TextEncoder().encode(serializeDiagram(doc)));
   deps.files.index.set(uri.toString(), serializeDiagram(doc));
   await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
   return uri;

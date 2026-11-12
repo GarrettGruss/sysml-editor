@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { ModelTreeDragAndDrop, ModelTreeProvider, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
 import { nodeForElement, type ModelNode } from "./tree/tree-model.js";
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
+import { VsCodeDiagramService } from "./diagram/agent-service.js";
 import { AgentIntegration } from "./agent-integration.js";
 import { DiagramEditorProvider, VIEW_TYPE as DIAGRAM_VIEW_TYPE, type DiagramTestApi } from "./diagram/diagram-editor.js";
 import { WorkspaceModel } from "./workspace/workspace-model.js";
@@ -23,10 +24,11 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   const dnd = new ModelTreeDragAndDrop(model.index);
   const view = vscode.window.createTreeView<ModelNode>(VIEW_ID, { treeDataProvider: provider, dragAndDropController: dnd, canSelectMany: true });
 
-  const agent = new AgentIntegration(model, (m) => log.info(m), String(context.extension.packageJSON.version ?? "0.0.1"));
-  void agent.apply();
   const diagrams = new DiagramEditorProvider(context.extensionUri, model, (m) => log.warn(m));
   const files = new DiagramFiles();
+  const folders = () => (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
+  const agent = new AgentIntegration(model, (m) => log.info(m), String(context.extension.packageJSON.version ?? "0.0.1"), new VsCodeDiagramService(diagrams, files, folders));
+  void agent.apply();
   diagrams.revealInTree = (el) => {
     const node = nodeForElement(model.index, el);
     if (node && view.selection[0]?.id !== node.id) void Promise.resolve(view.reveal(node, { select: true, focus: false, expand: false })).then(undefined, () => {});

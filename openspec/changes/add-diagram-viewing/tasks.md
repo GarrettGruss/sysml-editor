@@ -27,13 +27,13 @@
 
 ## 4. Agent diagram tools
 
-- [ ] 4.1 Implement `list_diagrams` and `read_diagram` (JSON description); verify the description of a fixture diagram, including an unresolved reference
-- [ ] 4.2 Implement the PNG image for `read_diagram`, rendered by the diagram webview in a fixed light theme, including for a diagram that is not open (confirm whether VS Code allows a hidden webview; otherwise use a background panel without focus); verify the "Read with image", "Diagram not open", and "Image through Language Model Tools" scenarios
-- [ ] 4.3 Implement `create_diagram`, `add_to_diagram`, `remove_from_diagram`, and `layout_diagram`; verify the "Generate general view" and agent "Remove from diagram" scenarios
-- [ ] 4.4 Apply agent diagram writes as one edit per tool call, left unsaved when the diagram is open and written to disk when it is not, and disable write tools in untrusted workspaces; verify the "User undoes agent change", "Open diagram stays unsaved", "Diagram not open", and "Diagram open during agent edit" scenarios
-- [ ] 4.5 Add the new tools to the channel contract test and to `docs/agents.md`; verify identical results on both channels
+- [x] 4.1 Implement `list_diagrams` and `read_diagram` (JSON description); verify the description of a fixture diagram, including an unresolved reference
+- [x] 4.2 Implement the PNG image for `read_diagram`, rendered by the diagram webview in a fixed light theme, including for a diagram that is not open (confirm whether VS Code allows a hidden webview; otherwise use a background panel without focus); verify the "Read with image", "Diagram not open", and "Image through Language Model Tools" scenarios
+- [x] 4.3 Implement `create_diagram`, `add_to_diagram`, `remove_from_diagram`, and `layout_diagram`; verify the "Generate general view" and agent "Remove from diagram" scenarios
+- [x] 4.4 Apply agent diagram writes as one edit per tool call, left unsaved when the diagram is open and written to disk when it is not, and disable write tools in untrusted workspaces; verify the "User undoes agent change", "Open diagram stays unsaved", "Diagram not open", and "Diagram open during agent edit" scenarios
+- [x] 4.5 Add the new tools to the channel contract test and to `docs/agents.md`; verify identical results on both channels
 
 ## 5. Integration
 
-- [ ] 5.1 End-to-end test: create a diagram from the tree, arrange it, save, reopen, then have an agent read it as JSON and PNG; verify positions and content match
-- [ ] 5.2 Package with `vsce package` and verify `.sysmld` files open in the diagram editor from an installed `.vsix`
+- [x] 5.1 End-to-end test: create a diagram from the tree, arrange it, save, reopen, then have an agent read it as JSON and PNG; verify positions and content match
+- [x] 5.2 Package with `vsce package` and verify `.sysmld` files open in the diagram editor from an installed `.vsix` (`npm run package` and `check:vsix` pass locally; the existing CI step that runs the integration tests, diagram tests included, against the installed `.vsix` is CI only: installing a `.vsix` fails in this WSL environment)
