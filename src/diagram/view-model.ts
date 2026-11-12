@@ -242,7 +242,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
           if (tid !== undefined) add("specialization", id, tid);
         }
       } else if (el.isUsage) {
-        for (const ty of el.types) {
+        for (const ty of el.typeNames) {
           const t = index.resolve(ty, el);
           const tid = t ? nodeOfElement.get(t) : undefined;
           if (tid !== undefined) add("typing", id, tid);

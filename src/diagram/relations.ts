@@ -73,7 +73,7 @@ export function endElement(index: ModelIndex, end: RelationEnd, has: (e: Element
 function memberOf(index: ModelIndex, el: Element, name: string, depth = 0): Element | undefined {
   const own = el.members.find((m) => m.name === name);
   if (own || depth > 5) return own;
-  for (const t of [...el.types, ...el.specializes]) {
+  for (const t of [...el.typeNames, ...el.specializes]) {
     const def = index.resolve(t, el);
     const found = def && memberOf(index, def, name, depth + 1);
     if (found) return found;

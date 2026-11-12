@@ -50,6 +50,10 @@ export interface Element {
   readonly members: readonly Element[];
   /** Declared types (`: T`, `defined by T`) as written. */
   readonly types: readonly string[];
+  /** `types` without a leading `~` (conjugated port typing `~P`), parallel to `types`; use for name resolution. */
+  readonly typeNames: readonly string[];
+  /** Whether the type at the same index of `types` is conjugated (`port p : ~P;`). */
+  readonly typeConjugated: readonly boolean[];
   /** `:>` on a definition, `specializes`; as written. */
   readonly specializes: readonly string[];
   /** `:>` / `subsets` on a usage; as written. */

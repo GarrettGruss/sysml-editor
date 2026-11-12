@@ -67,6 +67,8 @@ export class ModelIndex {
   /** Last text per URI that was parsed synchronously because details were unavailable, with its result. */
   private readonly syncResolved = new Map<string, { text: string; parsed: ParsedDocument }>();
   private readonly inFlight = new Set<Promise<void>>();
+  /** Set on forks: the key arrays that are still shared with the original index (copy before writing). */
+  private shared?: { byQn: Set<string>; roots: Set<string> };
 
   constructor(
     private readonly parser: DocumentParser = defaultDocumentParser,
@@ -118,6 +120,33 @@ export class ModelIndex {
       everParsedCleanly: e.everParsedCleanly,
       detailsPending: e.detailsPending,
     };
+  }
+
+  /**
+   * A copy of this index in which the given documents have the given texts (parsed synchronously,
+   * no details provider). Unchanged documents are shared, not re-parsed; the original is not
+   * modified. Used to check what an edit would do before it is applied.
+   */
+  withTexts(changes: ReadonlyMap<string, string>): ModelIndex {
+    const f = new ModelIndex(this.parser);
+    for (const [uri, e] of this.docs) f.docs.set(uri, { ...e });
+    for (const [k, v] of this.byQn) f.byQn.set(k, v);
+    for (const [k, v] of this.roots) f.roots.set(k, v);
+    f.shared = { byQn: new Set(this.byQn.keys()), roots: new Set(this.roots.keys()) };
+    for (const [uri, text] of changes) f.apply(uri, text);
+    return f;
+  }
+
+  /** The array for `key` in one of the maps, copied first when the original index still shares it. */
+  private writable(which: "byQn" | "roots", key: string): Element[] | undefined {
+    const map = this[which];
+    const a = map.get(key);
+    if (a && this.shared?.[which].delete(key)) {
+      const copy = [...a];
+      map.set(key, copy);
+      return copy;
+    }
+    return a;
   }
 
   /** True for standard-library documents and the elements in them (read-only content). */
@@ -256,32 +285,37 @@ export class ModelIndex {
   }
 
   private index(model: DocumentModel): void {
+    const add = (which: "byQn" | "roots", key: string, e: Element) => {
+      const a = this.writable(which, key);
+      if (a) a.push(e);
+      else this[which].set(key, [e]);
+    };
     const walk = (e: Element) => {
-      if (e.qualifiedName !== undefined) push(this.byQn, e.qualifiedName, e);
+      if (e.qualifiedName !== undefined) add("byQn", e.qualifiedName, e);
       for (const m of e.members) walk(m);
     };
     for (const r of model.roots) {
-      if (r.name !== undefined) push(this.roots, r.name, r);
-      if (r.shortName !== undefined && r.shortName !== r.name) push(this.roots, r.shortName, r);
+      if (r.name !== undefined) add("roots", r.name, r);
+      if (r.shortName !== undefined && r.shortName !== r.name) add("roots", r.shortName, r);
       walk(r);
     }
   }
 
   private unindex(model: DocumentModel): void {
-    const drop = (m: Map<string, Element[]>, key: string, e: Element) => {
-      const a = m.get(key);
+    const drop = (which: "byQn" | "roots", key: string, e: Element) => {
+      const a = this.writable(which, key);
       if (!a) return;
       const i = a.indexOf(e);
       if (i >= 0) a.splice(i, 1);
-      if (a.length === 0) m.delete(key);
+      if (a.length === 0) this[which].delete(key);
     };
     const walk = (e: Element) => {
-      if (e.qualifiedName !== undefined) drop(this.byQn, e.qualifiedName, e);
+      if (e.qualifiedName !== undefined) drop("byQn", e.qualifiedName, e);
       for (const m of e.members) walk(m);
     };
     for (const r of model.roots) {
-      if (r.name !== undefined) drop(this.roots, r.name, r);
-      if (r.shortName !== undefined) drop(this.roots, r.shortName, r);
+      if (r.name !== undefined) drop("roots", r.name, r);
+      if (r.shortName !== undefined) drop("roots", r.shortName, r);
       walk(r);
     }
   }
@@ -296,12 +330,6 @@ export class ModelIndex {
       }
     }
   }
-}
-
-function push(m: Map<string, Element[]>, key: string, e: Element): void {
-  const a = m.get(key);
-  if (a) a.push(e);
-  else m.set(key, [e]);
 }
 
 export * from "./types.js";

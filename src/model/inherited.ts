@@ -18,7 +18,7 @@ const MAX_DEPTH = 32;
 /** The elements `el` is typed by or specializes (resolved from `el`), without duplicates. */
 export function supertypesOf(index: ModelIndex, el: Element): Element[] {
   const out: Element[] = [];
-  for (const text of [...el.types, ...el.specializes, ...el.subsets]) {
+  for (const text of [...el.typeNames, ...el.specializes, ...el.subsets]) {
     const t = index.resolve(text, el);
     if (t && t !== el && !out.includes(t)) out.push(t);
   }
