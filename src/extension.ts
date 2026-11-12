@@ -97,6 +97,13 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
     vscode.commands.registerCommand("sysml.tree.showDiagrams", () => provider.setFilter("diagrams")),
     vscode.commands.registerCommand("sysml.tree.showElements", () => provider.setFilter("elements")),
+    vscode.commands.registerCommand("sysml.tree.clearSearch", () => {
+      provider.setQuery("");
+      search.setText("");
+    }),
+    provider.onDidChangeQuery((q) => {
+      view.description = q ? `Filter: ${q}` : undefined;
+    }),
   );
   // Tests read the tree directly; their objects are not the ones VS Code knows, so only `viewGetChildren` records.
   const testProvider = {

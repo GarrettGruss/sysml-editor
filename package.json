@@ -121,6 +121,12 @@
         "category": "SysML"
       },
       {
+        "command": "sysml.tree.clearSearch",
+        "title": "Clear Search",
+        "category": "SysML",
+        "icon": "$(clear-all)"
+      },
+      {
         "command": "sysml.tree.showDiagrams",
         "title": "Show Diagrams",
         "category": "SysML",
@@ -231,6 +237,11 @@
           "command": "sysml.newFile",
           "when": "view == sysmlModel && sysml.treeFilter != diagrams",
           "group": "navigation@1"
+        },
+        {
+          "command": "sysml.tree.clearSearch",
+          "when": "view == sysmlModel && sysml.searchActive",
+          "group": "navigation@0"
         },
         {
           "command": "sysml.tree.showDiagrams",

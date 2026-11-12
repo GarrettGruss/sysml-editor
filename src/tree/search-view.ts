@@ -30,6 +30,11 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${css}"><title>Search</title></head><body><div class="box"><input id="q" type="text" placeholder="Search" aria-label="Search the model tree" spellcheck="false" autocomplete="off"><button id="clear" type="button" title="Clear" aria-label="Clear search" hidden>&times;</button></div><script nonce="${nonce}" src="${js}"></script></body></html>`;
   }
 
+  /** Set the text of the search box (the host cleared the search). */
+  setText(text: string): void {
+    void this.view?.webview.postMessage({ type: "set", text });
+  }
+
   /** A message from the webview (also the entry point for tests); anything malformed is ignored. */
   handle(message: unknown): void {
     if (typeof message !== "object" || message === null) return;

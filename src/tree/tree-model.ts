@@ -18,6 +18,8 @@ export interface FolderChange {
   parent: string;
   path: string;
   deleted: boolean;
+  /** The URI the file system event carried (a `vscode.Uri`, opaque here), so it need not be rebuilt from `path`. */
+  uri?: unknown;
 }
 
 export interface NodeInfo {
@@ -266,6 +268,30 @@ export function isMessageNode(n: ModelNode): boolean {
 /** The single item shown while a search matches nothing. */
 export const NO_MATCHES_NODE: ModelNode = { id: "!no-matches", uri: "", kind: "message" };
 
+/** Searches matching more than this many nodes show their paths collapsed. */
+export const MAX_AUTO_EXPAND = 200;
+/** Subfolders an empty folder lists before "...N more folders". */
+export const MAX_EMPTY_FOLDER_LISTING = 200;
+
+const TOO_MANY_PREFIX = "!too-many:";
+const MORE_FOLDERS_PREFIX = "!more-folders:";
+
+/** The item at the top of a search with too many matches to expand. */
+export function tooManyMatchesNode(count: number): ModelNode {
+  return { id: TOO_MANY_PREFIX + count, uri: "", kind: "message" };
+}
+
+export function moreFoldersNode(parentUri: string, count: number): ModelNode {
+  return { id: MORE_FOLDERS_PREFIX + count + ":" + parentUri, uri: "", kind: "message" };
+}
+
+/** The text of a message node. */
+export function messageText(node: ModelNode): string {
+  if (node.id.startsWith(TOO_MANY_PREFIX)) return `${node.id.slice(TOO_MANY_PREFIX.length)} matches, refine the search to expand`;
+  if (node.id.startsWith(MORE_FOLDERS_PREFIX)) return `\u2026${node.id.slice(MORE_FOLDERS_PREFIX.length).split(":")[0]} more folders`;
+  return "No matches";
+}
+
 export function isFileNode(n: ModelNode): boolean {
   return n.kind === "file";
 }
@@ -362,6 +388,12 @@ async function shownEntries(env: FolderEnv, node: ModelNode, isFile: (name: stri
   };
 }
 
+/** An empty folder lists at most MAX_EMPTY_FOLDER_LISTING subfolders, then a "more folders" item. */
+function capFolders(node: ModelNode, folders: ModelNode[], empty: boolean): ModelNode[] {
+  if (!empty || folders.length <= MAX_EMPTY_FOLDER_LISTING) return folders;
+  return [...folders.slice(0, MAX_EMPTY_FOLDER_LISTING), moreFoldersNode(node.uri, folders.length - MAX_EMPTY_FOLDER_LISTING)];
+}
+
 /** Folders (by name), then files (by name), of a folder. Empty folders have no children. */
 export async function folderChildren(index: ModelIndex, env: FolderEnv, node: ModelNode): Promise<ModelNode[]> {
   const empty = !hasSysmlBelow(index, node.uri);
@@ -369,7 +401,7 @@ export async function folderChildren(index: ModelIndex, env: FolderEnv, node: Mo
   const e = await shownEntries(env, node, (n) => n.toLowerCase().endsWith(".sysml"));
   if (!e) return [];
   return [
-    ...e.folders.map((n) => folderNode(env.child(node.uri, n))),
+    ...capFolders(node, e.folders.map((n) => folderNode(env.child(node.uri, n))), empty),
     ...(empty ? [] : e.files.map((n) => env.child(node.uri, n)).filter((u) => indexed.has(u)).map(fileNode)),
   ];
 }
@@ -475,7 +507,7 @@ export async function diagramChildren(diagrams: ReadonlySet<string>, env: Folder
   const e = await shownEntries(env, node, (n) => n.toLowerCase().endsWith(".sysmld"));
   if (!e) return [];
   return [
-    ...e.folders.map((n) => folderNode(env.child(node.uri, n))),
+    ...capFolders(node, e.folders.map((n) => folderNode(env.child(node.uri, n))), empty),
     ...(empty ? [] : e.files.map((n) => env.child(node.uri, n)).filter((u) => diagrams.has(u)).map(diagramNode)),
   ];
 }
@@ -513,8 +545,12 @@ export interface ElementFilter {
   elements: ReadonlySet<string>;
   /** The subset of `elements` that has a matching descendant (expanded while filtering). */
   expanded: ReadonlySet<string>;
-  /** Files that contain a match. */
+  /** Files that contain a match, or whose name matches. */
   files: ReadonlySet<string>;
+  /** The subset of `files` with matching elements (the others match by name only and show no children). */
+  contentFiles: ReadonlySet<string>;
+  /** The number of matching elements and file names. */
+  matches: number;
   /** Folders above those files. */
   folders: ReadonlySet<string>;
 }
@@ -524,8 +560,15 @@ export function buildElementFilter(index: ModelIndex, query: string): ElementFil
   const elements = new Set<string>();
   const expanded = new Set<string>();
   const files = new Set<string>();
+  const contentFiles = new Set<string>();
+  let matches = 0;
   for (const uri of workspaceUris(index)) {
+    if (matchesQuery(fileName(uri), query)) {
+      files.add(uri);
+      matches++;
+    }
     const doc = index.getDocument(uri);
+    // A file that never parsed cleanly shows only its error placeholder, no elements.
     if (!doc || (!doc.everParsedCleanly && doc.errors.length > 0)) continue;
     const visit = (siblings: readonly Element[], parentId: string | undefined): boolean => {
       let any = false;
@@ -534,6 +577,7 @@ export function buildElementFilter(index: ModelIndex, query: string): ElementFil
         const id = parentId === undefined ? makeId(uri, [segs.get(e)!]) : parentId + "/" + segs.get(e)!;
         const below = visit(visibleChildren(e), id);
         const self = matchesQuery(e.name, query) || matchesQuery(e.shortName, query);
+        if (self) matches++;
         if (self || below) {
           elements.add(id);
           if (below) expanded.add(id);
@@ -542,9 +586,12 @@ export function buildElementFilter(index: ModelIndex, query: string): ElementFil
       }
       return any;
     };
-    if (visit(doc.model.roots.filter(isVisible), undefined)) files.add(uri);
+    if (visit(doc.model.roots.filter(isVisible), undefined)) {
+      files.add(uri);
+      contentFiles.add(uri);
+    }
   }
-  return { elements, expanded, files, folders: ancestorsOf(files) };
+  return { elements, expanded, files, contentFiles, matches, folders: ancestorsOf(files) };
 }
 
 /** What stays visible in the Diagrams view while a query is active. */

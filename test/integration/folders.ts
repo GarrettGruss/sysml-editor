@@ -469,6 +469,24 @@ export function foldersTests(c: Ctx): Test[] {
         await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
       }
     })],
+    ["Diagrams view: nested folders created at once show their diagram", withFilter("diagrams", async () => {
+      rmSync(dir(), { recursive: true, force: true });
+      mkdirSync(dir(), { recursive: true });
+      try {
+        const root = (await kids())[0]!;
+        await kids(root);
+        mkdirSync(dir("x", "y"), { recursive: true });
+        writeFileSync(dir("x", "y", "z.sysmld"), JSON.stringify({ version: 1, kind: "stateTransition", root: "Deep", sources: ["m.sysml"], nodes: [], edges: [] }));
+        await waitFor(async () => {
+          const t = (await kids(root)).find((n) => label(n) === "tmp-tree");
+          const x = t && (await kids(t)).find((n) => label(n) === "x");
+          const y = x && (await kids(x)).find((n) => label(n) === "y");
+          return !!y && (await kids(y)).some((n) => label(n) === "z.sysmld");
+        }, 30000, "x/y/z.sysmld appears in the Diagrams view");
+      } finally {
+        rmSync(dir(), { recursive: true, force: true });
+      }
+    })],
     ["Diagrams view: an idle workspace causes no workspace search or directory read", withFilter("diagrams", async () => {
       await waitFor(() => api.provider.pendingFolderRescans === 0, 30000, "earlier folder re-reads are done");
       await sleep(1000);
