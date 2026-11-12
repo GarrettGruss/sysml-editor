@@ -8,6 +8,8 @@ export interface LoadedLibrary {
   uris: string[];
   /** Files that could not be read, with the reason. */
   failed: { path: string; error: string }[];
+  /** Texts of the `.sysml` files read, in load order (used to warm the parser's fallback cache). */
+  sysmlTexts: string[];
 }
 
 function collect(dir: string, out: string[]): void {
@@ -28,12 +30,14 @@ export function loadLibrary(index: ModelIndex, dir: string): LoadedLibrary {
   collect(dir, files);
   files.sort();
   const entries: [string, string][] = [];
-  const result: LoadedLibrary = { uris: [], failed: [] };
+  const result: LoadedLibrary = { uris: [], failed: [], sysmlTexts: [] };
   for (const f of files) {
     try {
       const rel = relative(dir, f).split(sep).map(encodeURIComponent).join("/");
       const uri = `${LIBRARY_URI_SCHEME}:///${rel}`;
-      entries.push([uri, readFileSync(f, "utf8")]);
+      const text = readFileSync(f, "utf8");
+      entries.push([uri, text]);
+      if (f.endsWith(".sysml")) result.sysmlTexts.push(text);
       result.uris.push(uri);
     } catch (e) {
       result.failed.push({ path: f, error: String(e) });
@@ -57,7 +61,7 @@ export async function loadLibraryChunked(
   const files: string[] = [];
   collect(dir, files);
   files.sort();
-  const result: LoadedLibrary = { uris: [], failed: [] };
+  const result: LoadedLibrary = { uris: [], failed: [], sysmlTexts: [] };
   for (let i = 0; i < files.length; i += chunk) {
     if (opts.cancelled?.()) break;
     const entries: [string, string][] = [];
@@ -65,7 +69,9 @@ export async function loadLibraryChunked(
       try {
         const rel = relative(dir, f).split(sep).map(encodeURIComponent).join("/");
         const uri = `${LIBRARY_URI_SCHEME}:///${rel}`;
-        entries.push([uri, readFileSync(f, "utf8")]);
+        const text = readFileSync(f, "utf8");
+      entries.push([uri, text]);
+      if (f.endsWith(".sysml")) result.sysmlTexts.push(text);
         result.uris.push(uri);
       } catch (e) {
         result.failed.push({ path: f, error: String(e) });

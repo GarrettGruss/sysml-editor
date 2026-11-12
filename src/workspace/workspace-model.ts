@@ -8,6 +8,7 @@ import { existsSync } from "node:fs";
 import * as vscode from "vscode";
 import { ModelIndex, loadLibraryChunked } from "../model/index.js";
 import { inBatches, yieldToEventLoop } from "./chunked.js";
+import { warmFallbackParser } from "../parser/parse.js";
 import { makeIndexFilter } from "./exclude.js";
 import { ScanTracker } from "./scan-tracker.js";
 import { uriKey } from "./uri-key.js";
@@ -54,21 +55,35 @@ export class WorkspaceModel implements vscode.Disposable {
     try {
       // Open editors first: their text wins and the scan skips them.
       for (const d of vscode.workspace.textDocuments) this.openDoc(d);
-      await Promise.all([this.loadLibrary(extensionPath), this.scanWorkspace()]);
+      const [texts] = await Promise.all([this.loadLibrary(extensionPath), this.scanWorkspace()]);
+      // Background and not awaited: `ready` never waits for it, and results never depend on it.
+      if (texts.length > 0 && !this.disposed) void this.warmParser(texts);
     } finally {
       this.tracker.end();
     }
   }
 
-  private async loadLibrary(extensionPath: string): Promise<void> {
+  private async warmParser(texts: string[]): Promise<void> {
+    try {
+      const t0 = Date.now();
+      // One file per step, then a short pause so the extension host stays responsive.
+      await warmFallbackParser(texts, () => new Promise((r) => setTimeout(r, 10)), { cancelled: () => this.disposed });
+      this.log(`parser fallback warmed in ${Date.now() - t0} ms`);
+    } catch (e) {
+      this.log(`parser warm-up failed: ${String(e)}`);
+    }
+  }
+
+  private async loadLibrary(extensionPath: string): Promise<string[]> {
     await yieldToEventLoop();
     const lib = path.join(extensionPath, "dist", "sysml.library");
     if (!existsSync(lib)) {
       this.log(`standard library not found at ${lib}`);
-      return;
+      return [];
     }
     const r = await loadLibraryChunked(this.index, lib, { chunk: LIBRARY_CHUNK, cancelled: () => this.disposed });
     for (const f of r.failed) this.log(`library file failed: ${f.path}: ${f.error}`);
+    return r.sysmlTexts;
   }
 
   private async scanWorkspace(): Promise<void> {
