@@ -31,4 +31,4 @@
 ## 5. Integration
 
 - [x] 5.1 End-to-end test: edit a requirement in the table, the document view, the text, and through an agent; verify all four views agree after each edit
-- [ ] 5.2 Package with `vsce package` and verify the requirements editor opens from an installed `.vsix`
+- [x] 5.2 Package with `vsce package` and verify the requirements editor opens from an installed `.vsix`
