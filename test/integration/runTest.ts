@@ -23,6 +23,7 @@ async function main(): Promise<void> {
       extensionDevelopmentPath: root,
       extensionTestsPath: path.resolve(__dirname, "index"),
       launchArgs: [workspace, "--disable-extensions", ...common],
+      extensionTestsEnv: { SYSML_EXPECT_EXTENSION_PATH: root },
     });
     return;
   }
@@ -47,6 +48,7 @@ async function main(): Promise<void> {
   await runTests({
     vscodeExecutablePath,
     extensionDevelopmentPath: stub,
+    extensionTestsEnv: { SYSML_EXPECT_EXTENSIONS_DIR: extensionsDir },
     extensionTestsPath: path.resolve(__dirname, "index"),
     launchArgs: [workspace, "--extensions-dir", extensionsDir, "--user-data-dir", userDataDir, ...common],
   });

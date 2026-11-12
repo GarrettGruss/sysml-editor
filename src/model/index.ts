@@ -11,6 +11,7 @@ import {
   type DocumentState,
   type Element,
   type ModelSyntaxError,
+  type ParsedDocument,
 } from "./types.js";
 
 /** Picks the parser by file extension: `.kerml` uses the outline indexer, anything else ANTLR. */
@@ -63,6 +64,8 @@ export class ModelIndex {
   private readonly listeners = new Set<(e: ModelChangeEvent) => void>();
   private readonly resolver: Resolver;
   private readonly details?: DetailsProvider;
+  /** Last text per URI that was parsed synchronously because details were unavailable, with its result. */
+  private readonly syncResolved = new Map<string, { text: string; parsed: ParsedDocument }>();
   private readonly inFlight = new Set<Promise<void>>();
 
   constructor(
@@ -98,6 +101,7 @@ export class ModelIndex {
     this.resolver.clear();
     this.unindex(e.model);
     this.docs.delete(uri);
+    this.syncResolved.delete(uri);
     this.emit([uri]);
     return true;
   }
@@ -162,9 +166,10 @@ export class ModelIndex {
     const old = this.docs.get(uri);
     if (old && old.text === text) return false;
     let parsed;
+    const cached = this.syncResolved.get(uri);
     try {
       // Library texts are known to be valid and are never edited: always allow the LL retry.
-      parsed = this.parser(uri, text, this.details ? { fastOnly: true, fullContextRetry: isLibraryUri(uri) } : undefined);
+      parsed = cached && cached.text === text ? cached.parsed : this.parser(uri, text, this.details ? { fastOnly: true, fullContextRetry: isLibraryUri(uri) } : undefined);
     } catch (e) {
       parsed = { model: emptyModel(uri), errors: [{ line: 0, column: 0, message: `internal parser error: ${String(e)}` }] };
     }
@@ -218,8 +223,15 @@ export class ModelIndex {
     if (!e || e.version !== version || !e.detailsPending) return;
     this.resolver.clear();
     if (!r) {
-      e.errors = e.errors.map((x) => ({ ...x, message: DETAILS_UNAVAILABLE_MESSAGE }));
-      e.detailsPending = false;
+      // Details are unavailable: parse exactly, once, on this thread (a one-off slow path) so the
+      // outcome is always correct.
+      const parsed = this.syncFallback(uri, e.text);
+      if (parsed && parsed.errors.length === 0 && !parsed.detailsPending) {
+        this.setClean(uri, e.text, version, parsed.model, e);
+      } else {
+        e.errors = parsed && parsed.errors.length > 0 && !parsed.detailsPending ? parsed.errors : e.errors.map((x) => ({ ...x, message: DETAILS_UNAVAILABLE_MESSAGE }));
+        e.detailsPending = false;
+      }
     } else if (r.errors.length === 0 && r.model) {
       this.setClean(uri, e.text, version, r.model, e);
     } else {
@@ -227,6 +239,20 @@ export class ModelIndex {
       e.detailsPending = false;
     }
     this.emit([uri]);
+  }
+
+  private syncFallback(uri: string, text: string): ParsedDocument | undefined {
+    const c = this.syncResolved.get(uri);
+    if (c && c.text === text) return c.parsed;
+    console.warn(`sysml: syntax error details unavailable for ${uri}; parsing synchronously on the main thread`);
+    try {
+      const parsed = this.parser(uri, text);
+      this.syncResolved.set(uri, { text, parsed });
+      return parsed;
+    } catch (err) {
+      console.error("synchronous fallback parse failed:", err);
+      return undefined;
+    }
   }
 
   private index(model: DocumentModel): void {

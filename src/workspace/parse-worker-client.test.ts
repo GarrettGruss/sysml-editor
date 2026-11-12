@@ -17,12 +17,13 @@ class FakeWorker extends EventEmitter implements WorkerLike {
   }
 }
 
-function client(maxRestarts = 1) {
+function client(extra: Partial<ConstructorParameters<typeof ParseWorkerClient>[0]> = {}) {
   const workers: FakeWorker[] = [];
   const logs: string[] = [];
   const c = new ParseWorkerClient({
     workerPath: "x.js",
-    maxRestarts,
+    maxRestarts: 3,
+    ...extra,
     log: (m) => logs.push(m),
     createWorker: () => {
       const w = new FakeWorker();
@@ -70,20 +71,117 @@ describe("ParseWorkerClient", () => {
     expect((await n5)?.version).toBe(6);
   });
 
-  it("restarts once after a crash and resends the interrupted request, then gives up", async () => {
-    const { c, workers, logs } = client(1);
-    const a = c.request(req("a", 1));
+  it("does not resend the job that killed the worker; other files still get details", async () => {
+    const { c, workers } = client();
+    const poison = c.request(req("poison", 1));
+    const other = c.request(req("other", 2));
     workers[0]!.emit("exit", 1);
+    expect(await poison).toBeUndefined();
     expect(workers).toHaveLength(2);
-    expect(workers[1]!.sent.map((m) => m.uri)).toEqual(["a"]);
-    const b = c.request(req("b", 2));
-    workers[1]!.emit("error", new Error("bad"));
+    expect(workers[1]!.sent.map((m) => m.uri)).toEqual(["other"]);
+    workers[1]!.reply(workers[1]!.sent[0]!);
+    expect((await other)?.uri).toBe("other");
+    expect(c.available).toBe(true);
+  });
+
+  it("restarts lazily when the crash left nothing waiting", async () => {
+    const { c, workers } = client();
+    const a = c.request(req("a", 1));
+    workers[0]!.emit("error", new Error("bad"));
     expect(await a).toBeUndefined();
-    expect(await b).toBeUndefined();
+    expect(workers).toHaveLength(1);
+    const b = c.request(req("b", 2));
+    expect(workers).toHaveLength(2);
+    workers[1]!.reply(workers[1]!.sent[0]!);
+    expect((await b)?.uri).toBe("b");
+  });
+
+  it("crashes far apart or separated by a success do not kill the client", async () => {
+    const { c, workers } = client({ maxRestarts: 1 });
+    for (let i = 0; i < 4; i++) {
+      const p = c.request(req("p" + i, 1));
+      workers[workers.length - 1]!.emit("exit", 1);
+      expect(await p).toBeUndefined();
+      const ok = c.request(req("ok" + i, 1));
+      const w = workers[workers.length - 1]!;
+      w.reply(w.sent[0]!);
+      expect((await ok)?.uri).toBe("ok" + i);
+    }
+    expect(c.available).toBe(true);
+  });
+
+  it("crashes outside the window do not count", async () => {
+    const { c, workers } = client({ maxRestarts: 1, restartWindowMs: 10 });
+    for (let i = 0; i < 3; i++) {
+      const p = c.request(req("p" + i, 1));
+      workers[workers.length - 1]!.emit("exit", 1);
+      await p;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(c.available).toBe(true);
+  });
+
+  it("a tight crash loop marks the client dead", async () => {
+    const { c, workers, logs } = client();
+    for (let i = 0; i < 4; i++) {
+      const p = c.request(req("p" + i, 1));
+      workers[workers.length - 1]!.emit("exit", 1);
+      expect(await p).toBeUndefined();
+    }
     expect(c.available).toBe(false);
     expect(await c.request(req("c", 3))).toBeUndefined();
+    expect(workers).toHaveLength(4);
+    expect(logs.some((l) => l.includes("main thread"))).toBe(true);
+  });
+
+  it("resolves unavailable and keeps going when a reply cannot be deserialised", async () => {
+    const { c, workers } = client();
+    const a = c.request(req("a", 1));
+    const b = c.request(req("b", 2));
+    const w = workers[0]!;
+    w.emit("message", { type: "result", id: w.sent[0]!.id, uri: "a", version: 1, errors: [], model: { not: "a model" }, ms: 1 });
+    expect(await a).toBeUndefined();
+    expect(w.sent.map((m) => m.uri)).toEqual(["a", "b"]);
+    w.reply(w.sent[1]!);
+    expect((await b)?.uri).toBe("b");
+  });
+
+  it("marks the client dead when the worker cannot be constructed", async () => {
+    const logs: string[] = [];
+    let n = 0;
+    const c = new ParseWorkerClient({
+      workerPath: "missing.js",
+      log: (m) => logs.push(m),
+      createWorker: () => {
+        n++;
+        throw new Error("ENOENT");
+      },
+    });
+    expect(await c.request(req("a", 1))).toBeUndefined();
+    expect(await c.request(req("b", 2))).toBeUndefined();
+    expect(c.available).toBe(false);
+    expect(n).toBe(1);
+    expect(logs).toHaveLength(1);
+  });
+
+  it("terminates a worker that exceeds the request timeout and restarts for the queue", async () => {
+    const { c, workers } = client({ requestTimeoutMs: 20 });
+    const slow = c.request(req("slow", 1));
+    const next = c.request(req("next", 2));
+    expect(await slow).toBeUndefined();
+    expect(workers[0]!.terminated).toBe(true);
     expect(workers).toHaveLength(2);
-    expect(logs.some((l) => l.includes("no longer available"))).toBe(true);
+    workers[0]!.emit("exit", 1); // late exit of the terminated worker is ignored
+    expect(workers).toHaveLength(2);
+    workers[1]!.reply(workers[1]!.sent[0]!);
+    expect((await next)?.uri).toBe("next");
+  });
+
+  it("does not send texts above the size cap", async () => {
+    const { c, workers } = client({ maxTextChars: 5 });
+    expect(await c.request({ uri: "big", version: 1, text: "123456" })).toBeUndefined();
+    expect(workers).toHaveLength(0);
+    expect(c.available).toBe(true);
   });
 
   it("terminates the worker on dispose and resolves outstanding requests", async () => {

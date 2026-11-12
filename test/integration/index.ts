@@ -37,6 +37,16 @@ async function waitFor(cond: () => boolean, ms: number, what: string): Promise<v
 export async function run(): Promise<void> {
   const ext = vscode.extensions.all.find((e) => e.packageJSON?.name === "sysml-editor");
   assert.ok(ext, "extension is installed in the development host");
+  const norm = (p: string) => path.resolve(p).toLowerCase();
+  const insideDir = process.env.SYSML_EXPECT_EXTENSIONS_DIR;
+  const repoRoot = process.env.SYSML_EXPECT_EXTENSION_PATH;
+  if (insideDir) {
+    // Run against the installed .vsix: must never silently test the working tree.
+    assert.ok((norm(ext.extensionPath) + path.sep).startsWith(norm(insideDir) + path.sep), `extension ${ext.extensionPath} is inside the installed-extensions dir ${insideDir}`);
+  } else {
+    assert.ok(repoRoot, "SYSML_EXPECT_EXTENSION_PATH is set by runTest");
+    assert.strictEqual(norm(ext.extensionPath), norm(repoRoot), "normal run loads the extension from the repository root");
+  }
   const api = (await ext.activate()) as TestApi;
   assert.strictEqual(ext.isActive, true, "extension activated");
   await api.model.ready;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { emptyModel } from "./types.js";
 import { ModelIndex, DETAILS_PENDING_MESSAGE, DETAILS_UNAVAILABLE_MESSAGE, antlrDocumentParser } from "./index.js";
 import type { DetailsProvider, DetailsReply, DetailsRequest } from "./types.js";
 import { callTool, type ToolContext } from "../agent-tools/index.js";
@@ -90,14 +91,66 @@ describe("ModelIndex with a details provider", () => {
     expect(ix.findByQualifiedName("A::X")[0]!.owner).toBe(ix.findByQualifiedName("A")[0]);
   });
 
-  it("keeps a provisional error when the provider is unavailable", async () => {
+  it("parses synchronously when details are unavailable: a valid text ends with a model", async () => {
+    const { fake } = setup();
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      // Force the provisional path for a valid text, as when the snapshot lacks a construct.
+      const ix2 = new ModelIndex((uri, text, opts) => (opts?.fastOnly ? { model: emptyModel(uri), errors: [{ line: 0, column: 0, message: DETAILS_PENDING_MESSAGE }], detailsPending: true } : antlrDocumentParser(uri, text)), { details: fake });
+      ix2.setDocument(URI, GOOD);
+      expect(ix2.getDocument(URI)!.detailsPending).toBe(true);
+      fake.calls.at(-1)!.resolve(undefined);
+      await ix2.settled();
+      const d = ix2.getDocument(URI)!;
+      expect(d.errors).toEqual([]);
+      expect(d.detailsPending).toBe(false);
+      expect(ix2.findByQualifiedName("A::X")).toHaveLength(1);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it("parses synchronously when details are unavailable: an invalid text gets precise errors", async () => {
     const { fake, ix } = setup();
-    ix.setDocument(URI, BAD);
-    fake.calls[0]!.resolve(undefined);
-    await ix.settled();
-    const d = ix.getDocument(URI)!;
-    expect(d.detailsPending).toBe(false);
-    expect(d.errors.map((e) => e.message)).toEqual([DETAILS_UNAVAILABLE_MESSAGE]);
+    const warn = console.warn;
+    const warned: unknown[] = [];
+    console.warn = (...a) => void warned.push(a);
+    try {
+      ix.setDocument(URI, BAD);
+      fake.calls[0]!.resolve(undefined);
+      await ix.settled();
+      const d = ix.getDocument(URI)!;
+      expect(d.detailsPending).toBe(false);
+      expect(d.errors).toEqual(antlrDocumentParser(URI, BAD).errors);
+      expect(d.errors.map((e) => e.message)).not.toContain(DETAILS_PENDING_MESSAGE);
+      expect(warned).toHaveLength(1);
+    } finally {
+      console.warn = warn;
+    }
+  });
+
+  it("does the same when the provider rejects, and reuses the result for the same text", async () => {
+    const calls: DetailsRequest[] = [];
+    const ix = new ModelIndex(undefined, { details: { request: (r) => (calls.push(r), Promise.reject(new Error("dead"))) } });
+    const warn = console.warn;
+    const err = console.error;
+    let warned = 0;
+    console.warn = () => void warned++;
+    console.error = () => {};
+    try {
+      ix.setDocument(URI, BAD);
+      await ix.settled();
+      expect(ix.getDocument(URI)!.errors).toEqual(antlrDocumentParser(URI, BAD).errors);
+      ix.setDocument(URI, GOOD);
+      ix.setDocument(URI, BAD);
+      await ix.settled();
+      expect(warned).toBe(1); // second BAD came from the remembered result
+      expect(calls).toHaveLength(1);
+    } finally {
+      console.warn = warn;
+      console.error = err;
+    }
   });
 
   it("without a provider parses synchronously with precise errors", () => {

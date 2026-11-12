@@ -94,6 +94,11 @@ Task 2.9, parse worker. Restored DFA states have empty ATN config sets, so they 
 - When details arrive the index fires its normal change event for the URI, so the tree tooltip and `sysml_validate` show the precise errors. While details are pending, `sysml_validate` returns `detailsPending` (file paths) and a `pendingNote`.
 - Without a provider (unit tests, gate, scripts) `ModelIndex` parses synchronously with `parse()`: the fast path with LL retry, then, only if both fail, a same-thread parser with its own normally built cache (correct, but seconds when cold; the extension never takes this path unless `dist/parse-worker.js` is missing).
 
+Failure handling. Details (`undefined` from the provider) are only an optimisation, so every failure ends in the exact result:
+- Poison text: if the worker dies, the job it was running is not resent (the text may be what killed it) and resolves unavailable; jobs still waiting go to the restarted worker. The crash counter resets when a restarted worker answers or reports warmed, and more than 3 crashes within 60 s without a success mark the client dead (tight-loop guard).
+- Timeout and size cap: a request running longer than 60 s terminates the worker and counts as a crash; texts above 2,000,000 characters are not sent. A worker that cannot be constructed marks the client dead at once. A reply that cannot be deserialised resolves unavailable and the queue keeps moving.
+- Last resort: when details are unavailable (undefined reply, rejected provider, dead or missing worker) `ModelIndex` parses that one document synchronously on the main thread, logs it, and applies the result, so a valid long file never shows a false error. The result is remembered per URI and text so it is not parsed again. This is a one-off slow path (seconds when cold), not the normal route.
+
 Measured with `npm run bench:parser`, each scenario in a fresh Node 24 process, this machine (ms):
 
 | Measurement | ms |
