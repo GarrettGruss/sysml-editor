@@ -630,6 +630,101 @@ export function editingTests(c: Ctx): Test[] {
       }
     })],
 
+    ["End to end (add-model-editing 5.1): add, rename, connect and delete from a diagram, the tree and an agent in one copy; after each step the text, the tree, the open diagram and the agent's read tools agree, and again after a reload", scenario(
+      "EdE2E",
+      {
+        "tmp-ede2e.sysmld": {
+          version: 1, kind: "interconnection", root: "EdE2E::Sys", sources: ["tmp-ede2e.sysml"],
+          nodes: [
+            { id: "n0", ref: "EdE2E::Sys" },
+            { id: "n1", ref: "EdE2E::Sys::a", parent: "n0" },
+            { id: "n2", ref: "EdE2E::Sys::b", parent: "n0" },
+            { id: "n3", ref: "EdE2E::A::o", parent: "n1" },
+            { id: "n4", ref: "EdE2E::B::i", parent: "n2" },
+          ],
+          edges: [],
+        },
+      },
+      async ({ model, diagram }) => {
+        const CANDIDATES = ["a", "b", "c", "d", "gamma", "delta"];
+        const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
+        const treeParts = (): string[] => {
+          const pkg = api.provider.getChildren().find((r) => label(r) === "EdE2E");
+          const sys = pkg && api.provider.getChildren(pkg).find((n) => label(n) === "Sys");
+          return sys ? api.provider.getChildren(sys).map(label).filter((l) => CANDIDATES.includes(l)).sort() : [];
+        };
+        const textParts = (t: string): string[] => {
+          const block = /part def Sys \{([^]*?)\n  \}/.exec(t)?.[1] ?? "";
+          return [...block.matchAll(/^ {4}part (\w+)/gm)].map((m) => m[1]!).sort();
+        };
+        const agentTree = async (): Promise<string[]> => {
+          const lm = await viaLm("sysml_get_element_tree", { root: "EdE2E::Sys", depth: 2 });
+          const mcp = await viaMcp(api, "sysml_get_element_tree", { root: "EdE2E::Sys", depth: 2 });
+          assert.strictEqual(lm.text, mcp.text, "the agent's read tool answers the same on both channels");
+          const names = (JSON.parse(lm.text) as { nodes: { name?: string; children?: { name?: string }[] }[] }).nodes.flatMap((n) => [n.name, ...(n.children ?? []).map((x) => x.name)]);
+          return names.filter((x): x is string => !!x && CANDIDATES.includes(x)).sort();
+        };
+        const agree = async (parts: string[], connected: boolean, step: string) => {
+          const expected = [...parts].sort();
+          await waitFor(() => JSON.stringify(textParts(onDisk(model))) === JSON.stringify(expected), 30000, `${step}: the text on disk has parts ${expected.join(",")}`);
+          await waitFor(() => /connect a\.o to b\.i;/.test(onDisk(model)) === connected, 30000, `${step}: the connection is ${connected ? "" : "not "}in the text`);
+          await clean(model);
+          await waitFor(() => JSON.stringify(treeParts()) === JSON.stringify(expected), 30000, `${step}: the tree shows ${expected.join(",")} (has ${treeParts().join(",")})`);
+          await waitFor(() => JSON.stringify(mem(diagram).nodes.map((n) => n.ref).filter((r): r is string => !!r && /^EdE2E::Sys::\w+$/.test(r)).map((r) => r.split("::")[2]!).sort()) === JSON.stringify(expected), 30000, `${step}: the open diagram has ${expected.join(",")}`);
+          await waitFor(() => mem(diagram).edges.length === (connected ? 1 : 0), 30000, `${step}: the diagram has ${connected ? 1 : 0} edges`);
+          await c.eventually(async () => {
+            const m = await metrics(diagram);
+            for (const p of expected) assert.ok(m.nodes.some((n) => n.text?.split(" | ").some((t) => t.startsWith(p))), `${step}: ${p} is drawn`);
+            assert.strictEqual(m.edges.length, connected ? 1 : 0, `${step}: edges drawn`);
+          }, `${step}: the diagram is drawn`);
+          assert.deepStrictEqual(await agentTree(), expected, `${step}: the agent's read tool agrees`);
+        };
+        await agree(["a", "b"], false, "start");
+        // 1. diagram: connect
+        await gesture(diagram, { kind: "connect", source: "n3", target: "n4" });
+        await agree(["a", "b"], true, "connect from the diagram");
+        // 2. diagram: add c
+        script.input = "c";
+        await gesture(diagram, { kind: "palette", item: "part", id: "n0", x: 10, y: 200 });
+        await agree(["a", "b", "c"], true, "add from the diagram");
+        // 3. tree: rename c -> gamma
+        script.input = "gamma";
+        const sys = () => api.provider.getChildren(api.provider.getChildren().find((r) => label(r) === "EdE2E")).find((n) => label(n) === "Sys");
+        await vscode.commands.executeCommand("sysml.tree.rename", api.provider.getChildren(sys()).find((n) => label(n) === "c"));
+        await agree(["a", "b", "gamma"], true, "rename from the tree");
+        // 4. agent: add delta (placed on the diagram)
+        const created = await viaLm("sysml_create_element", { owner: "EdE2E::Sys", kind: "part", name: "delta", diagram });
+        assert.strictEqual(JSON.parse(created.text).created.qualifiedName, "EdE2E::Sys::delta");
+        await agree(["a", "b", "gamma", "delta"], true, "add from an agent");
+        // 5. agent: delete gamma
+        const del = await viaMcp(api, "sysml_delete_element", { element: "EdE2E::Sys::gamma" });
+        assert.strictEqual(del.isError, false, del.text);
+        await agree(["a", "b", "delta"], true, "delete from an agent");
+        // 6. tree: delete delta (confirmation is scripted)
+        script.confirm = true;
+        await vscode.commands.executeCommand("sysml.tree.delete", api.provider.getChildren(sys()).find((n) => label(n) === "delta"));
+        await agree(["a", "b"], true, "delete from the tree");
+        // 7. diagram: add d, then Delete from Model on it
+        script.input = "d";
+        await gesture(diagram, { kind: "palette", item: "part", id: "n0", x: 10, y: 260 });
+        await agree(["a", "b", "d"], true, "add d from the diagram");
+        const dNode = (await metrics(diagram)).nodes.find((n) => n.text?.split(" | ").some((t) => t === "d" || t.startsWith("d ")));
+        assert.ok(dNode, "the node of d is drawn");
+        await gesture(diagram, { kind: "menu", id: dNode.id, action: "deleteModel" });
+        await agree(["a", "b"], true, "delete from the diagram");
+        // reload: close every editor, then read everything again from disk
+        const finalText = onDisk(model);
+        await close();
+        await vscode.workspace.openTextDocument(uriOf(model));
+        await api.diagram.open(uriOf(diagram));
+        assert.strictEqual(onDisk(model), finalText, "nothing was written by closing");
+        await agree(["a", "b"], true, "after the reload");
+        assert.deepStrictEqual(diskDiagram(diagram).nodes.map((n) => n.ref).filter((r) => /^EdE2E::Sys::\w+$/.test(r ?? "")).sort(), ["EdE2E::Sys::a", "EdE2E::Sys::b"], "the diagram file on disk agrees");
+        assert.strictEqual(diskDiagram(diagram).edges.length, 1);
+      },
+      { probe: "Sys", model: "package EdE2E {\n  port def Pw;\n  part def A { port o : Pw; }\n  part def B { port i : Pw; }\n  part def Sys {\n    part a : A;\n    part b : B;\n  }\n}\n" },
+    )],
+
     ["Undo investigation (design D6): where each undo goes after a diagram-made model edit", scenario("EdUndo", { "tmp-edundo.sysmld": gen("EdUndo") }, async ({ model, diagram }) => {
       const log: string[] = [];
       const snap = (tag: string) => log.push(`${tag}: .sysml on disk has w1=${String(onDisk(model).includes("w1"))} w2=${String(onDisk(model).includes("w2"))}; buffer w1=${String(textDoc(model)?.getText().includes("w1"))} w2=${String(textDoc(model)?.getText().includes("w2"))} dirty=${String(textDoc(model)?.isDirty)}; diagram (memory) w1=${String(mem(diagram).nodes.some((n) => n.ref?.endsWith("w1")))} w2=${String(mem(diagram).nodes.some((n) => n.ref?.endsWith("w2")))}; tab dirty=${String(c.tabDirty(uriOf(diagram)))}; active=${vscode.window.activeTextEditor ? "text editor" : "custom editor"}`);

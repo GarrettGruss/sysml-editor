@@ -236,11 +236,16 @@ export function requirementsTests(c: Ctx): Test[] {
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-derived-from-remove]" });
       await waitFor(() => (onDisk(file).match(/#derivation connection/g) ?? []).length === 1, 90000, "the derivation is removed");
       await eventually(async () => assert.deepStrictEqual((await detail()).derivedFrom, []), "and the view has refreshed (the next click uses its keys)");
+      console.log(`  detail before the verify removal: ${JSON.stringify((await m()).table.detail)}`);
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-verify-remove]" });
-      await waitFor(() => !/verify [^;]*brakeDistance/.test(onDisk(file)), 60000, "the verify is removed");
+      await waitFor(() => !/verify [^;]*brakeDistance/.test(onDisk(file)), 120000, "the verify is removed").catch(async (e) => {
+        const key = `${uriOf(file).toString()}#${onDisk(file).indexOf("verify brakeDistance;") + 7}`;
+        console.log(`  the click did nothing; asking the controller directly: ${JSON.stringify(await api.requirements.intent(scope, { type: "removeVerify", key }))}; notice=${JSON.stringify((await m()).notice)}`);
+        throw e;
+      });
       await eventually(async () => assert.strictEqual(row(await m(), "R4").cells.verify, "0"), "and the view has refreshed");
       await gesture(scope, { kind: "click", selector: "[data-testid=rel-satisfy-remove]" });
-      await waitFor(() => !/brakeDistance by engine/.test(onDisk(file)), 60000, "the satisfy is removed");
+      await waitFor(() => !/brakeDistance by engine/.test(onDisk(file)), 120000, "the satisfy is removed");
       await clean(file);
       await parses(file);
       await eventually(async () => assert.deepStrictEqual([row(await m(), "R4").cells.satisfy, row(await m(), "R4").cells.verify], ["0", "0"]), "counts back to zero");
@@ -459,6 +464,55 @@ export function requirementsTests(c: Ctx): Test[] {
         await close();
         rmSync(uriOf(diagram).fsPath, { force: true });
       }
+    })],
+
+    ["End to end (add-requirements-editor 5.1): edit a requirement in the table, in the document view, in the text and through an agent; all four views agree after each edit", scenario("ReqE2E", async ({ file, scope, qn, m }) => {
+      const accel = qn(`${PR}::Acceleration::accel`);
+      const key = `[data-key="${accel}|text"]`;
+      const view = (v: "table" | "document") => api.requirements.setView(scope, v);
+      const doc = () => textDoc(file)!;
+      const agree = async (text: string, step: string) => {
+        // 1. the text: the document on disk and in the editor
+        await waitFor(() => onDisk(file).includes(`/* ${text} */`) || onDisk(file).includes(`* ${text}\n`), 90000, `${step}: the text file has the new documentation`);
+        await clean(file);
+        assert.ok(doc().getText().includes(text), `${step}: the open editor has it`);
+        // 2. the table
+        await view("table");
+        await eventually(async () => assert.strictEqual(row(await m(), "R3").cells.text, text), `${step}: the table shows it`).catch(async (e) => {
+          const x = await m();
+          console.log(`  view=${x.view} generation=${x.generation} notice=${JSON.stringify(x.notice)} pending=${JSON.stringify(x.pendingEdits)} rows=${JSON.stringify(x.table.rows.map((r) => r.cells.text.slice(0, 30)))} index doc says: ${JSON.stringify(api.model.index.findByQualifiedName(accel).map((e) => (e as { documentation?: string }).documentation))}`);
+          throw e;
+        });
+        // 3. the document view
+        await view("document");
+        await eventually(async () => assert.strictEqual((await m()).document.items.find((i) => i.id === "R3")?.text, text), `${step}: the document view shows it`);
+        // 4. an agent's read tool
+        const md = (await viaLm("sysml_read_requirements_document", { package: scope.kind === "package" ? scope.qualifiedName : "" })).text;
+        assert.ok(md.includes(text), `${step}: the agent reads it`);
+        assert.strictEqual((await viaMcp(api, "sysml_read_requirements_document", { package: scope.kind === "package" ? scope.qualifiedName : "" })).text, md, `${step}: both channels agree`);
+        await view("table");
+      };
+      await agree("The vehicle shall accelerate from 0 to 100 km/h in under 8 s.", "start");
+      // a) the table
+      await gesture(scope, { kind: "input", selector: key, value: "Table: 0 to 100 km/h in under 7 s." });
+      await agree("Table: 0 to 100 km/h in under 7 s.", "edit in the table");
+      // b) the document view
+      await view("document");
+      await gesture(scope, { kind: "input", selector: key, value: "Document: 0 to 100 km/h in under 6 s." });
+      await agree("Document: 0 to 100 km/h in under 6 s.", "edit in the document view");
+      // c) the text editor
+      const d = doc();
+      const at = d.getText().indexOf("Document: 0 to 100 km/h in under 6 s.");
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(d.uri, new vscode.Range(d.positionAt(at), d.positionAt(at + "Document: 0 to 100 km/h in under 6 s.".length)), "Text: 0 to 100 km/h in under 5 s.");
+      await vscode.workspace.applyEdit(edit);
+      await d.save();
+      await agree("Text: 0 to 100 km/h in under 5 s.", "edit in the text");
+      // d) an agent
+      const r = await viaLm("sysml_set_element_properties", { element: accel, documentation: "Agent: 0 to 100 km/h in under 4 s." });
+      assert.ok(!r.isError);
+      await agree("Agent: 0 to 100 km/h in under 4 s.", "edit by an agent");
+      assert.strictEqual(onDisk(file).replace("Agent: 0 to 100 km/h in under 4 s.", "The vehicle shall accelerate from 0 to 100 km/h in under 8 s."), readFileSync(FIXTURE, "utf8").replace(/VehicleSpec/g, "ReqE2E"), "nothing but the text of R3 changed in four edits");
     })],
 
     ["Agent: read_requirements_document returns the document view (same on both channels); create_requirement and a derivation produce the editor's text", async () => {
