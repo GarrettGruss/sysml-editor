@@ -1,9 +1,20 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, type SyntaxErrorInfo } from "../src/parser/parse.js";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+// Hand-maintained input: files excused from the gate. This script never writes it.
+const excusedList: { file: string; reason: string }[] = JSON.parse(
+  readFileSync(join(root, "scripts/expected-invalid.json"), "utf8"),
+);
+const excused = new Map(excusedList.map((e) => [e.file, e.reason]));
+const pct = (num: number, den: number): number => (den === 0 ? 100 : +(100 * (num / den)).toFixed(2));
+const problems: string[] = [];
+for (const e of excusedList) {
+  if (!existsSync(join(root, e.file))) problems.push(`expected-invalid entry does not exist: ${e.file}`);
+}
+const seenExcused = new Set<string>();
 const groups: Record<string, string> = {
   "release examples": "fixtures/sysml-v2-release/sysml",
   "kerml examples": "fixtures/sysml-v2-release/kerml",
@@ -60,8 +71,12 @@ for (const [name, rel] of Object.entries(groups)) {
     rejoined++;
     const toks = r.tokens.getTokens().filter((t) => t.type !== -1);
     if (toks.map((t) => t.text ?? "").join("") !== text) rejoinFailures.push(relative(root, f));
-    if (!r.errors.length) continue;
     const rel2 = relative(root, f);
+    if (excused.has(rel2)) seenExcused.add(rel2);
+    if (!r.errors.length) {
+      if (excused.has(rel2)) problems.push(`stale expected-invalid entry (file now parses clean): ${rel2}`);
+      continue;
+    }
     const first = `${r.errors[0]!.line}:${r.errors[0]!.column} ${r.errors[0]!.message}`;
     failing.push({ file: rel2, errors: r.errors.length, first });
     for (const e of r.errors) msgCounts.set(e.message, (msgCounts.get(e.message) ?? 0) + 1);
@@ -71,9 +86,9 @@ for (const [name, rel] of Object.entries(groups)) {
     // Errors of class "other" on a line that already has a classified error are follow-on errors.
     const knownLines = new Set(r.errors.filter((_, i) => classes[i] !== "other").map((e) => e.line));
     const stray = r.errors.filter((e, i) => classes[i] === "other" && !knownLines.has(e.line));
-    if (firstClass !== "other" && stray.length === 0) {
+    if (excused.has(rel2)) {
       s.expectedInvalid++;
-      expectedInvalid.push({ file: rel2, reason: firstClass });
+      expectedInvalid.push({ file: rel2, reason: excused.get(rel2)! });
     } else {
       s.withErrors++;
       gatedErr++;
@@ -83,16 +98,15 @@ for (const [name, rel] of Object.entries(groups)) {
   }
   if (name === "standard library") libMs = performance.now() - t0;
   for (const s of Object.values(summary[name]!)) {
-    s.percentClean = +(100 * (1 - s.withErrors / (s.files - s.expectedInvalid))).toFixed(2);
+    s.percentClean = pct(s.files - s.expectedInvalid - s.withErrors, s.files - s.expectedInvalid);
   }
 }
-writeFileSync(
-  join(root, "scripts/expected-invalid.json"),
-  JSON.stringify(expectedInvalid.map((e) => ({ file: e.file, reason: `${e.reason} (pre-release syntax, invalid for release 2026-09.1)` })), null, 2) + "\n",
-);
+for (const e of excusedList) {
+  if (existsSync(join(root, e.file)) && !seenExcused.has(e.file)) problems.push(`expected-invalid entry is not a gated .sysml file: ${e.file}`);
+}
 const gatedTotal = gated - expectedInvalid.length;
-const overallClean = +(100 * (1 - gatedErr / gatedTotal)).toFixed(2);
-const pass = overallClean >= 99 && rejoinFailures.length === 0;
+const overallClean = pct(gatedTotal - gatedErr, gatedTotal);
+const pass = overallClean >= 99 && rejoinFailures.length === 0 && problems.length === 0;
 const topErrors = [...msgCounts].sort((a, b) => b[1] - a[1]).slice(0, 10);
 const result = {
   date: new Date().toISOString(),
@@ -108,6 +122,7 @@ const result = {
   rejoinFailingFiles: rejoinFailures,
   standardLibrarySysmlParseMs: Math.round(libMs),
   kermlFilesNotParsed: kerml.length,
+  gateProblems: problems,
   pass,
   otherFailures,
   stragglerErrorsInExpectedFiles: suspicious,
@@ -121,6 +136,7 @@ console.log(`expected invalid (pre-release syntax): ${expectedInvalid.length} ${
 console.log(`gated: ${gatedTotal}, clean: ${gatedTotal - gatedErr} (${overallClean}%)`);
 console.log(`token re-join failures: ${rejoinFailures.length} of ${rejoined}`);
 console.log(`standard library (.sysml) parse time: ${Math.round(libMs)} ms`);
-for (const o of otherFailures) console.log(`  OTHER ${o.file} [${o.errors}] ${o.first}`);
+for (const p of problems) console.log(`  PROBLEM ${p}`);
+for (const o of otherFailures) console.log(`  UNEXCUSED FAILURE ${o.file} [${o.errors}] ${o.first}`);
 for (const o of suspicious) console.log(`  STRAY ${o.file}:${o.line} ${o.message}`);
 console.log(pass ? "GATE: PASS" : "GATE: FAIL");

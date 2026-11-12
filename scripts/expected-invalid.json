@@ -1,26 +1,38 @@
 [
   {
     "file": "fixtures/sysml-v2-models/models/SE_Models/DroneModelLogical.sysml",
-    "reason": "import without visibility (pre-release syntax, invalid for release 2026-09.1)"
+    "reason": "bare `import` without visibility (pre-release syntax)"
   },
   {
     "file": "fixtures/sysml-v2-models/models/SE_Models/Drone_BaseArchitecture.sysml",
-    "reason": "import without visibility (pre-release syntax, invalid for release 2026-09.1)"
+    "reason": "bare `import` without visibility (pre-release syntax)"
   },
   {
     "file": "fixtures/sysml-v2-models/models/SE_Models/ForestFireDetectionSystemModel.sysml",
-    "reason": "import without visibility (pre-release syntax, invalid for release 2026-09.1)"
+    "reason": "bare `import` without visibility (pre-release syntax)"
   },
   {
     "file": "fixtures/sysml-v2-models/models/SE_Models/ForestFireObservationDrone.sysml",
-    "reason": "import without visibility (pre-release syntax, invalid for release 2026-09.1)"
+    "reason": "bare `import` without visibility (pre-release syntax)"
   },
   {
     "file": "fixtures/sysml-v2-models/models/SE_Models/Metamodel.sysml",
-    "reason": "import without visibility (pre-release syntax, invalid for release 2026-09.1)"
+    "reason": "bare `import` without visibility (pre-release syntax)"
   },
   {
     "file": "fixtures/sysml-v2-models/models/example_contribution/CalculationExample.sysml",
-    "reason": "import without visibility (pre-release syntax, invalid for release 2026-09.1)"
+    "reason": "bare `import` without visibility (pre-release syntax)"
+  },
+  {
+    "file": "fixtures/sysml-v2-models/models/SE_Models/EIT_System_Use_Cases.sysml",
+    "reason": "package-level `actor` (pre-release syntax) plus further outdated constructs"
+  },
+  {
+    "file": "fixtures/sysml-v2-models/models/SE_Models/HVACSystemRequirements.sysml",
+    "reason": "bare `import` plus outdated `&` expression syntax (pre-release syntax)"
+  },
+  {
+    "file": "fixtures/sysml-v2-models/models/SE_Models/VehicleModel.sysml",
+    "reason": "bare `import` plus outdated `[...]` after names, `stream`, `assume` (pre-release syntax)"
   }
 ]

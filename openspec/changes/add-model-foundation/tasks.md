@@ -17,6 +17,7 @@
 - [ ] 2.6 Load the standard library read-only with a cached index: the `.sysml` files via the ANTLR parser and the `.kerml` files via a KerML outline indexer (names, kinds, nesting, specializations), not the ANTLR parser; verify `ScalarValues::String` and a `.sysml` library type both resolve from a fixture model
 - [ ] 2.7 Keep the last good model on syntax errors and expose per-file error state with location; verify the "Broken file" scenario in a unit test
 - [ ] 2.8 Add a CI test that parses all fixture files and fails if the syntax-error count rises above the gate's recorded baseline
+- [ ] 2.9 Remove the one-time stall when the first syntax error of a session discards the DFA snapshot: keep the snapshot-backed parser for the fast path and send failing parses to a second parser instance with its own, normally built prediction cache, warmed in the background; verify with `npm run bench:parser` that the first parse of a file with a syntax error takes under 500 ms after start-up
 
 ## 3. Model tree view
 

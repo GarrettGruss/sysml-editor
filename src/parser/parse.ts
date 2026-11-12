@@ -20,6 +20,10 @@ import snapshotData from "./dfa-snapshot.json";
 // dfa-snapshot.ts). Set SYSML_DFA_SNAPSHOT=off to measure or regenerate without it.
 if (process.env["SYSML_DFA_SNAPSHOT"] !== "off") loadSnapshot(snapshotData as DfaSnapshot);
 
+/**
+ * A syntax error. `line` is 1-based and `column` is 0-based (antlr4ng convention), unlike VS Code
+ * positions, which are 0-based for both.
+ */
 export interface SyntaxErrorInfo {
   line: number;
   column: number;

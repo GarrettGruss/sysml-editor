@@ -62,12 +62,11 @@ Grammar: `daltskin/sysml-v2-grammar` tag v2026.09.1 (commit 27a1344), MIT, vendo
 |---|---|---|---|---|---|
 | Release examples | .sysml | 252 | 0 | 0 | 100% |
 | Standard library | .sysml | 58 | 0 | 0 | 100% |
-| Community models | .sysml | 36 | 6 | 3 | 90% |
+| Community models | .sysml | 36 | 9 | 0 | 100% |
 
-- Gated: 340 `.sysml` files (346 minus 6 expected-invalid), 337 clean (99.12%), against the 99% criterion.
+- Gated: 337 of 337 gated `.sysml` files clean (346 minus 9 expected-invalid), 100%, against the 99% criterion.
 - 94 `.kerml` files are not parsed by this parser (handled by the KerML outline indexer) and are not counted.
-- Expected invalid (pre-release syntax, listed in `scripts/expected-invalid.json`): 6 files. All 6 have only `import` without visibility errors. Classified by first error over all 9 failing community files: 8 `import` without visibility, 1 `actor` outside a use case or requirement, 0 other; the `actor` file and two `import` files also have other errors (next bullet).
-- Three community files start with such an error but also contain other syntax errors, so they count against the gate: `SE_Models/EIT_System_Use_Cases.sysml`, `SE_Models/HVACSystemRequirements.sysml`, `SE_Models/VehicleModel.sysml` (for example `[...]` after names, `stream`, `assume` in `VehicleModel.sysml`).
+- Expected invalid (pre-release syntax): 9 community files, a hand-maintained list in `scripts/expected-invalid.json` that the gate only reads. Each fails because it uses syntax the official 2026-09.1 grammar rejects: 8 bare `import`, 1 package-level `actor` (`EIT_System_Use_Cases.sysml`), and three of them (`EIT_System_Use_Cases.sysml`, `HVACSystemRequirements.sysml`, `VehicleModel.sysml`) also have further outdated constructs. The gate fails if a listed file does not exist, now parses clean (stale entry), or if an unlisted file has errors beyond the 99% threshold.
 - Token re-join: 0 failures in 346 `.sysml` files after the lexer patch.
 - Standard library parse time (58 `.sysml` files, one Node process, including the re-join check): about 19.7 s with single-stage full-LL parsing; about 17.7 s with two-stage parsing (SLL with bail, then full LL on failure). Both exceed the 5 s target; a few large files (`ShapeItems.sysml`, `MeasurementReferences.sysml`) dominate. A cached index (task 2.6) is required, and the parse time needs more work.
 
@@ -85,7 +84,7 @@ Measured with `npm run bench:parser` (one process, Node 24, ms). Root cause: the
 
 Upstream `daltskin/sysml-v2-lsp` (MIT) reaches its speedup with a build-time DFA snapshot of the parser's static DFAs loaded at startup, SLL with bail then LL fallback, shared parser/lexer singletons, and a parse worker. This change adopts the snapshot and keeps the existing two-stage parse.
 
-Changes: `src/parser/dfa-snapshot.ts` (extract/load/purge), `src/parser/dfa-snapshot.json` (about 370 KB, 20k states, trained on all `.sysml` fixtures by `npm run generate:dfa`, about 1 min, regenerate whenever the grammar changes; a snapshot whose ATN hash does not match is ignored), and `parse()` loads it at import. Restored states have empty ATN config sets, so they cannot grow new edges: if a parse has errors while the snapshot is active, `parse()` purges all DFAs once and reparses from the ATN, so results are identical to an unseeded parse. Set `SYSML_DFA_SNAPSHOT=off` to disable. Gate unchanged (337 of 340 clean, 0 re-join failures).
+Changes: `src/parser/dfa-snapshot.ts` (extract/load/purge), `src/parser/dfa-snapshot.json` (about 370 KB, 20k states, trained on all `.sysml` fixtures by `npm run generate:dfa`, about 1 min, regenerate whenever the grammar changes; a snapshot whose ATN hash does not match is ignored), and `parse()` loads it at import. Restored states have empty ATN config sets, so they cannot grow new edges: if a parse has errors while the snapshot is active, `parse()` purges all DFAs once and reparses from the ATN, so results are identical to an unseeded parse. Set `SYSML_DFA_SNAPSHOT=off` to disable. Gate unchanged (337 of 337 gated files clean, 0 re-join failures).
 
 Remaining: the first file with a syntax error (or a construct not in the training set) in a session pays a one-off purge and partial cold rebuild (seconds; for example a held-out run trained on the release files only, parsing the community models, cost 0.3 to 3.9 s on the few files that triggered it). Not tried: serializing full ATN configs (exact states, no purge), a parse worker, and grammar rewrites of `usageDeclaration` / `featureSpecializationPart`, which would also shrink the cold cost.
 

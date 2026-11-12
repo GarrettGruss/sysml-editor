@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "./parse.js";
@@ -33,11 +33,13 @@ describe("parse wrapper", () => {
     expect(r.errors[0]!.line).toBe(2);
     expect(typeof r.errors[0]!.column).toBe("number");
   });
-  it("parses a real fixture without errors", () => {
-    const file = resolve(
-      __dirname,
-      "../../fixtures/sysml-v2-release/sysml/src/examples/Vehicle Example/SysML v2 Spec Annex A SimpleVehicleModel.sysml",
-    );
+  const file = resolve(
+    __dirname,
+    "../../fixtures/sysml-v2-release/sysml/src/examples/Vehicle Example/SysML v2 Spec Annex A SimpleVehicleModel.sysml",
+  );
+  const hasFixture = existsSync(file);
+  if (!hasFixture) console.warn(`SKIPPED: fixture missing (${file}); run "git submodule update --init"`);
+  it.skipIf(!hasFixture)("parses a real fixture without errors (needs fixtures submodules)", () => {
     expect(parse(readFileSync(file, "utf8")).errors).toEqual([]);
   }, 60_000);
 });
