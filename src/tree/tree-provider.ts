@@ -101,6 +101,12 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
         this.fullRefresh();
       }),
     );
+    // File watchers can miss changes in folders created moments before (inotify watches are added late), so while
+    // the Diagrams view is shown the diagram set is also re-read now and then; an unchanged set fires nothing.
+    const poll = setInterval(() => {
+      if (this.filterValue === "diagrams" && this.scanning === 0) this.diagramsReady = this.scanDiagrams();
+    }, 2000);
+    this.subs.push({ dispose: () => clearInterval(poll) });
     if (folderChanges) this.subs.push(folderChanges((parent) => this.onFolderChange(parent)));
   }
 
@@ -207,8 +213,13 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     if (created) {
       if (visibleDiagrams(this.env, [uri]).size === 0) return;
       next.add(uri);
-    } else if (!next.delete(uri)) return;
+    } else if (!next.delete(uri)) {
+      this.scheduleRescan();
+      return;
+    }
     this.applyDiagrams(next);
+    // Watchers can drop or reorder events (and a search may have read the disk mid-change): converge on the real set.
+    this.scheduleRescan();
   }
 
   private rescanTimer: ReturnType<typeof setTimeout> | undefined;
