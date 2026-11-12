@@ -59,7 +59,7 @@ export type TestGesture =
 export type HostToWebview =
   /** `generation` is the document generation (bumped by every load); the webview echoes it in its edits so stale ones can be dropped. */
   | { type: "render"; viewModel: ViewModel; generation: number }
-  | { type: "exportPng"; requestId: number; theme: PngTheme }
+  | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number }
   | { type: "getMetrics"; requestId: number }
   | { type: "command"; name: DiagramCommand }
   | { type: "select"; ids: string[] }

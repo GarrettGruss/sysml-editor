@@ -118,13 +118,13 @@ toolbar();
 const MAX_SIDE = 16_000;
 const MAX_PIXELS = 16_000_000;
 
-async function exportPng(theme: PngTheme): Promise<string> {
+async function exportPng(theme: PngTheme, maxWidth = 1600): Promise<string> {
   const svg = renderer.toSvgString(theme);
   const m = /width="(\d+)" height="(\d+)"/.exec(svg);
   const w = Number(m?.[1] ?? 800);
   const h = Number(m?.[2] ?? 600);
   // Cap by width, height and total pixels so the canvas is never too large to encode.
-  const scale = Math.min(2, 1600 / w, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_PIXELS / (w * h)));
+  const scale = Math.min(2, maxWidth / w, MAX_SIDE / w, MAX_SIDE / h, Math.sqrt(MAX_PIXELS / (w * h)));
   const cw = Math.max(1, Math.floor(w * scale));
   const ch = Math.max(1, Math.floor(h * scale));
   const img = new Image();
@@ -155,7 +155,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "exportPng":
       queue = queue
-        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme) }))
+        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
     case "command":

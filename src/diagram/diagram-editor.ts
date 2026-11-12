@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { isLibraryUri, type Element } from "../model/index.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
+import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
 import { addElements } from "./create.js";
 import { applyAutoLayout, applyBoxPatches, removeItems } from "./edits.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
@@ -528,12 +529,20 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (open && !open.renderOnly) {
       try {
         await this.waitUntil(() => this.renderedPanel(open.key) !== undefined, 10_000, "the open diagram to render", open.key);
-        return await this.exportPng(open.key, "light");
+        return await this.exportPngLimited(open.key);
       } catch (e) {
         this.log(`diagram image from the open editor failed (${e instanceof Error ? e.message : String(e)}); rendering in a temporary panel`);
       }
     }
-    return this.renderTemporarily(uri, text);
+    // One temporary panel at a time; a bounded number of requests wait.
+    return this.renderQueue.run(() => this.renderTemporarily(uri, text));
+  }
+
+  private readonly renderQueue = new RenderQueue();
+
+  /** A PNG of at most 1 MB: re-exported at a lower scale when larger; throws "image too large" when it still does not fit. */
+  private exportPngLimited(key: string): Promise<string> {
+    return exportWithinLimit((maxWidth) => this.exportPng(key, "light", maxWidth));
   }
 
   private async renderTemporarily(uri: vscode.Uri, text: string): Promise<string> {
@@ -554,7 +563,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     try {
       this.syncPage(doc, p);
       await this.waitUntil(() => p.ready && p.lastHash !== undefined, RENDER_TIMEOUT_MS, "the temporary diagram panel to render", key);
-      return await this.exportPng(key, "light");
+      return await this.exportPngLimited(key);
     } finally {
       this.panels.delete(key);
       for (const d of subs) d.dispose();
@@ -607,8 +616,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     return this.errorLog.length ? ` (webview errors: ${this.errorLog.slice(-5).join(" | ")})` : "";
   }
 
-  private async exportPng(uri: vscode.Uri | string, theme: PngTheme): Promise<string> {
-    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme }));
+  private async exportPng(uri: vscode.Uri | string, theme: PngTheme, maxWidth?: number): Promise<string> {
+    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme, ...(maxWidth !== undefined ? { maxWidth } : {}) }));
     if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
     return r.base64;
   }
