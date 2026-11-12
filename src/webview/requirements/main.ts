@@ -75,9 +75,41 @@ function renderMarkdown(src: string): HTMLElement {
 
 // ------------------------------------------------------------------ editable fields
 
-/** A text control that commits through `onCommit` when changed; keeps what the user is typing across re-renders. */
-const pending = new Map<string, { value: string; caret: number }>();
-function field(key: string, value: string, opts: { multiline?: boolean; label: string; editable: boolean; className?: string }, onCommit: (v: string) => void): HTMLElement {
+/**
+ * A text control that commits through `onCommit(value, expected)` when changed; `expected` is the text the field was
+ * opened with. It keeps what the user is typing across re-renders, but only while the model text still equals
+ * `expected`: otherwise the field shows the conflict (model text beside the draft) with Overwrite and Discard.
+ */
+const pending = new Map<string, { value: string; caret: number; expected: string; view: ViewMode }>();
+/** Drafts whose element changed underneath them (found on a refresh, or reported by the host). */
+const conflicts = new Map<string, { draft: string; view: ViewMode }>();
+/** The last committed draft per field, to show it if the host reports a conflict. */
+const sent = new Map<string, string>();
+/** Field keys drawn in the current render. */
+let drawn = new Set<string>();
+
+function conflictView(key: string, current: string, draft: string, onCommit: (v: string, expected: string) => void): HTMLElement {
+  const box = h("div", { class: "conflict", "data-testid": "conflict", "data-key": key, role: "alert" },
+    h("p", { class: "conflict-title" }, "This text was changed elsewhere while you were editing."),
+    h("div", { class: "conflict-current" }, h("strong", {}, "Model now"), h("pre", { "data-testid": "conflict-current" }, current)),
+    h("div", { class: "conflict-draft" }, h("strong", {}, "Your draft"), h("pre", { "data-testid": "conflict-draft" }, draft)),
+  );
+  box.append(
+    button("Overwrite", "conflict-overwrite", () => {
+      conflicts.delete(key);
+      sent.set(key, draft);
+      onCommit(draft, current);
+    }, { title: "Replace the model text with your draft" }),
+    button("Discard", "conflict-discard", () => {
+      conflicts.delete(key);
+      draw();
+    }, { title: "Drop your draft and show the model text" }),
+  );
+  return box;
+}
+
+function field(key: string, value: string, opts: { multiline?: boolean; label: string; editable: boolean; className?: string }, onCommit: (v: string, expected: string) => void): HTMLElement {
+  drawn.add(key);
   const el: HTMLInputElement | HTMLTextAreaElement = opts.multiline ? h("textarea", { rows: "2" }) : h("input", { type: "text" });
   el.className = "cell-edit " + (opts.className ?? "");
   el.setAttribute("aria-label", opts.label);
@@ -90,6 +122,14 @@ function field(key: string, value: string, opts: { multiline?: boolean; label: s
     return el;
   }
   const p = pending.get(key);
+  const c = conflicts.get(key);
+  if (c) return conflictView(key, value, c.draft, onCommit);
+  if (p && p.expected !== value) {
+    // The model text changed since the edit began: never reopen the draft on whatever is there now.
+    pending.delete(key);
+    conflicts.set(key, { draft: p.value, view: p.view });
+    return conflictView(key, value, p.value, onCommit);
+  }
   if (p && p.value !== value) {
     el.value = p.value;
     queueMicrotask(() => {
@@ -97,13 +137,26 @@ function field(key: string, value: string, opts: { multiline?: boolean; label: s
       el.setSelectionRange(p.caret, p.caret);
     });
   }
+  if (opts.multiline) {
+    // The text column grows with its content, up to a reasonable height (the CSS max-height), then scrolls.
+    const grow = () => {
+      el.style.height = "auto";
+      el.style.height = el.scrollHeight + 2 + "px";
+    };
+    requestAnimationFrame(grow);
+    el.addEventListener("input", grow);
+  }
   el.addEventListener("input", () => {
     if (el.value === value) pending.delete(key);
-    else pending.set(key, { value: el.value, caret: el.selectionStart ?? el.value.length });
+    else pending.set(key, { value: el.value, caret: el.selectionStart ?? el.value.length, expected: pending.get(key)?.expected ?? value, view });
   });
   el.addEventListener("change", () => {
+    const expected = pending.get(key)?.expected ?? value;
     pending.delete(key);
-    if (el.value !== value) onCommit(el.value);
+    if (el.value !== expected) {
+      sent.set(key, el.value);
+      onCommit(el.value, expected);
+    }
   });
   el.addEventListener("keydown", (ev) => {
     const k = ev as KeyboardEvent;
@@ -176,6 +229,12 @@ function detailPane(row: RequirementRowVM): HTMLElement {
   return pane;
 }
 
+/** An owner name that can wrap only after `::` (never in the middle of a name). */
+function ownerParts(qn: string): Child[] {
+  const segs = qn.split("::");
+  return segs.flatMap((seg, i): Child[] => (i < segs.length - 1 ? [seg + "::", h("wbr")] : [seg]));
+}
+
 function tableView(s: RequirementsState): HTMLElement {
   const wrap = h("div", { class: "table-view" });
   const kind = h("select", { "aria-label": "Kind", "data-testid": "add-kind" }, h("option", { value: "requirement" }, "requirement"), h("option", { value: "requirement def" }, "requirement def"));
@@ -200,13 +259,13 @@ function tableView(s: RequirementsState): HTMLElement {
   const body = h("tbody");
   for (const r of rows) {
     const tr = h("tr", { "data-qn": r.qn, "data-testid": "row", class: (r.qn === selected ? "selected " : "") + (r.satisfy === 0 ? "unsatisfied " : "") + (r.verify === 0 ? "unverified" : ""), "aria-selected": r.qn === selected ? "true" : "false" });
-    const set = (f: "id" | "name" | "text") => (v: string) => intent({ type: "setCell", qn: r.qn, field: f, value: v });
+    const set = (f: "id" | "name" | "text") => (v: string, expected: string) => intent({ type: "setCell", qn: r.qn, field: f, value: v, expected });
     const count = (n: number, what: string) => h("td", { class: "num " + (n === 0 ? "warn" : ""), "data-cell": what }, h("span", { class: "count" }, String(n)), n === 0 ? h("span", { class: "badge", title: `No ${what} relationship` }, what === "satisfy" ? "unsatisfied" : "unverified") : undefined);
     tr.append(
       h("td", { "data-cell": "id" }, field(r.qn + "|id", r.id, { label: "Id", editable: r.editable, className: "id" }, set("id"))),
       h("td", { "data-cell": "name" }, field(r.qn + "|name", r.name, { label: "Name", editable: r.editable }, set("name"))),
       h("td", { "data-cell": "text" }, field(r.qn + "|text", r.text, { label: "Text", multiline: true, editable: r.editable }, set("text"))),
-      h("td", { "data-cell": "owner", class: "owner", title: r.owner }, r.owner),
+      h("td", { "data-cell": "owner", class: "owner", title: r.owner }, ...ownerParts(r.owner)),
       count(r.satisfy, "satisfy"),
       count(r.verify, "verify"),
     );
@@ -232,11 +291,11 @@ function itemView(i: ItemVM): HTMLElement {
   const sum = (label: string, names: string[]) => (names.length ? h("span", { class: "chip" }, `${label}: ${names.join(", ")}`) : undefined);
   return h("div", { class: "item", "data-qn": i.qn, "data-testid": "item" },
     h("div", { class: "item-head" },
-      field(i.qn + "|id", i.id, { label: "Requirement id", editable: i.editable, className: "id" }, (v) => intent({ type: "setCell", qn: i.qn, field: "id", value: v })),
-      field(i.qn + "|name", i.name, { label: "Requirement name", editable: i.editable, className: "name" }, (v) => intent({ type: "setCell", qn: i.qn, field: "name", value: v })),
+      field(i.qn + "|id", i.id, { label: "Requirement id", editable: i.editable, className: "id" }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "id", value: v, expected })),
+      field(i.qn + "|name", i.name, { label: "Requirement name", editable: i.editable, className: "name" }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "name", value: v, expected })),
       h("span", { class: "kind" }, i.defKind),
     ),
-    field(i.qn + "|text", i.text, { label: "Requirement text", multiline: true, editable: i.editable }, (v) => intent({ type: "setCell", qn: i.qn, field: "text", value: v })),
+    field(i.qn + "|text", i.text, { label: "Requirement text", multiline: true, editable: i.editable }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "text", value: v, expected })),
     h("div", { class: "chips" }, sum("Satisfied by", i.summary.satisfiedBy), sum("Verified by", i.summary.verifiedBy), sum("Derived from", i.summary.derivedFrom), sum("Derives", i.summary.derives)),
   );
 }
@@ -248,15 +307,15 @@ function paragraphView(p: Extract<BlockVM, { kind: "paragraph" }>): HTMLElement 
     if (p.editable) box.append(button("Edit", "edit-para", edit, { title: "Edit paragraph", className: "icon edit" }));
   };
   const edit = () => {
-    const ta = field(p.key, p.text, { label: "Paragraph text", multiline: true, editable: true, className: "para-edit" }, (v) => intent({ type: "setParagraph", key: p.key, value: v }));
+    const ta = field(p.key, p.text, { label: "Paragraph text", multiline: true, editable: true, className: "para-edit" }, (v, expected) => intent({ type: "setParagraph", key: p.key, value: v, expected }));
     (ta as HTMLTextAreaElement).rows = Math.max(3, p.text.split("\n").length + 1);
     box.replaceChildren(ta);
     ta.addEventListener("blur", () => {
-      if (!pending.has(p.key)) show();
+      if (!pending.has(p.key) && !conflicts.has(p.key)) show();
     });
     ta.focus();
   };
-  if (pending.has(p.key)) edit();
+  if (pending.has(p.key) || conflicts.has(p.key)) edit();
   else show();
   return box;
 }
@@ -272,7 +331,7 @@ function blocksView(blocks: BlockVM[]): HTMLElement[] {
 function sectionView(s: SectionVM, parentQn: string, prevQn: string | undefined): HTMLElement {
   const head = h("div", { class: "sec-head" },
     h("span", { class: "num", "data-testid": "sec-number" }, s.appendix && !s.number.includes(".") ? `Appendix ${s.number}` : s.number),
-    field(s.qn + "|heading", s.heading, { label: "Heading", editable: s.editable, className: "heading" }, (v) => intent({ type: "setHeading", qn: s.qn, value: v })),
+    field(s.qn + "|heading", s.heading, { label: "Heading", editable: s.editable, className: "heading" }, (v, expected) => intent({ type: "setHeading", qn: s.qn, value: v, expected })),
     h("span", { class: "sec-actions" },
       button("Move up", "move-up", () => intent({ type: "moveSection", qn: s.qn, how: "up" }), { disabled: !s.canMoveUp, title: `Move ${s.heading} up` }),
       button("Move down", "move-down", () => intent({ type: "moveSection", qn: s.qn, how: "down" }), { disabled: !s.canMoveDown, title: `Move ${s.heading} down` }),
@@ -356,6 +415,7 @@ function documentView(s: RequirementsState): HTMLElement {
 function draw(): void {
   const s = state;
   const scrollY = window.scrollY;
+  drawn = new Set();
   const focusKey = (document.activeElement as HTMLElement | null)?.getAttribute?.("data-key");
   root.replaceChildren();
   const tabs = h("div", { class: "tabs", role: "tablist", "aria-label": "View" });
@@ -375,6 +435,20 @@ function draw(): void {
   else if (s.problem) root.append(h("p", { class: "empty error" }, s.problem));
   else root.append(view === "table" ? tableView(s) : documentView(s));
   window.scrollTo(0, scrollY);
+  // A pending edit or conflict whose field no longer exists (its element is gone) cannot be shown; tell the user.
+  if (s && !s.problem) {
+    const gone = [...pending, ...conflicts].filter(([k, e]) => !drawn.has(k) && e.view === view).map(([k]) => k);
+    if (gone.length) {
+      for (const k of gone) {
+        pending.delete(k);
+        conflicts.delete(k);
+      }
+      notice = { level: "error", message: "An edit was discarded because its paragraph or requirement no longer exists." };
+      document.getElementById("notice")?.removeAttribute("hidden");
+      const n = document.getElementById("notice");
+      if (n) n.textContent = notice.message;
+    }
+  }
   if (focusKey && !pending.has(focusKey)) void focusKey;
 }
 
@@ -446,6 +520,7 @@ function metrics(): RequirementsMetrics {
       rootBlocks: document.querySelectorAll(".document > [data-testid=paragraph], .document > [data-testid=item], .document > [data-testid=elements]").length,
     },
     pendingEdits: [...pending.keys()],
+    conflicts: [...conflicts.keys()],
     overflow: { count: over.length, horizontalScroll: sc.scrollWidth > sc.clientWidth + 1 || (!!tableScroll && tableScroll.scrollWidth > tableScroll.clientWidth + 1), samples: over.slice(0, 5) },
     ...(notice ? { notice } : {}),
     errors,
@@ -531,6 +606,11 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         if (m.view && !saved.view && generation <= 1) view = m.view;
         if (selected && !state.table.rows.some((r) => r.qn === selected)) selected = undefined;
         persist();
+        draw();
+        break;
+      case "conflict":
+        conflicts.set(m.fieldKey, { draft: sent.get(m.fieldKey) ?? pending.get(m.fieldKey)?.value ?? "", view });
+        pending.delete(m.fieldKey);
         draw();
         break;
       case "setView":

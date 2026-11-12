@@ -88,3 +88,16 @@ describe("ModelService requirement operations", () => {
     expect(r2.ok).toBe(false);
   });
 });
+
+describe("moveMember touched files (item 14)", () => {
+  test("a move next to an element of a blocked file is refused", async () => {
+    const { host, svc, q } = setup();
+    host.addDocument("file:///w/ext/other.sysml", "package Other {\n    package Left;\n    package Right;\n}\n");
+    host.editBlocker = (u: string) => (u.includes("/ext/") ? "other.sysml is excluded from editing." : undefined);
+    const r = await svc.moveMember(q("Spec::Perf"), { after: q("Other::Left") });
+    expect(r.ok).toBe(false);
+    expect(host.buffers.get("file:///w/ext/other.sysml")).toBe("package Other {\n    package Left;\n    package Right;\n}\n");
+    expect(host.buffers.get(URI)).toBe(MODEL);
+  });
+});
+

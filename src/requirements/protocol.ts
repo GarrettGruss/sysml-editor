@@ -101,7 +101,8 @@ export interface RequirementsState {
 
 /** What the webview asks the host to do. */
 export type Intent =
-  | { type: "setCell"; qn: string; field: "id" | "name" | "text"; value: string }
+  /** `expected` is the text the field was opened with; the host applies the edit only when the element still has it. */
+  | { type: "setCell"; qn: string; field: "id" | "name" | "text"; value: string; expected: string }
   | { type: "addRequirement"; kind: "requirement" | "requirement def"; id: string; name: string; ownerQn?: string; afterQn?: string }
   | { type: "deleteRequirement"; qn: string }
   | { type: "addSatisfy"; qn: string }
@@ -112,8 +113,8 @@ export type Intent =
   | { type: "removeVerify"; key: string }
   | { type: "removeDerivation"; connectionKey: string; derivedQn?: string }
   | { type: "navigate"; qn: string; to: "tree" | "text" | "diagram" }
-  | { type: "setHeading"; qn: string; value: string }
-  | { type: "setParagraph"; key: string; value: string }
+  | { type: "setHeading"; qn: string; value: string; expected: string }
+  | { type: "setParagraph"; key: string; value: string; expected: string }
   | { type: "addSection"; parentQn: string; name: string; appendix?: boolean; afterQn?: string }
   | { type: "addParagraph"; pkgQn: string; text: string }
   | { type: "moveSection"; qn: string; how: "up" | "down" | { beforeQn: string } | { afterQn: string } }
@@ -131,7 +132,9 @@ export type HostToWebview =
   | { type: "getMetrics"; requestId: number }
   | { type: "exportPng"; requestId: number }
   | { type: "testGesture"; requestId: number; gesture: Gesture }
-  | { type: "setView"; view: ViewMode };
+  | { type: "setView"; view: ViewMode }
+  /** An edit was not applied because the element changed since the field was opened: show `current` beside the draft. */
+  | { type: "conflict"; fieldKey: string; current: string };
 
 export interface RequirementsMetrics {
   view: ViewMode;
@@ -156,6 +159,8 @@ export interface RequirementsMetrics {
   };
   /** Controls being edited and not yet committed. */
   pendingEdits: string[];
+  /** Fields whose edit conflicts with a newer model text (shown with Overwrite and Discard). */
+  conflicts: string[];
   /** Elements whose content is wider than their box (text clipped), and whether the page scrolls sideways. */
   overflow: { count: number; horizontalScroll: boolean; samples: string[] };
   notice?: { level: "info" | "error"; message: string };
@@ -171,3 +176,6 @@ export type WebviewToHost =
   | { type: "metricsResult"; requestId: number; metrics: RequirementsMetrics }
   | { type: "pngResult"; requestId: number; base64?: string; error?: string }
   | { type: "gestureResult"; requestId: number; error?: string };
+
+/** The key of a field in the webview: a requirement cell (`qn|id`, `qn|name`, `qn|text`) or a heading (`qn|heading`). */
+export const cellFieldKey = (qn: string, field: "id" | "name" | "text" | "heading"): string => `${qn}|${field}`;

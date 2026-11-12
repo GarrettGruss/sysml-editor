@@ -724,7 +724,7 @@ export class ModelService {
       if (to.after) mt.after = it.next().value as Element;
       if (to.before) mt.before = it.next().value as Element;
       return planMoveMember(this.index, el!, mt);
-    }, () => [element.uri, ...(to.owner ? [to.owner.uri] : [])], origin);
+    }, () => [...new Set([element.uri, ...(to.owner ? [to.owner.uri] : []), ...(to.after ? [to.after.uri] : []), ...(to.before ? [to.before.uri] : [])])], origin);
   }
 
   /** Replace the body of a `doc` or `comment` element (an empty text removes it). */

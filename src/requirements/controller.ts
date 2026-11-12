@@ -8,6 +8,8 @@ import type { ModelService, OpResult } from "../model-service/service.js";
 import { allowedChildKinds } from "../model-service/kinds.js";
 import type { Intent } from "./protocol.js";
 import { isRequirement, isVerificationCase } from "./relations.js";
+import { unescapeTerminator } from "../edit/comment.js";
+import { cellFieldKey } from "./protocol.js";
 import { statementKey } from "./view-model.js";
 
 export interface PickItem {
@@ -37,6 +39,8 @@ export interface Navigation {
 export interface ControllerResult {
   ok: boolean;
   message?: string;
+  /** The edit was not applied: the element's current text differs from the one the field was opened with. */
+  conflict?: { fieldKey: string; current: string };
 }
 
 const isPkg = (e: Element) => e.kind === "package" || e.kind === "library package";
@@ -74,6 +78,33 @@ export class RequirementsController {
     };
     this.index.getDocument(uri)?.model.roots.forEach(walk);
     return found;
+  }
+
+  /** The `doc` or `comment` that a paragraph key (see `paragraphKey`) names now. */
+  private paragraph(key: string): Element | undefined {
+    const uri = key.slice(0, key.indexOf("|"));
+    const parts = key.slice(key.indexOf("|") + 1).split("|");
+    const idx = Number(parts.pop());
+    const kind = parts.pop();
+    const ownerKey = parts.join("|");
+    if (!Number.isInteger(idx) || (kind !== "doc" && kind !== "comment")) return undefined;
+    const owners: Element[] = [];
+    if (ownerKey.startsWith("@")) {
+      const walk = (e: Element) => {
+        if (e.range.start.offset === Number(ownerKey.slice(1))) owners.push(e);
+        e.members.forEach(walk);
+      };
+      this.index.getDocument(uri)?.model.roots.forEach(walk);
+    } else owners.push(...this.index.findByQualifiedName(ownerKey).filter((e) => e.uri === uri));
+    for (const o of owners) {
+      const el = o.members.filter((m) => m.kind === "doc" || m.kind === "comment")[idx];
+      if (el?.kind === kind) return el;
+    }
+    return undefined;
+  }
+
+  private conflict(fieldKey: string, current: string): ControllerResult {
+    return { ok: false, message: "This text was changed elsewhere since you started editing; nothing was applied.", conflict: { fieldKey, current } };
   }
 
   private async run(p: Promise<OpResult>, what: string): Promise<ControllerResult> {
@@ -121,6 +152,8 @@ export class RequirementsController {
         const el = this.requirement(intent.qn);
         if (!el) return gone("The requirement");
         const props = intent.field === "id" ? { shortName: intent.value.trim() === "" ? null : intent.value.trim() } : intent.field === "name" ? { name: intent.value.trim() } : { documentation: intent.value.trim() === "" ? null : intent.value };
+        const current = intent.field === "id" ? (el.shortName ?? "") : intent.field === "name" ? (el.name ?? "") : unescapeTerminator(el.documentation ?? "");
+        if (current !== intent.expected) return this.conflict(cellFieldKey(intent.qn, intent.field), current);
         if (intent.field === "name" && intent.value.trim() === "") return { ok: false, message: "A requirement needs a name." };
         return this.run(this.service.setProperties({ element: el }, props), `Changed the ${intent.field === "id" ? "id" : intent.field} of ${intent.qn}`);
       }
@@ -205,11 +238,13 @@ export class RequirementsController {
       case "setHeading": {
         const p = this.pkg(intent.qn);
         if (!p) return gone("The section");
+        if ((p.name ?? "") !== intent.expected) return this.conflict(cellFieldKey(intent.qn, "heading"), p.name ?? "");
         if (intent.value.trim() === "") return { ok: false, message: "A heading cannot be empty." };
         return this.run(this.service.setProperties({ element: p }, { name: intent.value.trim() }), `Renamed ${intent.qn}`);
       }
       case "setParagraph": {
-        const c = this.byKey(intent.key, (e) => e.kind === "doc" || e.kind === "comment");
+        const c = this.paragraph(intent.key);
+        if (c && unescapeTerminator(c.documentation ?? "") !== intent.expected) return this.conflict(intent.key, unescapeTerminator(c.documentation ?? ""));
         return c ? this.run(this.service.setParagraph(c, intent.value), "Changed a paragraph") : gone("The paragraph");
       }
       case "addSection": {

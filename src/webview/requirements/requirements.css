@@ -32,7 +32,7 @@ button.icon { padding: 1px 6px; }
 .notice[hidden] { display: none; }
 input[type=text], textarea, select { width: 100%; background: var(--input-bg); color: var(--input-fg); border: 1px solid transparent; border-radius: 2px; padding: 3px 5px; font: inherit; }
 input[type=text]:hover, textarea:hover { border-color: var(--border); }
-textarea { resize: vertical; min-height: 2.4em; }
+textarea { resize: vertical; min-height: 2.4em; max-height: 22em; }
 .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 0; flex-wrap: wrap; }
 .toolbar input, .toolbar select { width: 160px; }
 .split { display: flex; gap: 16px; align-items: flex-start; }
@@ -43,7 +43,7 @@ textarea { resize: vertical; min-height: 2.4em; }
 .req-table th:nth-child(1) { width: 70px; } .req-table th:nth-child(2) { width: 130px; } .req-table th:nth-child(4) { width: 140px; } .req-table th:nth-child(5), .req-table th:nth-child(6) { width: 100px; }
 .req-table td.num { overflow-wrap: anywhere; }
 .req-table td { padding: 4px 6px; vertical-align: top; border-bottom: 1px solid var(--border); }
-.req-table td.owner { color: var(--muted); overflow-wrap: anywhere; }
+.req-table td.owner { color: var(--muted); overflow-wrap: normal; word-break: keep-all; min-width: 9em; }
 .req-table tr.selected { background: var(--row-sel); }
 .req-table td.warn .count { color: var(--warn); font-weight: 600; }
 .badge { display: inline-block; margin-left: 6px; font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 8px; padding: 0 5px; }
@@ -99,3 +99,8 @@ textarea { resize: vertical; min-height: 2.4em; }
 .adds { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; align-items: center; }
 .adds.top { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 12px; }
 .appendix-title { margin-top: 32px; border-top: 2px solid var(--border); padding-top: 12px; }
+
+.conflict { border: 1px solid var(--warn); border-radius: 3px; padding: 6px 8px; margin: 4px 0; }
+.conflict-title { margin: 0 0 4px; font-weight: 600; }
+.conflict pre { margin: 2px 0 6px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12em; overflow: auto; }
+.conflict button { margin-right: 6px; }

@@ -52,11 +52,11 @@ describe("requirements table", () => {
   });
   test("edit text, id and name; add and delete", async () => {
     const { host, ctl, state } = setup();
-    expect((await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "text", value: "Vehicle mass shall not exceed 2000 kg" })).ok).toBe(true);
+    expect((await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "text", value: "Vehicle mass shall not exceed 2000 kg", expected: "The mass shall be small." })).ok).toBe(true);
     expect(host.buffers.get(URI)).toContain("doc /* Vehicle mass shall not exceed 2000 kg */");
-    expect((await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "id", value: "R7" })).ok).toBe(true);
+    expect((await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "id", value: "R7", expected: "R1" })).ok).toBe(true);
     expect(host.buffers.get(URI)).toContain("requirement <'R7'> massLimit");
-    expect((await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "name", value: "massCap" })).ok).toBe(true);
+    expect((await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "name", value: "massCap", expected: "massLimit" })).ok).toBe(true);
     expect(state().table.rows[0]!.name).toBe("massCap");
     expect((await ctl.handle({ type: "addRequirement", kind: "requirement", id: "R2x", name: "rangeReq" })).ok).toBe(true);
     expect(host.buffers.get(URI)).toContain("requirement <'R2x'> rangeReq;");
@@ -117,7 +117,7 @@ describe("document view operations", () => {
     await ctl.handle({ type: "addSection", parentQn: "VehicleSpec", name: "Reliability", afterQn: PR });
     expect(host.buffers.get(URI)).toContain("package Reliability;");
     expect(state().document!.sections.map((s) => s.heading)).toEqual(["Performance Requirements", "Reliability", "Safety"]);
-    await ctl.handle({ type: "setHeading", qn: "VehicleSpec::Reliability", value: "Functional Safety" });
+    await ctl.handle({ type: "setHeading", qn: "VehicleSpec::Reliability", value: "Functional Safety", expected: "Reliability" });
     expect(host.buffers.get(URI)).toContain("package 'Functional Safety';");
     await ctl.handle({ type: "moveSection", qn: "VehicleSpec::Safety", how: "up" });
     expect(state().document!.sections.map((s) => s.heading)).toEqual(["Performance Requirements", "Safety", "Functional Safety"]);
@@ -138,8 +138,40 @@ describe("document view operations", () => {
     const sec = state().document!.sections[1]!;
     expect(sec.blocks.map((b) => (b.kind === "paragraph" ? `${b.source}:${b.text}` : b.kind))).toEqual(["paragraph:" + "Safety matters.\n- one\n- two", "paragraph:Contains */ here"].map((s, i) => (i === 0 ? "doc:" + s.slice(10) : "comment:" + s.slice(10))));
     const para = sec.blocks[1]! as { key: string };
-    await ctl.handle({ type: "setParagraph", key: para.key, value: "Edited */ text" });
+    await ctl.handle({ type: "setParagraph", key: para.key, value: "Edited */ text", expected: "Contains */ here" });
     expect(host.buffers.get(URI)).toContain("Edited *\\/ text");
     expect(state().document!.sections[1]!.blocks[1]).toMatchObject({ text: "Edited */ text" });
+  });
+});
+
+describe("conflicts and stable paragraph keys", () => {
+  const SAFETY = "VehicleSpec::Safety";
+  test("a stale expected text is a conflict and nothing is applied; overwrite with the new expected applies", async () => {
+    const { host, ctl } = setup();
+    const before = host.buffers.get(URI);
+    const r = await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "text", value: "mine", expected: "something older" });
+    expect(r).toMatchObject({ ok: false, conflict: { fieldKey: `${PR}::massLimit|text`, current: "The mass shall be small." } });
+    expect(host.buffers.get(URI)).toBe(before);
+    const h = await ctl.handle({ type: "setHeading", qn: SAFETY, value: "Safe", expected: "Old" });
+    expect(h.conflict).toEqual({ fieldKey: `${SAFETY}|heading`, current: "Safety" });
+    expect((await ctl.handle({ type: "setCell", qn: `${PR}::massLimit`, field: "text", value: "mine", expected: "The mass shall be small." })).ok).toBe(true);
+    expect(host.buffers.get(URI)).toContain("doc /* mine */");
+  });
+  test("a paragraph key survives text inserted above, and a stale expected text is a conflict", async () => {
+    const { host, ctl, state } = setup();
+    await ctl.handle({ type: "addParagraph", pkgQn: SAFETY, text: "First." });
+    await ctl.handle({ type: "addParagraph", pkgQn: SAFETY, text: "Second." });
+    const key = (state().document!.sections[1]!.blocks[1] as { key: string }).key;
+    // Insert lines at the top of the file: every offset moves, the key does not.
+    host.addDocument(URI, "// header\n// header 2\n" + host.buffers.get(URI)!);
+    const again = state().document!.sections[1]!.blocks[1] as { key: string; text: string };
+    expect(again.key).toBe(key);
+    expect(again.text).toBe("Second.");
+    expect((await ctl.handle({ type: "setParagraph", key, value: "Changed.", expected: "Second." })).ok).toBe(true);
+    expect(host.buffers.get(URI)).toContain("Changed.");
+    expect(host.buffers.get(URI)).toContain("First.");
+    const r = await ctl.handle({ type: "setParagraph", key, value: "Again.", expected: "Second." });
+    expect(r.conflict).toMatchObject({ fieldKey: key, current: "Changed." });
+    expect((await ctl.handle({ type: "setParagraph", key: key.replace(/\|1$/, "|7"), value: "x", expected: "" })).ok).toBe(false);
   });
 });

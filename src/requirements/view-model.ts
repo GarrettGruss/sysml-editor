@@ -6,6 +6,17 @@ import type { BlockVM, DocumentVM, RelationVM, RequirementRowVM, RequirementsSco
 import { buildRelations, listRequirements, type RequirementInfo, type Relations } from "./queries.js";
 
 export const statementKey = (e: Element): string => `${e.uri}#${e.range.start.offset}`;
+/**
+ * The key of a paragraph (`doc` or `comment`): file, owner's qualified name (or, for an unnamed owner, its offset),
+ * kind, and the index among the owner's doc/comment members. It does not change when text is inserted above it.
+ */
+export function paragraphKey(el: Element): string {
+  const o = el.owner;
+  const idx = o ? o.members.filter((m) => m.kind === "doc" || m.kind === "comment").indexOf(el) : 0;
+  const owner = o ? (o.qualifiedName ?? `@${o.range.start.offset}`) : "";
+  return `${el.uri}|${owner}|${el.kind}|${idx}`;
+}
+
 const isPkg = (e: Element) => e.kind === "package" || e.kind === "library package";
 const label = (e: Element | undefined, fallback: string) => (e ? [e.shortName, e.name].filter(Boolean).join(" ") || fallback : fallback);
 
@@ -33,7 +44,7 @@ function rowOf(i: RequirementInfo, editable: Editable): RequirementRowVM {
 }
 
 function blockVM(b: SectionBlock, editable: Editable, rel: Relations): BlockVM {
-  if (b.kind === "paragraph") return { kind: "paragraph", key: statementKey(b.element), source: b.source, text: b.text, editable: editable(b.element.uri) };
+  if (b.kind === "paragraph") return { kind: "paragraph", key: paragraphKey(b.element), source: b.source, text: b.text, editable: editable(b.element.uri) };
   if (b.kind === "elements") return { kind: "elements", items: b.items.map((i) => ({ kind: i.kind, name: i.name })) };
   const i = b.info;
   void rel;

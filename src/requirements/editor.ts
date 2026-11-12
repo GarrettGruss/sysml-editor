@@ -7,8 +7,9 @@ import type { ModelActions } from "../model-service/interactive.js";
 import type { ModelService } from "../model-service/service.js";
 import { nodeForElement, resolveNode, type ModelNode } from "../tree/tree-model.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
-import { RequirementsController, type Navigation, type PickItem, type RequirementsUi } from "./controller.js";
+import { RequirementsController, type ControllerResult, type Navigation, type PickItem, type RequirementsUi } from "./controller.js";
 import type { Gesture, HostToWebview, Intent, RequirementsMetrics, RequirementsScope, ViewMode, WebviewToHost } from "./protocol.js";
+import { parseIntent } from "./intent-guard.js";
 import { buildState, scopeRoot } from "./view-model.js";
 
 export const REQUIREMENTS_VIEW_TYPE = "sysml.requirements";
@@ -23,7 +24,7 @@ export interface RequirementsTestApi {
   png(scope: RequirementsScope): Promise<string>;
   gesture(scope: RequirementsScope, g: Gesture): Promise<void>;
   /** Run an intent as the webview would send it (the real path from the controller down). */
-  intent(scope: RequirementsScope, intent: Intent): Promise<{ ok: boolean; message?: string }>;
+  intent(scope: RequirementsScope, intent: Intent): Promise<ControllerResult>;
   setView(scope: RequirementsScope, view: ViewMode): Promise<void>;
   /** Replace the questions asked of the user (undefined restores them). */
   setUi(ui?: Partial<RequirementsUi>): void;
@@ -205,7 +206,7 @@ export class RequirementsEditor implements vscode.Disposable {
         this.errorLog.push(m.message.slice(0, 400));
         break;
       case "intent":
-        await this.handleIntent(p, m.intent);
+        await this.handleIntent(p, (m as { intent?: unknown }).intent);
         break;
       case "metricsResult":
       case "pngResult":
@@ -215,14 +216,22 @@ export class RequirementsEditor implements vscode.Disposable {
     }
   }
 
-  private async handleIntent(p: Panel, intent: Intent): Promise<{ ok: boolean; message?: string }> {
-    let result: { ok: boolean; message?: string };
+  /** `raw` is whatever the webview sent: it reaches the controller only after the shape check. */
+  private async handleIntent(p: Panel, raw: unknown): Promise<ControllerResult> {
+    let result: ControllerResult;
+    const checked = parseIntent(raw);
+    if (!checked.ok) {
+      this.errorLog.push(checked.reason);
+      this.post(p, { type: "notice", level: "error", message: checked.reason });
+      return { ok: false, message: checked.reason };
+    }
     try {
-      result = await this.controller(p.scope).handle(intent);
+      result = await this.controller(p.scope).handle(checked.intent);
     } catch (e) {
       result = { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
-    if (!result.ok && result.message) this.post(p, { type: "notice", level: "error", message: result.message });
+    if (result.conflict) this.post(p, { type: "conflict", fieldKey: result.conflict.fieldKey, current: result.conflict.current });
+    else if (!result.ok && result.message) this.post(p, { type: "notice", level: "error", message: result.message });
     else if (result.message !== "cancelled") this.post(p, { type: "notice", level: "info", message: "" });
     // Always draw what the model says now (a refused edit must not leave a changed field on screen).
     await this.render(p, true);
