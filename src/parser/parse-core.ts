@@ -93,22 +93,25 @@ function full(text: string, sim?: Sim): ParseResult {
 export type FastResult =
   | { ok: true; result: ParseResult }
   /** `error` is the first lexer error or the token where SLL prediction bailed out. */
-  | { ok: false; error: SyntaxErrorInfo };
+  | { ok: false; error: SyntaxErrorInfo; lexer?: boolean };
 
-/** SLL prediction that bails on the first problem. Never reports more than the first position. */
-export function fastParse(text: string, sim?: Sim): FastResult {
+/**
+ * A parse that bails on the first problem (SLL prediction, or full LL with `ll`). Never reports
+ * more than the first position.
+ */
+export function fastParse(text: string, sim?: Sim, ll = false): FastResult {
   const errors: SyntaxErrorInfo[] = [];
   const { tokens, parser } = setUp(text, errors, sim);
-  parser.interpreter.predictionMode = PredictionMode.SLL;
+  parser.interpreter.predictionMode = ll ? PredictionMode.LL : PredictionMode.SLL;
   parser.errorHandler = new BailErrorStrategy();
   try {
     const tree = parser.rootNamespace();
     tokens.fill();
     if (errors.length === 0) return { ok: true, result: { tree, tokens, parser, errors } };
-    return { ok: false, error: errors[0]! };
+    return { ok: false, error: errors[0]!, lexer: true };
   } catch (e) {
     if (!(e instanceof ParseCancellationException)) throw e;
-    if (errors.length > 0) return { ok: false, error: errors[0]! };
+    if (errors.length > 0) return { ok: false, error: errors[0]!, lexer: true };
     const cause = e.cause instanceof RecognitionException ? e.cause : undefined;
     const t = cause?.offendingToken ?? parser.getCurrentToken();
     return { ok: false, error: { line: t?.line ?? 1, column: t?.column ?? 0, message: "syntax error" } };

@@ -108,6 +108,8 @@ export interface ParsedDocument {
 export interface DocumentParserOptions {
   /** Do only the cheap attempt; may answer `detailsPending` instead of a precise result. */
   fastOnly?: boolean;
+  /** With `fastOnly`: also try full-LL prediction on the fast path regardless of text length. */
+  fullContextRetry?: boolean;
 }
 
 /** The seam that lets the parser be replaced. */

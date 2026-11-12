@@ -13,13 +13,16 @@ export type { SyntaxErrorInfo, ParseResult, FastResult, Token } from "./parse-co
 export const parseStats = { fastPath: 0, fallback: 0 };
 
 /**
- * The fast path: SLL with bail on the snapshot-backed static DFAs. Restored snapshot states
+ * The fast path: SLL with bail on the snapshot-backed static DFAs; then, if `ll` and the failure
+ * was not a lexer error, full LL with bail on the same DFAs (some valid files need full-context
+ * prediction, which SLL cannot do; the LL attempt costs about three times the SLL one). Restored snapshot states
  * cannot grow, so a failure here is either a real syntax error or (rarely) a valid construct the
  * snapshot never saw; the precise answer needs a parser with a normally built cache, which in
  * the extension runs in the parse worker (see `src/parse-worker.ts`).
  */
-export function tryFastParse(text: string): FastResult {
-  const r = fastParse(text);
+export function tryFastParse(text: string, opts: { ll?: boolean } = {}): FastResult {
+  let r = fastParse(text);
+  if (!r.ok && !r.lexer && opts.ll) r = fastParse(text, undefined, true);
   if (r.ok) parseStats.fastPath++;
   return r;
 }
@@ -34,7 +37,7 @@ let sameThreadSim: Sim | undefined;
  * use it (the parse worker does this step instead); it serves tests and scripts.
  */
 export function parse(text: string): ParseResult {
-  const r = tryFastParse(text);
+  const r = tryFastParse(text, { ll: true });
   if (r.ok) return r.result;
   parseStats.fallback++;
   sameThreadSim ??= newSim();

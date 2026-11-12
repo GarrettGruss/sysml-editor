@@ -163,7 +163,8 @@ export class ModelIndex {
     if (old && old.text === text) return false;
     let parsed;
     try {
-      parsed = this.parser(uri, text, this.details ? { fastOnly: true } : undefined);
+      // Library texts are known to be valid and are never edited: always allow the LL retry.
+      parsed = this.parser(uri, text, this.details ? { fastOnly: true, fullContextRetry: isLibraryUri(uri) } : undefined);
     } catch (e) {
       parsed = { model: emptyModel(uri), errors: [{ line: 0, column: 0, message: `internal parser error: ${String(e)}` }] };
     }
