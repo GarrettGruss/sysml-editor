@@ -93,15 +93,49 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       watcher.onDidDelete((u) => this.onDiagramFile(uriKey(u), false)),
       watcher.onDidChange((u) => this.onDiagramChanged(uriKey(u))),
       index.onDidChange((e) => this.onModelChange(e.uris)),
-      vscode.workspace.onDidChangeWorkspaceFolders(() => this.emitter.fire(undefined)),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => this.fullRefresh()),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (!["sysml.exclude", "files.exclude"].some((k) => e.affectsConfiguration(k))) return;
         this.diagramsDirty = true;
-        if (this.filterValue === "diagrams") this.diagramsReady = this.scanDiagrams().then(() => this.emitter.fire(undefined));
-        this.emitter.fire(undefined);
+        if (this.filterValue === "diagrams") this.diagramsReady = this.scanDiagrams().then(() => this.fullRefresh());
+        this.fullRefresh();
       }),
     );
     if (folderChanges) this.subs.push(folderChanges((parent) => this.onFolderChange(parent)));
+  }
+
+  /** Refresh everything; VS Code asks for the children again, so what was handed out is forgotten. */
+  private fullRefresh(): void {
+    this.handed.clear();
+    this.emitter.fire(undefined);
+  }
+
+  /**
+   * Fire a targeted refresh. VS Code keys the nodes it knows by object identity and ignores others, so
+   * each node is replaced by the object getChildren handed out under that id, or by its nearest handed
+   * ancestor (nothing when none was ever shown).
+   */
+  private fireTargeted(nodes: readonly ModelNode[]): void {
+    const out = new Set<ModelNode>();
+    for (const n of nodes) {
+      let cur: ModelNode | undefined = n;
+      for (let i = 0; cur && i < 1000; i++, cur = this.getParent(cur)) {
+        const h = this.handed.get(cur.id);
+        if (h) {
+          out.add(h);
+          break;
+        }
+      }
+    }
+    if (out.size) this.emitter.fire([...out]);
+  }
+
+  /** Every node getChildren handed to VS Code (id to the last object). */
+  private readonly handed = new Map<string, ModelNode>();
+
+  /** Whether `node` is the object last handed out under its id (not one built afresh). */
+  isHanded(node: ModelNode): boolean {
+    return this.handed.get(node.id) === node;
   }
 
   get filter(): TreeFilter {
@@ -114,7 +148,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     if (filter === "diagrams" && this.diagramsDirty) this.diagramsReady = this.scanDiagrams();
     await this.state?.update(FILTER_KEY, filter);
     await vscode.commands.executeCommand("setContext", "sysml.treeFilter", filter);
-    this.emitter.fire(undefined);
+    this.fullRefresh();
   }
 
   /** Scan the workspace for `.sysmld` files (files.exclude applies to the search, sysml.exclude to the result) and refresh the affected nodes. */
@@ -152,11 +186,11 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     if (this.filterValue !== "diagrams") return;
     // The roots appear with the first diagram and disappear with the last (the Diagrams view has no other roots).
     if ((previous.size === 0) !== (next.size === 0)) {
-      this.emitter.fire(undefined);
+      this.fullRefresh();
       return;
     }
     const nodes = affectedDiagramNodes(this.env, previous, next);
-    if (nodes.length) this.emitter.fire(nodes);
+    if (nodes.length) this.fireTargeted(nodes);
   }
 
   /** A single `.sysmld` was created or deleted: apply it to the diagram set without scanning the workspace. */
@@ -193,7 +227,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private onDiagramChanged(uri: string): void {
     this.kinds.delete(uri);
     if (this.filterValue !== "diagrams" || !this.diagrams.has(uri)) return;
-    void this.loadKind(uri).then(() => this.emitter.fire([{ id: uri, uri, kind: "diagram" }]));
+    void this.loadKind(uri).then(() => this.fireTargeted([{ id: uri, uri, kind: "diagram" }]));
   }
 
   /** The kind label of a diagram file, cached; read from the first bytes of the file. */
@@ -209,8 +243,6 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     this.kinds.set(uri, label);
   }
 
-  /** Folder nodes handed out by getChildren, so changes in folders nobody sees are ignored. */
-  private rendered = new Set<string>();
   private pendingFolders = new Set<string>();
   private folderTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -221,7 +253,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       return;
     }
     this.diagramsDirty = true;
-    if (!this.rendered.has(parent)) return;
+    if (!this.handed.has(parent)) return;
     const root = this.env.roots.find((r) => parent === r.uri || parent.startsWith(r.uri + "/"));
     if (!root || this.env.excluded(parent.slice(root.uri.length + 1))) return;
     this.pendingFolders.add(parent);
@@ -236,7 +268,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
         if (!root || this.env.excluded(p.slice(root.uri.length + 1))) continue;
         nodes.push({ id: p, uri: p, kind: "folder" });
       }
-      if (nodes.length) this.emitter.fire(nodes);
+      if (nodes.length) this.fireTargeted(nodes);
     }, 150);
   }
 
@@ -245,16 +277,19 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     const wasEmpty = this.files.size === 0;
     this.files = new Set(workspaceUris(this.index));
     // The roots appear and disappear with the first and last file (the welcome message shows when there are none).
-    if (wasEmpty !== (this.files.size === 0)) this.emitter.fire(undefined);
-    else if (nodes.length) this.emitter.fire(nodes);
+    if (wasEmpty !== (this.files.size === 0)) this.fullRefresh();
+    else if (nodes.length) this.fireTargeted(nodes);
   }
 
+  /** What VS Code calls; the nodes returned are the ones it will know. */
   getChildren(node?: ModelNode): ModelNode[] | Promise<ModelNode[]> {
+    return this.children(node, true);
+  }
+
+  /** The children of a node; `record` false for callers other than VS Code (tests), whose objects VS Code does not know. */
+  children(node: ModelNode | undefined, record: boolean): ModelNode[] | Promise<ModelNode[]> {
     const track = (kids: ModelNode[]) => {
-      for (const k of kids) {
-        if (isFolderNode(k)) this.rendered.add(k.id);
-        else if (isFileNode(k)) this.shownFiles.add(k.uri);
-      }
+      if (record) for (const k of kids) this.handed.set(k.id, k);
       return kids;
     };
     if (this.filterValue === "diagrams") {
@@ -268,27 +303,14 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     }
     if (!node) return track(folderRoots(this.index, this.env));
     if (isFolderNode(node)) return folderChildren(this.index, this.env, node).then(track);
-    if (isFileNode(node)) return fileChildren(this.index, node);
-    return childNodes(this.index, node);
+    if (isFileNode(node)) return track(fileChildren(this.index, node));
+    return track(childNodes(this.index, node));
   }
 
-  /** File nodes handed to VS Code by getChildren; a file not in here is not in its cache of the tree. */
-  private shownFiles = new Set<string>();
-
-  /**
-   * Select a node. VS Code resolves it through getParent/getChildren and, when it holds a stale list
-   * of the folders above (a file created a moment ago; a refresh of named nodes can go unserved), it
-   * neither selects nor rejects. So when the file was never handed out, do a full refresh and wait
-   * until VS Code asks for it; then reveal once. Failures and no-ops are logged.
-   */
+  /** Select a node; VS Code resolves it through getParent/getChildren. Failures are logged. */
   async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void): Promise<void> {
     const say = log ?? ((m: string) => console.warn(m));
     try {
-      if (this.filterValue === "elements" && !this.shownFiles.has(node.uri)) {
-        this.emitter.fire(undefined);
-        for (let i = 0; i < 100 && !this.shownFiles.has(node.uri); i++) await new Promise((r) => setTimeout(r, 50));
-        if (!this.shownFiles.has(node.uri)) say(`SysML tree: ${node.uri} was not requested by the tree after a refresh`);
-      }
       await view.reveal(node, { select: true, focus: false, expand: false });
     } catch (e) {
       say(`SysML tree: reveal of ${node.id} failed: ${e instanceof Error ? e.message : String(e)}`);

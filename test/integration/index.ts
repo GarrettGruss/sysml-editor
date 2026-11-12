@@ -19,7 +19,11 @@ export interface TestApi {
   provider: {
     /** An array below a file node (the elements); the folder levels, and the Diagrams view, answer with a promise (await it). */
     getChildren(n?: ModelNode): ModelNode[];
+    /** Like getChildren, but records the nodes as VS Code would (targeted refreshes use those objects). */
+    viewGetChildren(n?: ModelNode): ModelNode[];
     getParent(n: ModelNode): ModelNode | undefined;
+    /** Whether the node is an object getChildren handed out (VS Code only refreshes such objects). */
+    isHanded(n: ModelNode): boolean;
     readonly filter: "elements" | "diagrams";
     setFilter(filter: "elements" | "diagrams"): Promise<void>;
     getTreeItem(n: ModelNode): vscode.TreeItem;
@@ -389,6 +393,9 @@ export async function run(): Promise<void> {
       const doc = await vscode.workspace.openTextDocument(vehicleUri);
       const fired: unknown[] = [];
       const sub = api.provider.onDidChangeTreeData((e) => fired.push(e));
+      // VS Code only refreshes the nodes it was handed: read the tree down to the file's elements the way it does.
+      const vehicle = (await elementRoots(api, true)).find((r) => labelOf(r) === "Vehicle")!;
+      api.provider.viewGetChildren(vehicle);
       const before = api.provider.getChildren(await rootOf("Vehicle")).map((n) => n.id);
       const edit = new vscode.WorkspaceEdit();
       edit.insert(vehicleUri, new vscode.Position(1, 0), "  part def Gearbox;\n");

@@ -20,6 +20,13 @@ export function foldersTests(c: Ctx): Test[] {
     assert.ok(n, `tree node ${l}`);
     return n;
   };
+  /** Reads the children the way VS Code does, so the provider records the objects it refreshes by. */
+  const vkids = async (n?: ModelNode): Promise<ModelNode[]> => await api.provider.viewGetChildren(n);
+  const vfind = async (parent: ModelNode | undefined, l: string): Promise<ModelNode> => {
+    const n = (await vkids(parent)).find((k) => label(k) === l);
+    assert.ok(n, `tree node ${l}`);
+    return n;
+  };
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
     const end = performance.now() + ms;
     while (!(await cond())) {
@@ -132,6 +139,7 @@ export function foldersTests(c: Ctx): Test[] {
       const orig = view.reveal.bind(view);
       (view as { reveal: typeof view.reveal }).reveal = (n, o) => { calls.push(n); const r = orig(n, o); reveals.push(r); return r; };
       try {
+        await sleep(800); // let the previous test's batched tree refreshes (and the file deletions behind them) drain before the view shows
         await vscode.commands.executeCommand("sysmlModel.focus");
         await waitFor(() => view.visible, 3000, "view visible");
         const line = ed.document.getText().split("\n").findIndex((l) => l.includes("part engine"));
@@ -251,6 +259,67 @@ export function foldersTests(c: Ctx): Test[] {
           .catch(async (e) => { throw new Error(`${(e as Error).message}\n${(await dump(root, 4)).join("\n")}`); });
         assert.strictEqual(api.provider.getTreeItem(tmp).description, "no diagrams", "and so is tmp-tree");
       } finally {
+        rmSync(dir(), { recursive: true, force: true });
+        await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
+      }
+    })],
+    ["Targeted refresh: a created and a deleted .sysml file in an expanded folder fire the folder object the tree handed out, not a full refresh", withFolders(async () => {
+      setup();
+      const events: unknown[] = [];
+      let targetedFires = 0;
+      const sub = api.provider.onDidChangeTreeData((e) => {
+        events.push(e);
+        if (Array.isArray(e) && e.length > 0 && e.every((n) => api.provider.isHanded(n))) targetedFires++;
+      });
+      try {
+        await waitFor(() => indexed("a.sysml") && indexed("b.sysml"), 20000, "the files are indexed");
+        const root = (await vkids())[0]!;
+        const tmp = await vfind(root, "tmp-tree");
+        await vkids(tmp);
+        events.length = 0;
+        targetedFires = 0;
+        const targeted = () => targetedFires > 0;
+        writeFileSync(dir("c.sysml"), "package Cee;\n");
+        await waitFor(async () => targeted() && (await kids(tmp)).some((n) => label(n) === "c.sysml"), 20000, "c.sysml appears under tmp-tree");
+        assert.ok(!events.includes(undefined), "no full refresh was fired");
+        events.length = 0;
+        targetedFires = 0;
+        rmSync(dir("c.sysml"));
+        await waitFor(async () => targeted() && !(await kids(tmp)).some((n) => label(n) === "c.sysml"), 20000, "c.sysml disappears from tmp-tree");
+        assert.ok(!events.includes(undefined), "no full refresh was fired on delete");
+      } finally {
+        sub.dispose();
+        rmSync(dir(), { recursive: true, force: true });
+        await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
+      }
+    })],
+    ["Targeted refresh: a new .sysmld in an expanded folder of the Diagrams view fires handed-out folder objects, not a full refresh", withFilter("diagrams", async () => {
+      setup();
+      const diagram = JSON.stringify({ version: 1, kind: "interconnection", root: "Deep", sources: ["m.sysml"], nodes: [], edges: [] });
+      writeFileSync(dir("Nest", "deep", "d.sysmld"), diagram);
+      const events: unknown[] = [];
+      let targetedFires = 0;
+      const sub = api.provider.onDidChangeTreeData((e) => {
+        events.push(e);
+        if (Array.isArray(e) && e.length > 0 && e.every((n) => api.provider.isHanded(n))) targetedFires++;
+      });
+      try {
+        const root = (await vkids())[0]!;
+        await waitFor(async () => {
+          const t = (await kids(root)).find((n) => label(n) === "tmp-tree");
+          return !!t && (await kids(t)).some((n) => label(n) === "Nest");
+        }, 20000, "the diagram is found");
+        const tmp = await vfind(root, "tmp-tree");
+        const nest = await vfind(tmp, "Nest");
+        const deep = await vfind(nest, "deep");
+        await vkids(deep);
+        events.length = 0;
+        targetedFires = 0;
+        writeFileSync(dir("Nest", "deep", "e.sysmld"), diagram);
+        await waitFor(async () => targetedFires > 0 && (await kids(deep)).some((n) => label(n) === "e.sysmld"), 20000, "e.sysmld appears");
+        assert.ok(!events.includes(undefined), "no full refresh was fired");
+      } finally {
+        sub.dispose();
         rmSync(dir(), { recursive: true, force: true });
         await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
       }
