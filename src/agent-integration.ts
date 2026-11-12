@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { planChannels, type ChannelPlan } from "./agent-channels.js";
-import { callTool, toolDefinitions, type ToolContext, type ToolResult } from "./agent-tools/index.js";
+import { callTool, toolDefinitions, type DiagramService, type ToolContext, type ToolResult } from "./agent-tools/index.js";
 import { fsPathToToolPath, type FolderInfo } from "./agent-paths.js";
 import { McpServerController } from "./mcp/server-controller.js";
 import { startMcpServer } from "./mcp/server.js";
@@ -29,6 +29,7 @@ export class AgentIntegration implements vscode.Disposable {
     private readonly model: WorkspaceModel,
     private readonly log: (msg: string) => void,
     private readonly version: string,
+    private readonly diagrams?: DiagramService,
   ) {
     this.controller = new McpServerController<string[]>((workspaces) =>
       startMcpServer({ context: () => this.context(), workspaces, serverVersion: this.version, log: this.log }),
@@ -70,6 +71,7 @@ export class AgentIntegration implements vscode.Disposable {
       index: this.model.index,
       uriToPath,
       pathToUri: (p) => this.model.index.uris().find((u) => uriToPath(u) === p),
+      ...(this.diagrams ? { diagrams: this.diagrams } : {}),
     };
   }
 
@@ -86,7 +88,9 @@ export class AgentIntegration implements vscode.Disposable {
     if (next.lmTools && this.lmRegistrations.length === 0) {
       this.lmRegistrations = toolDefinitions.map((def) =>
         vscode.lm.registerTool<object>(def.name, {
-          invoke: (options) => toLmResult(callTool(def.name, options.input, this.context())),
+          invoke: async (options) => toLmResult(await callTool(def.name, options.input, this.context())),
+          // Write tools apply directly (the user can undo them): a progress message, and no confirmation prompt.
+          ...(def.readOnly ? {} : { prepareInvocation: () => ({ invocationMessage: `SysML: ${def.name.replace(/^sysml_/, "").replace(/_/g, " ")}` }) }),
         }),
       );
     } else if (!next.lmTools) {
@@ -125,15 +129,19 @@ export class AgentIntegration implements vscode.Disposable {
    * TEST ONLY: call a tool over MCP, using an SDK client inside the bundled extension (the node16-compiled
    * integration tests cannot import the ESM SDK). Returns the text content, like the LM tools channel does.
    */
-  async testCallToolOverMcp(name: string, input: object): Promise<{ text: string; isError: boolean }> {
+  async testCallToolOverMcp(name: string, input: object): Promise<{ text: string; isError: boolean; images: { mimeType: string; base64: string }[] }> {
     const e = this.mcpEndpoint();
     if (!e) throw new Error("MCP server is not running");
     const client = new Client({ name: "sysml-test", version: "0" });
     await client.connect(new StreamableHTTPClientTransport(new URL(e.url), { requestInit: { headers: { Authorization: `Bearer ${e.token}` } } }));
     try {
       const r = await client.callTool({ name, arguments: input as Record<string, unknown> });
-      const content = r.content as Array<{ type: string; text?: string }>;
-      return { text: content.map((c) => c.text ?? "").join(""), isError: r.isError === true };
+      const content = r.content as Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+      return {
+        text: content.map((c) => c.text ?? "").join(""),
+        isError: r.isError === true,
+        images: content.filter((c) => c.type === "image").map((c) => ({ mimeType: c.mimeType ?? "", base64: c.data ?? "" })),
+      };
     } finally {
       await client.close();
     }

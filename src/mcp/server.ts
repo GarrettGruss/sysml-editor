@@ -54,18 +54,20 @@ function createProtocolServer(opts: McpServerOptions): Server {
       name: t.name,
       description: t.description,
       inputSchema: t.inputSchema as { type: "object" },
-      annotations: { readOnlyHint: t.readOnly },
+      annotations: t.readOnly ? { readOnlyHint: true } : { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     })),
   }));
-  server.setRequestHandler(CallToolRequestSchema, (req) => {
+  server.setRequestHandler(CallToolRequestSchema, async (req) => {
     let r;
     try {
-      r = callTool(req.params.name, req.params.arguments, opts.context());
+      r = await callTool(req.params.name, req.params.arguments, opts.context());
     } catch (e) {
       (opts.log ?? (() => {}))(`MCP tool call failed: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
       throw new Error("Internal error");
     }
-    return { content: [{ type: "text" as const, text: r.text }], ...(r.isError ? { isError: true } : {}) };
+    const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [{ type: "text", text: r.text }];
+    if (r.image) content.push({ type: "image", data: Buffer.from(r.image.data).toString("base64"), mimeType: r.image.mimeType });
+    return { content, ...(r.isError ? { isError: true } : {}) };
   });
   return server;
 }

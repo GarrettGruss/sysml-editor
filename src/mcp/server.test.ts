@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ModelIndex } from "../model/index.js";
 import { callTool, toolDefinitions, type ToolContext } from "../agent-tools/index.js";
+import { FakeDiagrams, fixtureDiagram, fixtureText } from "../agent-tools/test-support.js";
 import { discoveryFilePath, readLiveServer, removeDiscoveryFile, writeDiscoveryFile } from "./discovery.js";
 import { startMcpServer, tokenMatches, type RunningMcpServer } from "./server.js";
 
@@ -16,7 +17,11 @@ const ROOT = "file:///w/";
 const index = new ModelIndex();
 index.setDocument(ROOT + "m.sysml", "package P { part def Engine; part def Car { part engine : Engine; } }");
 index.setDocument(ROOT + "bad.sysml", "package Q { part x : Nope; }");
+index.setDocument(ROOT + "ports.sysml", fixtureText("ports.sysml"));
+const diagrams = new FakeDiagrams();
+diagrams.files.set("ports-general.sysmld", fixtureDiagram("ports-general.sysmld"));
 const ctx: ToolContext = {
+  diagrams,
   index,
   uriToPath: (u) => (u.startsWith(ROOT) ? u.slice(ROOT.length) : undefined),
   pathToUri: (p) => (index.getDocument(ROOT + p) ? ROOT + p : undefined),
@@ -27,6 +32,12 @@ const INPUTS: Record<string, unknown> = {
   sysml_get_element_tree: { depth: 1 },
   sysml_get_element: { qualifiedName: "P::Car" },
   sysml_validate: {},
+  sysml_list_diagrams: {},
+  sysml_read_diagram: { path: "ports-general.sysmld" },
+  sysml_create_diagram: { root: "P::Car", kind: "general", path: "car.sysmld" },
+  sysml_add_to_diagram: { path: "ports-general.sysmld", elements: ["Ports::Power"] },
+  sysml_remove_from_diagram: { path: "ports-general.sysmld", ids: ["n3"] },
+  sysml_layout_diagram: { path: "ports-general.sysmld" },
 };
 
 let home: string;
@@ -79,11 +90,36 @@ describe("MCP server over HTTP", () => {
   it("calls each tool and returns the handler text", async () => {
     const client = await connect(server.token);
     for (const [name, input] of Object.entries(INPUTS)) {
+      const reset = () => {
+        diagrams.files.delete("car.sysmld");
+        diagrams.files.set("ports-general.sysmld", fixtureDiagram("ports-general.sysmld"));
+      };
+      reset();
       const r = await client.callTool({ name, arguments: input as Record<string, unknown> });
-      const expected = callTool(name, input, ctx);
+      reset();
+      const expected = await callTool(name, input, ctx);
       expect(r.content).toEqual([{ type: "text", text: expected.text }]);
       expect(r.isError).toBeUndefined();
     }
+    await client.close();
+  });
+  it("marks the write tools in the annotations", async () => {
+    const client = await connect(server.token);
+    const { tools } = await client.listTools();
+    for (const t of tools) {
+      const def = toolDefinitions.find((d) => d.name === t.name)!;
+      expect(t.annotations?.readOnlyHint, t.name).toBe(def.readOnly);
+      if (!def.readOnly) expect(t.annotations?.destructiveHint, t.name).toBe(false);
+    }
+    await client.close();
+  });
+  it("returns the PNG of sysml_read_diagram as an image content item next to the text", async () => {
+    const client = await connect(server.token);
+    const r = await client.callTool({ name: "sysml_read_diagram", arguments: { path: "ports-general.sysmld", includeImage: true } });
+    const content = r.content as Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+    expect(content.map((c) => c.type)).toEqual(["text", "image"]);
+    expect(content[1]).toEqual({ type: "image", mimeType: "image/png", data: Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64") });
+    expect(JSON.parse(content[0]!.text!).kind).toBe("general");
     await client.close();
   });
   it("propagates isError", async () => {
@@ -144,7 +180,7 @@ describe("stdio bridge", () => {
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name)).toEqual(toolDefinitions.map((t) => t.name));
     const r = await client.callTool({ name: "sysml_list_files", arguments: {} });
-    expect(r.content).toEqual([{ type: "text", text: callTool("sysml_list_files", {}, ctx).text }]);
+    expect(r.content).toEqual([{ type: "text", text: (await callTool("sysml_list_files", {}, ctx)).text }]);
     await client.close();
   }, 30_000);
 

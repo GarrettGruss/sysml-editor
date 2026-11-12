@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ModelIndex } from "../model/index.js";
-import { callTool, DECLARATION_CAP, FILE_CAP, MEMBER_CAP, PROBLEM_CAP, type ToolContext } from "./index.js";
+import { invokeTool, DECLARATION_CAP, FILE_CAP, MEMBER_CAP, PROBLEM_CAP, type ToolContext, type ToolResult } from "./index.js";
+
+/** The existing tools are synchronous. */
+const callTool = (name: string, input: unknown, ctx: ToolContext) => invokeTool(name, input, ctx) as ToolResult;
 
 const ROOT = "file:///w/";
 function setup(files: Record<string, string>): ToolContext {
