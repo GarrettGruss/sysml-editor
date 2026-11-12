@@ -258,7 +258,9 @@ export class SvgRenderer implements DiagramRenderer {
     svg.addEventListener("pointerdown", (e) => {
       closeMenu();
       svg.focus({ preventScroll: true });
-      if (e.button === 1) e.preventDefault();
+      // Gestures on the canvas must never select the SVG text labels.
+      e.preventDefault();
+      window.getSelection()?.removeAllRanges();
       if (this.tool && e.button === 0) {
         e.preventDefault();
         this.toolClick(this.toInput(e));
