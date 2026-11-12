@@ -9,6 +9,8 @@ import { createDiagram } from "./create.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { VIEW_TYPE } from "./diagram-editor.js";
 import { DiagramFileIndex } from "./diagram-index.js";
+import { readSettled } from "./read-settled.js";
+import { createDiagramFile } from "./write-uri.js";
 import { serializeDiagram, type DiagramDocument, type DiagramKind } from "./format.js";
 import { DIAGRAM_EXTENSION, KIND_LABELS, defaultDiagramFileName, fileNameProblem, listElements, uniqueFileName } from "./new-diagram.js";
 import { makeSourceMapper } from "./resolve.js";
@@ -66,7 +68,7 @@ export class DiagramFiles implements vscode.Disposable {
     this.latest.set(key, n);
     let text: string | undefined;
     try {
-      text = decoder.decode(await vscode.workspace.fs.readFile(uri));
+      text = await readSettled(async () => decoder.decode(await vscode.workspace.fs.readFile(uri)));
     } catch {
       text = undefined;
     }
@@ -161,7 +163,7 @@ export async function newDiagram(deps: DiagramCommandDeps, node?: ModelNode): Pr
     return undefined;
   }
   const doc: DiagramDocument = createDiagram(deps.model.index, element.qualifiedName, kind, { sourceOf: makeSourceMapper(folder?.uri.toString()) });
-  await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(serializeDiagram(doc)));
+  await createDiagramFile(uri, new TextEncoder().encode(serializeDiagram(doc)));
   deps.files.index.set(uri.toString(), serializeDiagram(doc));
   await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
   return uri;

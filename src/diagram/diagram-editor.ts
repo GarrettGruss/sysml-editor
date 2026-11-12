@@ -6,6 +6,8 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { isLibraryUri, type Element } from "../model/index.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
+import { readSettled } from "./read-settled.js";
+import { writeDiagramFile } from "./write-uri.js";
 import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
 import { addElements } from "./create.js";
 import { applyAutoLayout, applyBoxPatches, removeItems } from "./edits.js";
@@ -153,7 +155,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop()!));
     const onDisk = async () => {
       try {
-        const change = noteExternalChange(doc.state, await read(uri));
+        const change = noteExternalChange(doc.state, (await readSettled(() => read(uri))) as string);
         if (change === "reload") this.rerender(doc);
         else if (change === "conflict") {
           void vscode.window.showWarningMessage(`${uri.path.split("/").pop()} changed on disk while it has unsaved changes. Saving will ask whether to overwrite it.`);
@@ -190,7 +192,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const previous = s.disk;
     s.disk = s.text(); // our own write must not look like an external change
     try {
-      await vscode.workspace.fs.writeFile(doc.uri, encoder.encode(s.text()));
+      await writeDiagramFile(doc.uri, encoder.encode(s.text()));
     } catch (e) {
       s.disk = previous;
       throw e;
@@ -199,7 +201,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   async saveCustomDocumentAs(doc: SysmlDiagramDocument, dest: vscode.Uri): Promise<void> {
-    await vscode.workspace.fs.writeFile(dest, encoder.encode(doc.state.text()));
+    await writeDiagramFile(dest, encoder.encode(doc.state.text()));
   }
 
   async revertCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
@@ -483,7 +485,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
       const r = followRename(doc.state, updates ?? [], disk);
       if (r.kind === "reloaded") this.rerender(doc);
-      else if (r.kind === "write") await vscode.workspace.fs.writeFile(doc.uri, encoder.encode(r.text));
+      else if (r.kind === "write") await writeDiagramFile(doc.uri, encoder.encode(r.text));
     } catch (e) {
       this.log(`diagram rename follow failed: ${e instanceof Error ? e.message : String(e)}`);
     }

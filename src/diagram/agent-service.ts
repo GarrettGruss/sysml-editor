@@ -8,6 +8,7 @@ import { parseDiagram, serializeDiagram, type DiagramDocument } from "./format.j
 import { defaultDiagramFileName, uniqueFileName } from "./new-diagram.js";
 import { makeIndexFilter } from "../workspace/exclude.js";
 import { writeIfUnchanged } from "./agent-guards.js";
+import { createDiagramFile, writeDiagramFile } from "./write-uri.js";
 import { makeSourceMapper, type SourceMapper } from "./resolve.js";
 
 const decoder = new TextDecoder();
@@ -124,7 +125,7 @@ export class VsCodeDiagramService implements DiagramService {
       const text = serializeDiagram(doc);
       await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(uri, ".."));
       if (await entryExists(uri.fsPath)) throw new ToolError(`"${path}" appeared in the meantime; nothing was written.`);
-      await vscode.workspace.fs.writeFile(uri, encoder.encode(text));
+      await createDiagramFile(uri, encoder.encode(text));
       this.files.index.set(uri.toString(), text);
       return { applied: "file", doc, sourceOf, path };
     });
@@ -158,7 +159,7 @@ export class VsCodeDiagramService implements DiagramService {
   private async write(uri: vscode.Uri, before: string, doc: DiagramDocument): Promise<boolean> {
     const text = serializeDiagram(doc);
     const r = await writeIfUnchanged(
-      { read: async () => decoder.decode(await vscode.workspace.fs.readFile(uri)), write: (t) => Promise.resolve(vscode.workspace.fs.writeFile(uri, encoder.encode(t))) },
+      { read: async () => decoder.decode(await vscode.workspace.fs.readFile(uri)), write: (t) => writeDiagramFile(uri, encoder.encode(t)) },
       before,
       text,
       () => this.provider.openDocument(uri) !== undefined,
