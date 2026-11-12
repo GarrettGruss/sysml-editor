@@ -111,7 +111,7 @@ const deleteElement: ToolDefinition = {
   name: "sysml_delete_element",
   description:
     "Delete an element from the MODEL: its whole declaration (with its body, owned members and attached documentation) is removed from the .sysml source and saved, and nodes for it are removed from every diagram file. " +
-    "This is different from sysml_remove_from_diagram, which only removes a node from a diagram and leaves the model untouched. References to the deleted element elsewhere are not rewritten and will no longer resolve (check with sysml_validate). " +
+    "This is different from sysml_remove_from_diagram, which only removes a node from a diagram and leaves the model untouched. References to the deleted element elsewhere are not rewritten and will no longer resolve (check with sysml_validate); the result reports how many remain (`remainingReferences`) and where. " +
     "`element` is the qualified name. A feature that a usage only inherits from its definition (for example Model::vehicle1::engine, declared in Vehicle) cannot be deleted from the usage: the error names the declaring definition. " +
     "Applied directly; the user can undo it in one step. Refused for files with syntax errors and in an untrusted workspace.",
   inputSchema: {
@@ -125,7 +125,16 @@ const deleteElement: ToolDefinition = {
     const ed = editing(ctx);
     const t = locate(ctx, ed, input.element as string, "element");
     const r = ok(await ed.service.deleteElement(t));
-    return summary(ctx, r, { deleted: input.element });
+    return summary(ctx, r, {
+      deleted: input.element,
+      ...(r.remainingReferences && r.remainingReferences.count > 0
+        ? {
+            remainingReferences: r.remainingReferences.count,
+            remainingReferenceLocations: r.remainingReferences.locations.map((l) => `${pathOf(ctx, l.uri)}:${l.line + 1}:${l.column + 1}`),
+            warning: "References to the deleted element (or to elements it owned) remain and no longer resolve; fix or remove them (see sysml_validate).",
+          }
+        : {}),
+    });
   },
 };
 
@@ -156,6 +165,7 @@ const renameElement: ToolDefinition = {
       qualifiedName: r.element?.qualifiedName,
       referencesUpdated: r.referencesUpdated ?? 0,
       couldNotJudge: r.unjudged?.count ?? 0,
+      ...(r.skippedDiagrams?.length ? { diagramFilesNotUpdated: r.skippedDiagrams.map((u) => pathOf(ctx, u)) } : {}),
       ...(r.unjudged && (r.unjudged.count > 0 || r.unjudged.skippedDocuments.length > 0)
         ? { couldNotJudgeLocations: r.unjudged.locations.map((l) => `${pathOf(ctx, l.uri)}:${l.line + 1}:${l.column + 1}`), filesNotExamined: r.unjudged.skippedDocuments.map((u) => pathOf(ctx, u)) }
         : {}),

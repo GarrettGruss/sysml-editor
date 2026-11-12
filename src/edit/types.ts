@@ -37,12 +37,37 @@ export interface UnjudgedReferences {
   skippedDocuments: string[];
 }
 
+/** Identifies the exact text a plan was computed from (a `.sysml` document or a diagram file). */
+export interface PlanSource {
+  uri: string;
+  length: number;
+  hash: string;
+}
+
+/** References that remain to an element after it is deleted (the caller should warn). */
+export interface RemainingReferences {
+  count: number;
+  /** A few of them. */
+  locations: SourceLocation[];
+}
+
 export interface PlanOk {
   ok: true;
   edits: TextEdit[];
   diagramUpdates?: DiagramUpdate[];
   description: string;
   unjudged?: UnjudgedReferences;
+  /** Delete: references to the deleted element (or what it owns) that stay behind elsewhere. */
+  remainingReferences?: RemainingReferences;
+  /** Rename: diagram files that could not be parsed and were therefore not updated. */
+  skippedDiagrams?: string[];
+  /**
+   * Every document (and diagram file) the plan read or changes, with the text it was computed from.
+   * Set by `validatePlan`; see `isPlanCurrent`.
+   */
+  sources?: PlanSource[];
+  /** Planner input for `validatePlan`: documents read beyond the ones with edits. */
+  reads?: string[];
 }
 
 export interface PlanFailure {

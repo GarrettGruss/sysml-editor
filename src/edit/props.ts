@@ -3,7 +3,7 @@ import { deleteEdit } from "./delete.js";
 import { declarationTokens, findRuns } from "./decl.js";
 import { checkElement, describeElement } from "./guard.js";
 import { importEdits, referenceText } from "./refs.js";
-import { insertWithImports, normalizeMultiplicity } from "./insert.js";
+import { insertWithImports, nameClash, normalizeMultiplicity } from "./insert.js";
 import { detectEol, isBlockComment, lineIndent, tokenize, type Tok } from "./text.js";
 import { fail, type PlanResult, type TextEdit } from "./types.js";
 import { validatePlan } from "./validate.js";
@@ -28,7 +28,7 @@ function typeRuns(toks: Tok[], el: Element): { first: number; last: number; firs
   let first = Infinity;
   let last = -1;
   let firstIdx = -1;
-  for (const t of el.types) {
+  for (const t of el.typeNames) {
     const run = findRuns(toks, t).find((r) => !r.toks.some((x) => own.has(x.start)));
     if (!run) return `Could not find the current type '${t}' in the declaration of ${describeElement(el)}.`;
     if (run.toks[0]!.start < first) {
@@ -42,17 +42,22 @@ function typeRuns(toks: Tok[], el: Element): { first: number; last: number; firs
 
 /**
  * Set (replace) or remove (`undefined`) the type of a usage. A type given as an element is
- * written through the reference writer, which may add an import.
+ * written through the reference writer, which may add an import. A conjugated port type
+ * (`port p : ~P;`) keeps its `~` unless `opts.conjugated` says otherwise. A usage with several
+ * types is refused: which of them to change is not defined.
  */
-export function planSetType(index: ModelIndex, element: Element, type: Element | string | undefined): PlanResult {
+export function planSetType(index: ModelIndex, element: Element, type: Element | string | undefined, opts: { conjugated?: boolean } = {}): PlanResult {
   const c = checkElement(index, element);
   if (!c.ok) return c;
   if (!element.isUsage) return fail(`${describeElement(element)} is a ${element.kind}; only usages have a type.`);
+  if (element.types.length > 1) return fail(`${describeElement(element)} has several types (${element.types.join(", ")}); changing them is not supported. Edit the declaration in the source.`);
   const text = c.state.text;
   const toks = declarationTokens(text, element);
   const uri = element.uri;
   let written: string | undefined;
   const needs = [];
+  const wasConjugated = element.typeConjugated[0] === true;
+  const conjugated = opts.conjugated ?? wasConjugated;
   if (type !== undefined) {
     if (typeof type === "string") written = type.trim();
     else {
@@ -62,15 +67,22 @@ export function planSetType(index: ModelIndex, element: Element, type: Element |
       if (r.need) needs.push(r.need);
     }
     if (written === "" || /[;{}\n]/.test(written)) return fail("The type is not a valid reference.");
+    if (conjugated && element.kind !== "port") return fail("Only a port can have a conjugated type.");
   }
   let edit: TextEdit;
   if (element.types.length > 0) {
     const runs = typeRuns(toks, element);
     if (typeof runs === "string") return fail(runs);
-    if (written !== undefined) edit = { uri, range: { start: runs.first, end: runs.last }, newText: written };
-    else {
-      const intro = toks[runs.firstIdx - 1];
-      const startTok = intro?.text === ":" ? intro : intro?.text === "by" && ["defined", "typed"].includes(toks[runs.firstIdx - 2]?.text ?? "") ? toks[runs.firstIdx - 2] : undefined;
+    const tilde = toks[runs.firstIdx - 1]?.text === "~" ? toks[runs.firstIdx - 1]! : undefined;
+    if (written !== undefined) {
+      // The `~` stays in front of the name unless the caller changes the conjugation.
+      if (tilde && !conjugated) edit = { uri, range: { start: tilde.start, end: runs.last }, newText: written };
+      else if (!tilde && conjugated) edit = { uri, range: { start: runs.first, end: runs.last }, newText: "~" + written };
+      else edit = { uri, range: { start: runs.first, end: runs.last }, newText: written };
+    } else {
+      const introIdx = tilde ? runs.firstIdx - 2 : runs.firstIdx - 1;
+      const intro = toks[introIdx];
+      const startTok = intro?.text === ":" ? intro : intro?.text === "by" && ["defined", "typed"].includes(toks[introIdx - 1]?.text ?? "") ? toks[introIdx - 1] : undefined;
       const before = startTok ? toks[toks.indexOf(startTok) - 1] : undefined;
       if (!startTok || !before) return fail(`Could not find where the type of ${describeElement(element)} begins.`);
       edit = { uri, range: { start: before.end, end: runs.last }, newText: "" };
@@ -79,7 +91,7 @@ export function planSetType(index: ModelIndex, element: Element, type: Element |
     if (written === undefined) return fail(`${describeElement(element)} has no type to remove.`);
     const at = afterName(element);
     if (at === undefined) return fail(`${describeElement(element)} has no name; give it a name before setting its type.`);
-    edit = { uri, range: { start: at, end: at }, newText: ` : ${written}` };
+    edit = { uri, range: { start: at, end: at }, newText: ` : ${opts.conjugated ? "~" : ""}${written}` };
   }
   const imp = importEdits(index, needs);
   if (!imp.ok) return imp;
@@ -140,9 +152,9 @@ export function planSetShortName(index: ModelIndex, element: Element, shortName:
   const uri = element.uri;
   const text = c.state.text;
   const q = shortName === undefined ? undefined : quoteName(shortName);
-  if (q !== undefined && element.owner) {
-    const dup = element.owner.members.find((m) => m !== element && m.kind !== "import" && (m.name === shortName || m.shortName === shortName));
-    if (dup) return fail(`${describeElement(element.owner)} already has a member named '${shortName}'.`);
+  if (shortName !== undefined) {
+    const reason = nameClash(index, element.owner, [shortName], element);
+    if (reason) return fail(reason);
   }
   let edit: TextEdit;
   if (element.shortNameRange) {

@@ -7,7 +7,8 @@
 import {
   buildDeclaration, planConnect, planDeleteElement, planInsertMember, planRename, planSatisfy, planSetDocumentation,
   planSetMultiplicity, planSetShortName, planSetType, validatePlan,
-  type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type TextEdit, type UnjudgedReferences,
+  isPlanCurrent, sourceOf,
+  type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
 } from "../edit/index.js";
 import { inheritedFrom, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { placeElementChange, removeEntriesChange, type DiagramChange, type Placement } from "./diagram-changes.js";
@@ -46,6 +47,10 @@ export interface OpOk {
   /** Rename: references updated (not counting the declaration) and references that could not be judged. */
   referencesUpdated?: number;
   unjudged?: UnjudgedReferences;
+  /** Delete: references to the deleted element (or what it owned) that remain elsewhere. */
+  remainingReferences?: RemainingReferences;
+  /** Rename: diagram files that could not be parsed and were not updated. */
+  skippedDiagrams?: string[];
   /** What the operation did to the text, for undo and redo. */
   record: EditRecord;
   /** What it forced on diagram files, if anything. */
@@ -67,8 +72,11 @@ export interface ModelHost {
   sync(): Promise<void>;
   /** The text of a document as it is now (the open buffer, else the file). */
   currentText(uri: string): Promise<string | undefined>;
-  /** Apply the edits as ONE workspace edit if every document still has the `base` text, then save each touched document. */
-  applyAndSave(edits: readonly TextEdit[], base: ReadonlyMap<string, string>): Promise<ApplyOutcome>;
+  /**
+   * Apply the edits as ONE workspace edit if every edited document still has the text its `sources`
+   * entry describes (`sourceMatches`), then save each touched document.
+   */
+  applyAndSave(edits: readonly TextEdit[], sources: readonly PlanSource[]): Promise<ApplyOutcome>;
   /** Saved state of the diagram files that are not open in an editor (open ones follow renames themselves). */
   closedDiagrams(): Promise<LoadedDiagram[]>;
   writeDiagramFiles(updates: readonly DiagramUpdate[]): Promise<void>;
@@ -184,15 +192,25 @@ export class ModelService {
       const p = plan();
       if (!p.ok) return this.failure(p.reason, touched());
       if (p.edits.length === 0) return fail("Nothing to change.");
+      // The one staleness check: everything the plan read or edits must still have the text it was computed from.
+      const sources = p.sources ?? [];
+      // Documents that are written (and diagram files) are read from the host as they are now; the others
+      // are compared with the model the plan was computed from.
+      const present = new Map<string, string | undefined>();
+      const written = new Set([...p.edits.map((e) => e.uri), ...(p.diagramUpdates?.map((u) => u.uri) ?? [])]);
+      for (const s of sources) if (written.has(s.uri)) present.set(s.uri, await this.host.currentText(s.uri));
+      if (!isPlanCurrent((u) => (present.has(u) ? present.get(u) : this.index.getDocument(u)?.text), p)) {
+        continue;
+      }
       const base = new Map<string, string>();
       for (const uri of new Set(p.edits.map((e) => e.uri))) {
-        const t = this.index.getDocument(uri)?.text;
+        const t = present.get(uri) ?? this.index.getDocument(uri)?.text;
         if (t === undefined) return fail(`${nameOfUri(uri)} is not loaded, so it cannot be edited.`);
         base.set(uri, t);
       }
       const record = makeRecord(p.edits, base);
       const hooks = after(p, { before: base });
-      const outcome = await this.host.applyAndSave(p.edits, base);
+      const outcome = await this.host.applyAndSave(p.edits, sources);
       if (!outcome.ok && outcome.stale) continue;
       if (!outcome.ok) return fail(outcome.reason);
       await this.host.sync();
@@ -207,6 +225,8 @@ export class ModelService {
         files: [...base.keys()],
         ...(el ? { element: info(el) } : {}),
         ...(p.unjudged ? { unjudged: p.unjudged } : {}),
+        ...(p.remainingReferences ? { remainingReferences: p.remainingReferences } : {}),
+        ...(p.skippedDiagrams?.length ? { skippedDiagrams: p.skippedDiagrams } : {}),
         record,
         ...(change ? { diagramChange: change } : {}),
         diagramFiles,
@@ -376,7 +396,7 @@ export class ModelService {
             } else {
               const ty = this.resolveType(props.type.trim(), el);
               if ("ok" in ty) return ty;
-              if (!(el.types.length === 1 && this.index.resolve(el.types[0]!, el) === ty)) plans.push(planSetType(this.index, el, ty));
+              if (!(el.typeNames.length === 1 && this.index.resolve(el.typeNames[0]!, el) === ty)) plans.push(planSetType(this.index, el, ty));
             }
           }
           if (props.multiplicity !== undefined) {
@@ -412,14 +432,20 @@ export class ModelService {
     const descriptions: string[] = [];
     let diagramUpdates: DiagramUpdate[] | undefined;
     let unjudged: UnjudgedReferences | undefined;
+    let skippedDiagrams: string[] | undefined;
+    const sources: PlanSource[] = [];
+    const reads = new Set<string>();
     for (const p of plans) {
       if (!p.ok) return p;
       edits.push(...p.edits);
       descriptions.push(p.description);
       if (p.diagramUpdates) diagramUpdates = p.diagramUpdates;
       if (p.unjudged) unjudged = p.unjudged;
+      if (p.skippedDiagrams) skippedDiagrams = p.skippedDiagrams;
+      sources.push(...(p.sources ?? []));
+      for (const r of p.reads ?? []) reads.add(r);
     }
-    const merged: PlanOk = { ok: true, edits, description: descriptions.join("; "), ...(diagramUpdates ? { diagramUpdates } : {}), ...(unjudged ? { unjudged } : {}) };
+    const merged: PlanOk = { ok: true, edits, description: descriptions.join("; "), ...(diagramUpdates ? { diagramUpdates } : {}), ...(unjudged ? { unjudged } : {}), ...(skippedDiagrams ? { skippedDiagrams } : {}), sources, reads: [...reads] };
     return validatePlan(this.index, merged);
   }
 
@@ -502,7 +528,7 @@ export class ModelService {
       if (plan.ok && plan.edits.length === 0) textReverted = true;
       else if (plan.ok) {
         const base = new Map<string, string>([...result.record.after]);
-        const o = await this.host.applyAndSave(plan.edits, base);
+        const o = await this.host.applyAndSave(plan.edits, [...base].map(([u, t]) => sourceOf(u, t)));
         if (o.ok) textReverted = true;
         else warning = o.stale ? "The text changed while undoing; the edit was not reverted in the text." : o.reason;
       } else warning = plan.reason;
@@ -522,7 +548,7 @@ export class ModelService {
       const plan = planRedo(result.record, current);
       if (plan.ok && plan.edits.length === 0) textApplied = true;
       else if (plan.ok) {
-        const o = await this.host.applyAndSave(plan.edits, new Map(result.record.before));
+        const o = await this.host.applyAndSave(plan.edits, [...result.record.before].map(([u, t]) => sourceOf(u, t)));
         if (o.ok) textApplied = true;
         else warning = o.stale ? "The text changed while redoing; the edit was not repeated in the text." : o.reason;
       } else warning = plan.reason;

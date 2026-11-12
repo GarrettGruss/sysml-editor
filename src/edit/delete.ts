@@ -1,8 +1,9 @@
 import type { Element, ModelIndex } from "../model/index.js";
 import { attachedStart, declStart } from "./decl.js";
 import { checkElement, describeElement } from "./guard.js";
-import { isBlockComment, isCode, isLineComment, isWs, lineBreakAt, lineStart, startsOwnLine, tokenize } from "./text.js";
-import { fail, type PlanFailure, type PlanResult, type TextEdit } from "./types.js";
+import { isBlockComment, isCode, isLineComment, isWs, lineBreakAt, lineStart, positionOf, startsOwnLine, tokenize } from "./text.js";
+import { scanReferences } from "./refscan.js";
+import { fail, type PlanFailure, type PlanOk, type PlanResult, type RemainingReferences, type SourceLocation, type TextEdit } from "./types.js";
 import { validatePlan } from "./validate.js";
 
 const blank = (s: string) => /^[ \t\r]*$/.test(s);
@@ -57,14 +58,54 @@ export function deleteEdit(index: ModelIndex, el: Element): { ok: true; edit: Te
   return { ok: true, edit: { uri, range: { start: ds, end: de }, newText: "" } };
 }
 
+function within(e: Element, root: Element): boolean {
+  for (let x: Element | undefined = e; x; x = x.owner) if (x === root) return true;
+  return false;
+}
+
+/** The element and everything it owns that has a name. */
+function namedWithin(el: Element): Element[] {
+  const out: Element[] = [];
+  const walk = (e: Element) => {
+    if (e.name !== undefined) out.push(e);
+    e.members.forEach(walk);
+  };
+  walk(el);
+  return out;
+}
+
+/**
+ * References, outside the element, to it or to anything it owns (found with the reference
+ * scanner; references through short names count). They are not changed by a delete and will no
+ * longer resolve, so callers warn about them.
+ */
+export function referencesAfterDelete(index: ModelIndex, el: Element): RemainingReferences {
+  const targets = namedWithin(el);
+  if (!targets.length) return { count: 0, locations: [] };
+  const scan = scanReferences(index, targets, { includeShortNames: true });
+  // One reference per declaration part: `P::E::inner` mentions both E and inner but is one reference.
+  const seen = new Set<number>();
+  const outside = scan.replacements.filter((r) => {
+    if (within(r.holder, el) || seen.has(r.runStart)) return false;
+    seen.add(r.runStart);
+    return true;
+  });
+  const locations: SourceLocation[] = outside.slice(0, 5).map((r) => ({ uri: r.uri, ...positionOf(index.getDocument(r.uri)!.text, r.tok.start) }));
+  return { count: outside.length, locations };
+}
+
 /**
  * Remove the whole declaration of `element`: its body (including a `doc` inside it), the `//`
  * notes and bare block comments directly above it (no blank line between), its indentation and
- * one line break. An empty body left in the owner stays as `{ }`.
+ * one line break. An empty body left in the owner stays as `{ }`. The result lists the references
+ * to it that remain elsewhere (`remainingReferences`).
  */
 export function planDeleteElement(index: ModelIndex, element: Element): PlanResult {
   const r = deleteEdit(index, element);
   if (!r.ok) return r;
   if (!element.owner && element.range.start.offset === element.range.end.offset) return fail("Nothing to delete.");
-  return validatePlan(index, { ok: true, edits: [r.edit], description: `Delete ${describeElement(element)}` });
+  const plan: PlanOk = { ok: true, edits: [r.edit], description: `Delete ${describeElement(element)}`, reads: index.uris().filter((u) => !index.isReadOnly(u)) };
+  const remaining = referencesAfterDelete(index, element);
+  if (remaining.count > 0) plan.remainingReferences = remaining;
+  return validatePlan(index, plan);
 }

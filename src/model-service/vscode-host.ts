@@ -1,6 +1,6 @@
 /** The VS Code side of `ModelService`: applies plans as one workspace edit, saves, and forces diagram changes. */
 import * as vscode from "vscode";
-import { applyEdits, groupByUri, type DiagramUpdate, type LoadedDiagram, type TextEdit } from "../edit/index.js";
+import { applyEdits, groupByUri, sourceMatches, type DiagramUpdate, type LoadedDiagram, type PlanSource, type TextEdit } from "../edit/index.js";
 import type { DiagramEditorProvider } from "../diagram/diagram-editor.js";
 import type { DiagramFiles } from "../diagram/commands.js";
 import { parseDiagram } from "../diagram/format.js";
@@ -50,7 +50,8 @@ export class VsCodeModelHost implements ModelHost {
     }
   }
 
-  async applyAndSave(edits: readonly TextEdit[], base: ReadonlyMap<string, string>): Promise<ApplyOutcome> {
+  async applyAndSave(edits: readonly TextEdit[], sources: readonly PlanSource[]): Promise<ApplyOutcome> {
+    const source = new Map(sources.map((s) => [s.uri, s] as const));
     const docs = new Map<string, vscode.TextDocument>();
     for (const uri of new Set(edits.map((e) => e.uri))) {
       let doc: vscode.TextDocument;
@@ -59,8 +60,9 @@ export class VsCodeModelHost implements ModelHost {
       } catch (e) {
         return { ok: false, reason: `${nameOf(uri)} could not be opened: ${e instanceof Error ? e.message : String(e)}` };
       }
-      // The plan was computed from `base`; if the document is different now, the offsets are not valid.
-      if (doc.getText() !== base.get(uri)) return { ok: false, stale: true };
+      // The plan was computed from the text its source describes; if the document is different now, the offsets are not valid.
+      const src = source.get(uri);
+      if (!src || !sourceMatches(src, doc.getText())) return { ok: false, stale: true };
       docs.set(uri, doc);
     }
     const we = new vscode.WorkspaceEdit();
@@ -76,7 +78,7 @@ export class VsCodeModelHost implements ModelHost {
     }
     if (!applied) {
       // A document changed under us between the check and the application: let the caller re-plan once.
-      const changed = [...docs].some(([uri, d]) => d.getText() !== base.get(uri) && d.getText() !== applyEdits(base.get(uri)!, groupByUri([...edits]).get(uri) ?? []));
+      const changed = [...docs].some(([uri, d]) => !sourceMatches(source.get(uri)!, d.getText()));
       return changed ? { ok: false, stale: true } : { ok: false, reason: "VS Code refused the edit (the file may be read-only)." };
     }
     const failed: string[] = [];
@@ -99,8 +101,9 @@ export class VsCodeModelHost implements ModelHost {
     for (const uri of this.files.index.allUris()) {
       if (this.diagrams.openDocument(vscode.Uri.parse(uri))) continue;
       try {
-        const r = parseDiagram(decoder.decode(await vscode.workspace.fs.readFile(vscode.Uri.parse(uri))));
-        if (r.ok) out.push({ uri, doc: r.doc });
+        const text = decoder.decode(await vscode.workspace.fs.readFile(vscode.Uri.parse(uri)));
+        const r = parseDiagram(text);
+        out.push(r.ok ? { uri, doc: r.doc, text } : { uri, text });
       } catch {
         /* gone */
       }

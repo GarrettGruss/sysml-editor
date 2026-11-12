@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import type { Element, ModelIndex } from "../model/index.js";
 import type { DiagramUi } from "../diagram/diagram-editor.js";
-import { ADD_KINDS, confirmationText, deleteImpact, kindLabel, nameProblem, needsConfirmation } from "./support.js";
+import { ADD_KINDS, confirmationText, deleteImpact, kindLabel, nameProblem, needsConfirmation, spot } from "./support.js";
 import { allowedChildKinds, type AddSpec, type ModelService, type Origin, type OpResult, type Target } from "./service.js";
 import type { Placement } from "./diagram-changes.js";
 
@@ -18,6 +18,14 @@ export class ModelActions {
     if (!r.ok) {
       await this.ui().fail(r);
       return r;
+    }
+    if (r.skippedDiagrams?.length) {
+      const n = r.skippedDiagrams.length;
+      void vscode.window.showWarningMessage(`${what}. ${n} diagram file${n === 1 ? "" : "s"} could not be read and ${n === 1 ? "was" : "were"} not updated; ${n === 1 ? "it" : "they"} may refer to the old name.`);
+    }
+    if (r.remainingReferences && r.remainingReferences.count > 0) {
+      const n = r.remainingReferences.count;
+      void vscode.window.showWarningMessage(`${what}. ${n} reference${n === 1 ? "" : "s"} to it remain elsewhere (${r.remainingReferences.locations.slice(0, 3).map(spot).join(", ")}) and will no longer resolve.`);
     }
     if (r.unjudged && (r.unjudged.count > 0 || r.unjudged.skippedDocuments.length > 0)) {
       const n = r.unjudged.count;

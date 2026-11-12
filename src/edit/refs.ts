@@ -2,6 +2,7 @@ import type { Element, ModelIndex } from "../model/index.js";
 import { quoteName } from "../model/index.js";
 import { insertDecls, type EditsResult } from "./body.js";
 import { fail, type PlanFailure, type TextEdit } from "./types.js";
+import { checkResolutionPreserved } from "./validate.js";
 
 /** An import that must be added so that a short name resolves. */
 export interface ImportNeed {
@@ -31,12 +32,37 @@ export function enclosingPackage(from: Element): Element | undefined {
   return undefined;
 }
 
+const HIDDEN = new Set(["private", "protected"]);
+
+function isInside(e: Element, ancestor: Element): boolean {
+  for (let x: Element | undefined = e; x; x = x.owner) if (x === ancestor) return true;
+  return false;
+}
+
+/**
+ * Whether `target` may be named from `from` through an import or a qualified name: no element on
+ * its way up (itself, or a namespace it sits in) is `private` or `protected` to a scope that does
+ * not contain `from`.
+ */
+function accessibleFrom(target: Element, from: Element): boolean {
+  for (let e: Element | undefined = target; e?.owner; e = e.owner) {
+    if (e.visibility && HIDDEN.has(e.visibility) && !isInside(from, e.owner)) return false;
+  }
+  return true;
+}
+
+function sameImport(imp: Element, qn: string): boolean {
+  return imp.kind === "import" && !!imp.importInfo && !imp.importInfo.wildcard && imp.importInfo.target.replace(/\s+/g, "") === qn.replace(/\s+/g, "");
+}
+
 /**
  * Design D19: how to write a reference to `target` where an element in `fromOwner` needs it.
  * (1) the short (simple) name when it already resolves to the target from there; (2) otherwise
- * the short name plus a `private import` in the enclosing package; (3) when the import would
- * make a name ambiguous or hide a visible one, the fully qualified name and no import. Names are
- * quoted when needed.
+ * the short name plus a `private import` in the enclosing package, unless the target is not
+ * accessible, or the import would change what any existing name in that package resolves to (the
+ * resolution-preserved check); (3) otherwise the fully qualified name and no import, when it
+ * resolves from there; a reference that cannot be written is refused with a reason. An import that
+ * already exists is reused whatever its visibility, and never added twice. Names are quoted when needed.
  */
 export function referenceText(index: ModelIndex, target: Element, fromOwner: Element): ReferenceText {
   const own = target.name ?? target.shortName;
@@ -47,14 +73,24 @@ export function referenceText(index: ModelIndex, target: Element, fromOwner: Ele
   const qn = target.qualifiedName;
   if (qn === undefined) return fail(`${own} is declared inside an unnamed element and cannot be referred to from elsewhere.`);
   const pkg = enclosingPackage(fromOwner);
+  const accessible = accessibleFrom(target, fromOwner);
+  const existing = pkg?.members.some((m) => sameImport(m, qn)) ?? false;
+  const viaQualified = (): ReferenceText => {
+    if (index.resolve(qn, fromOwner) === target) return { ok: true, text: qn };
+    const rooted = "$::" + qn;
+    if (index.resolve(rooted, fromOwner) === target) return { ok: true, text: rooted };
+    return fail(accessible ? `${qn} cannot be referred to from ${fromOwner.qualifiedName ?? fromOwner.name ?? fromOwner.kind}.` : `${qn} is private or protected, or sits in a private namespace, so it cannot be referred to from ${fromOwner.qualifiedName ?? fromOwner.name ?? fromOwner.kind}.`);
+  };
   // Another visible element with this name: the import would clash or be hidden.
-  if (found.length === 0 && pkg && !target.visibility?.startsWith("priv")) {
-    return { ok: true, text: simple, need: { pkg, text: `private import ${qn};` } };
+  if (found.length === 0 && pkg && accessible && !existing) {
+    const need: ImportNeed = { pkg, text: `private import ${qn};` };
+    const e = importEdits(index, [need]);
+    if (e.ok) {
+      const checked = checkResolutionPreserved(index, { ok: true, edits: e.edits, description: "import" }, { within: pkg });
+      if (checked.ok) return { ok: true, text: simple, need };
+    }
   }
-  if (index.resolve(qn, fromOwner) === target) return { ok: true, text: qn };
-  const rooted = "$::" + qn;
-  if (index.resolve(rooted, fromOwner) === target) return { ok: true, text: rooted };
-  return { ok: true, text: qn };
+  return viaQualified();
 }
 
 /** The edits that add the needed imports (deduplicated), each after the package's existing imports. */

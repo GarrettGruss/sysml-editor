@@ -1,5 +1,6 @@
 /** Pure helpers for the interactive model edits (inputs, confirmation texts, completion). `vscode`-free. */
-import { scanReferences } from "../edit/refscan.js";
+import { referencesAfterDelete } from "../edit/delete.js";
+import type { SourceLocation } from "../edit/types.js";
 import { isLibraryUri, type Element, type ModelIndex } from "../model/index.js";
 import { DEFINITION_KINDS, USAGE_KINDS } from "./service.js";
 
@@ -27,36 +28,45 @@ export interface DeleteImpact {
   references: number;
   /** References that could not be judged. */
   unjudged: number;
+  /** A few of the references, for the confirmation text. */
+  locations: SourceLocation[];
 }
 
 function count(e: Element): number {
   return e.members.reduce((n, m) => n + 1 + count(m), 0);
 }
 
-function inside(e: Element, root: Element): boolean {
-  for (let x: Element | undefined = e; x; x = x.owner) if (x === root) return true;
-  return false;
-}
-
 export function deleteImpact(index: ModelIndex, el: Element): DeleteImpact {
   const own = el.members.filter((m) => m.kind !== "import").length ? count(el) : 0;
   let references = 0;
-  let unjudged = 0;
+  let locations: SourceLocation[] = [];
   try {
-    const scan = scanReferences(index, el);
-    references = scan.replacements.filter((r) => !inside(r.holder, el)).length;
-    unjudged = scan.unjudged.length;
+    const r = referencesAfterDelete(index, el);
+    references = r.count;
+    locations = r.locations;
   } catch {
     /* the scan is a hint for the confirmation text only */
   }
-  return { ownedMembers: own, references, unjudged };
+  return { ownedMembers: own, references, unjudged: 0, locations };
+}
+
+/** `file.sysml:12` for a reference location. */
+export function spot(l: SourceLocation): string {
+  const base = l.uri.split(/[?#]/, 1)[0]!.split("/").pop() ?? l.uri;
+  let name = base;
+  try {
+    name = decodeURIComponent(base);
+  } catch {
+    /* keep the raw name */
+  }
+  return `${name}:${l.line + 1}`;
 }
 
 export function confirmationText(el: Element, impact: DeleteImpact): { message: string; detail: string } {
   const what = `${el.kind} '${el.name ?? "(unnamed)"}'`;
   const bits: string[] = [];
   if (impact.ownedMembers) bits.push(`It owns ${impact.ownedMembers} element${impact.ownedMembers === 1 ? "" : "s"}, which are deleted with it.`);
-  if (impact.references) bits.push(`It is referenced in ${impact.references} place${impact.references === 1 ? "" : "s"} elsewhere; those references are left as they are and will no longer resolve.`);
+  if (impact.references) bits.push(`It is referenced in ${impact.references} place${impact.references === 1 ? "" : "s"} elsewhere${impact.locations.length ? ` (${impact.locations.slice(0, 3).map(spot).join(", ")}${impact.references > 3 ? ", ..." : ""})` : ""}; those references are left as they are and will no longer resolve.`);
   if (impact.unjudged) bits.push(`${impact.unjudged} more mention${impact.unjudged === 1 ? "" : "s"} of the name could not be checked.`);
   if (!bits.length) bits.push("Nothing else owns or references it.");
   return { message: `Delete ${what} from the model?`, detail: `${bits.join(" ")} The declaration is removed from the .sysml file and saved. Undo restores it.` };

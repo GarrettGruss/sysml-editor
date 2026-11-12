@@ -68,7 +68,21 @@ export function attachedStart(index: ModelIndex, text: string, el: Element): num
 export function declarationTokens(text: string, el: Element): Tok[] {
   const from = declStart(text, el);
   const to = el.bodyRange ? el.bodyRange.start.offset : el.range.end.offset;
-  return tokenize(text).filter((t) => t.start >= from && t.end <= to && isCode(t));
+  const all = tokenize(text);
+  // Tokens are in source order: binary search for the first one at or after `from`.
+  let lo = 0;
+  let hi = all.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (all[mid]!.start < from) lo = mid + 1;
+    else hi = mid;
+  }
+  const out: Tok[] = [];
+  for (let i = lo; i < all.length && all[i]!.start < to; i++) {
+    const t = all[i]!;
+    if (t.end <= to && isCode(t)) out.push(t);
+  }
+  return out;
 }
 
 export interface Run {

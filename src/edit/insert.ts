@@ -1,4 +1,4 @@
-import { quoteName, type Element, type ModelIndex } from "../model/index.js";
+import { inheritedMembers, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { SYSML_KEYWORDS } from "../model/keywords.js";
 import { insertDecls, type EditsResult, type InsertPosition } from "./body.js";
 import { checkElement, describeElement } from "./guard.js";
@@ -103,11 +103,28 @@ export function buildDeclaration(
   return { ok: true, text: out + ";", needs };
 }
 
-function clash(owner: Element, names: (string | undefined)[]): string | undefined {
-  for (const n of names) {
-    if (n === undefined) continue;
-    const other = owner.members.find((m) => m.kind !== "import" && (m.name === n || m.shortName === n));
-    if (other) return n;
+/**
+ * Why a member named `names` cannot go into `owner` (or why `ignore`, already there, cannot take
+ * them), or undefined: a sibling in any declaration of the owner (a package declared in several
+ * files), the other top-level elements when there is no owner, or a feature the owner inherits.
+ */
+export function nameClash(index: ModelIndex, owner: Element | undefined, names: readonly (string | undefined)[], ignore?: Element): string | undefined {
+  const wanted = names.filter((n): n is string => n !== undefined);
+  const taken = (m: Element) => m !== ignore && m.kind !== "import" && m.kind !== "expose";
+  if (!owner) {
+    if (!ignore) return undefined;
+    const roots = [...(index.getDocument(ignore.uri)?.model.roots ?? []), ...wanted.flatMap((n) => index.findByQualifiedName(quoteName(n)).filter((x) => !x.owner))];
+    const hit = wanted.find((n) => roots.some((m) => taken(m) && (m.name === n || m.shortName === n)));
+    return hit !== undefined ? `There is already a top-level element named '${hit}'.` : undefined;
+  }
+  const owners = owner.qualifiedName !== undefined ? index.findByQualifiedName(owner.qualifiedName).filter((o) => o === owner || o.kind === owner.kind) : [owner];
+  for (const o of owners.includes(owner) ? owners : [owner, ...owners]) {
+    for (const n of wanted) if (o.members.some((m) => taken(m) && (m.name === n || m.shortName === n))) return `${describeElement(owner)} already has a member named '${n}'.`;
+  }
+  for (const i of inheritedMembers(index, owner)) {
+    if (i.member === ignore) continue;
+    const n = wanted.find((w) => i.member.name === w || i.member.shortName === w);
+    if (n !== undefined) return `'${n}' is already inherited by ${describeElement(owner)} from ${describeElement(i.declaredIn)}; redefinition is not offered, so choose another name.`;
   }
   return undefined;
 }
@@ -132,8 +149,8 @@ export function planInsertMember(
     if (text === "") return fail("The declaration is empty.");
     label = text.length > 40 ? text.slice(0, 37) + "..." : text;
   } else {
-    const dup = clash(owner, [decl.name, decl.shortName]);
-    if (dup !== undefined) return fail(`${describeElement(owner)} already has a member named '${dup}'.`);
+    const dup = nameClash(index, owner, [decl.name, decl.shortName]);
+    if (dup !== undefined) return fail(dup);
     const b = buildDeclaration(index, owner, decl);
     if (!b.ok) return b;
     text = b.text;

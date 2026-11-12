@@ -1,5 +1,5 @@
 /** An in-memory `ModelHost` for tests (not part of the extension bundle). */
-import { applyEdits, groupByUri, type DiagramUpdate, type LoadedDiagram, type TextEdit } from "../edit/index.js";
+import { applyEdits, groupByUri, sourceMatches, type DiagramUpdate, type LoadedDiagram, type PlanSource, type TextEdit } from "../edit/index.js";
 import { ModelIndex } from "../model/index.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument } from "../diagram/format.js";
 import { makeSourceMapper } from "../diagram/resolve.js";
@@ -53,14 +53,16 @@ export class FakeHost implements ModelHost {
   }
 
   async currentText(uri: string): Promise<string | undefined> {
-    return this.buffers.get(uri);
+    return this.buffers.get(uri) ?? this.diagramDisk.get(uri);
   }
 
-  async applyAndSave(edits: readonly TextEdit[], base: ReadonlyMap<string, string>): Promise<ApplyOutcome> {
+  async applyAndSave(edits: readonly TextEdit[], sources: readonly PlanSource[]): Promise<ApplyOutcome> {
     const hook = this.beforeApply;
     this.beforeApply = undefined;
     hook?.();
-    for (const [uri, text] of base) if (this.buffers.get(uri) !== text) return { ok: false, stale: true };
+    const edited = new Set(edits.map((e) => e.uri));
+    for (const s of sources) if (edited.has(s.uri) && !sourceMatches(s, this.buffers.get(s.uri))) return { ok: false, stale: true };
+    for (const u of edited) if (!sources.some((s) => s.uri === u)) return { ok: false, stale: true };
     this.applied.push([...edits]);
     for (const [uri, es] of groupByUri([...edits])) {
       this.buffers.set(uri, applyEdits(this.buffers.get(uri)!, es));
@@ -79,7 +81,7 @@ export class FakeHost implements ModelHost {
     for (const [uri, text] of this.diagramDisk) {
       if (this.diagramMemory.has(uri)) continue;
       const r = parseDiagram(text);
-      if (r.ok) out.push({ uri, doc: r.doc });
+      out.push(r.ok ? { uri, doc: r.doc, text } : { uri, text });
     }
     return out;
   }

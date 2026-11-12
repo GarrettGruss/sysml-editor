@@ -1,5 +1,5 @@
 import { quoteName, splitQualified, unquoteName, type Element, type ModelIndex } from "../model/index.js";
-import { declarationTokens, findRuns, nameTokens } from "./decl.js";
+import { declarationTokens, findRuns, nameTokens, type Run } from "./decl.js";
 import { isName, positionOf, tokenize, type Tok } from "./text.js";
 import type { SourceLocation } from "./types.js";
 
@@ -10,8 +10,9 @@ export interface RefReplacement {
   /** The element whose declaration contains the reference. */
   holder: Element;
   refText: string;
-  /** The reference text with the renamed segments replaced, set by the caller. */
   segIndex: number;
+  /** Start of the whole reference (its first token), to tell references apart from segments. */
+  runStart: number;
 }
 
 export interface EndsChange {
@@ -20,6 +21,13 @@ export interface EndsChange {
   /** Token texts of the run; replaced tokens are listed in `replaced`. */
   tokens: Tok[];
   replaced: Set<number>;
+}
+
+/** Where a stable record of the resolutions goes during a scan (see `snapshotResolutions`). */
+export interface ScanOptions {
+  snapshot?: Snapshot;
+  /** Also count references written with the short name of a target (rename leaves those alone). */
+  includeShortNames?: boolean;
 }
 
 export interface ScanResult {
@@ -34,9 +42,19 @@ export interface ScanResult {
 
 const SUPER_DEPTH = 8;
 
-class Inherit {
+export class Inherit {
   private readonly memo = new Map<Element, Element[]>();
+  private readonly resolved = new Map<Element, Map<string, Element[]>>();
   constructor(private readonly index: ModelIndex) {}
+
+  /** `index.resolveAll`, remembered per scope and name for the lifetime of this object (one scan). */
+  resolveAll(text: string, scope: Element): Element[] {
+    let m = this.resolved.get(scope);
+    if (!m) this.resolved.set(scope, (m = new Map()));
+    let r = m.get(text);
+    if (!r) m.set(text, (r = this.index.resolveAll(text, scope)));
+    return r;
+  }
 
   /** Declared supertypes, transitively. */
   closure(el: Element): Element[] {
@@ -48,8 +66,8 @@ class Inherit {
     for (let d = 0; d < SUPER_DEPTH && layer.length; d++) {
       const next: Element[] = [];
       for (const x of layer) {
-        for (const text of [...x.types, ...x.specializes, ...x.subsets, ...x.redefines]) {
-          const r = this.index.resolve(text, x.owner ?? x);
+        for (const text of [...x.typeNames, ...x.specializes, ...x.subsets, ...x.redefines]) {
+          const r = this.resolveAll(text, x.owner ?? x)[0];
           if (r && !seen.has(r)) {
             seen.add(r);
             out.push(r);
@@ -82,7 +100,7 @@ class Inherit {
 }
 
 /** Resolve each segment prefix of a qualified name or feature chain; undefined where unjudgeable. */
-function resolvePrefixes(index: ModelIndex, inh: Inherit, segs: string[], scope: Element): (Element | undefined)[] {
+export function resolvePrefixes(index: ModelIndex, inh: Inherit, segs: string[], scope: Element, targets?: ReadonlySet<Element>): (Element | undefined)[] {
   const out: (Element | undefined)[] = [];
   for (let i = 0; i < segs.length; i++) {
     const seg = segs[i]!;
@@ -91,7 +109,9 @@ function resolvePrefixes(index: ModelIndex, inh: Inherit, segs: string[], scope:
       continue;
     }
     const prefix = segs.slice(0, i + 1).map((s) => (s === "$" ? s : quoteName(s))).join("::");
-    let r: Element | undefined = index.resolveAll(prefix, scope)[0];
+    const cands = inh.resolveAll(prefix, scope);
+    // A namespace declared in several places yields several candidates: prefer a wanted one.
+    let r: Element | undefined = cands.find((x) => targets?.has(x)) ?? cands[0];
     if (i === 0) {
       const h = inh.fromScopes(scope, seg);
       if (h) {
@@ -113,7 +133,7 @@ function refTexts(e: Element): { text: string; allowFollow: boolean; isEnd: bool
   const add = (texts: readonly string[], isEnd = false) => {
     for (const t of texts) if (t && !out.some((o) => o.text === t)) out.push({ text: t, allowFollow: false, isEnd });
   };
-  add(e.types);
+  add(e.typeNames);
   add(e.specializes);
   add(e.subsets);
   add(e.redefines);
@@ -124,30 +144,47 @@ function refTexts(e: Element): { text: string; allowFollow: boolean; isEnd: bool
   return out;
 }
 
+/** One reference found in a declaration, with what each of its segments resolves to. */
+export interface RefVisit {
+  uri: string;
+  text: string;
+  /** The element whose declaration contains the reference. */
+  holder: Element;
+  refText: string;
+  isEnd: boolean;
+  run: Run;
+  /** The name tokens of the run, one per segment. */
+  names: Tok[];
+  /** What each segment resolves to (undefined: does not resolve, or cannot be judged). */
+  resolved: (Element | undefined)[];
+  scope: Element;
+}
+
+export interface WalkOptions {
+  targets?: ReadonlySet<Element>;
+  /** Called for every element of a scanned document (declaration names are not references). */
+  onElement?: (uri: string, e: Element) => void;
+  inherit?: Inherit;
+}
+
 /**
- * Find every reference to `target` by name in the workspace: walk all clean user documents,
- * resolve the reference texts of each element (types, specializations, subsets, redefinitions,
- * references, relationship ends, import targets, alias targets; feature chains also through the
- * declared supertypes of the segments before), and locate the tokens in the declaration with the
- * lexer. Other identifier tokens that read like the old name are reported as not judged.
+ * Visit every reference of every clean user document: resolve the reference texts of each
+ * element and locate the tokens in the declaration with the lexer. Documents with syntax errors
+ * are returned as skipped.
  */
-export function scanReferences(index: ModelIndex, target: Element): ScanResult {
-  const oldName = target.name!;
-  const inh = new Inherit(index);
-  const res: ScanResult = { replacements: [], endsChanges: [], unjudged: [], skippedDocuments: [], firstSegScopes: [] };
+export function walkReferences(index: ModelIndex, visit: (v: RefVisit) => void, opts: WalkOptions = {}): { skippedDocuments: string[] } {
+  const inh = opts.inherit ?? new Inherit(index);
+  const skippedDocuments: string[] = [];
   for (const uri of index.uris()) {
     const state = index.getDocument(uri)!;
     if (index.isReadOnly(uri)) continue;
     if (state.errors.length > 0 || state.detailsPending) {
-      res.skippedDocuments.push(uri);
+      skippedDocuments.push(uri);
       continue;
     }
     const text = state.text;
-    const judged = new Set<number>();
-    const declNames = new Set<number>();
     const walk = (e: Element) => {
-      if (e.nameRange) declNames.add(e.nameRange.start.offset);
-      if (e.shortNameRange) declNames.add(e.shortNameRange.start.offset);
+      opts.onElement?.(uri, e);
       const refs = refTexts(e);
       if (refs.length) {
         const toks = declarationTokens(text, e);
@@ -156,29 +193,77 @@ export function scanReferences(index: ModelIndex, target: Element): ScanResult {
           const runs = findRuns(toks, r.text, r.allowFollow).filter((run) => !run.toks.some((t) => isOwnName(e, t)));
           if (!runs.length) continue;
           const scope = e.owner ?? e;
-          const resolved = resolvePrefixes(index, inh, segs, scope);
+          const resolved = resolvePrefixes(index, inh, segs, scope, opts.targets);
           for (const run of runs) {
             const names = nameTokens(run);
             if (names.length !== segs.length) continue;
-            const replaced = new Set<number>();
-            names.forEach((tok, i) => {
-              judged.add(tok.start);
-              const hit = resolved[i] === target && unquoteName(tok.text) === oldName;
-              if (hit) {
-                replaced.add(tok.start);
-                res.replacements.push({ uri, tok, holder: e, refText: r.text, segIndex: i });
-                if (i === 0) res.firstSegScopes.push(scope);
-              }
-            });
-            if (r.isEnd && replaced.size) res.endsChanges.push({ holder: e, oldText: r.text, tokens: run.toks, replaced });
+            visit({ uri, text, holder: e, refText: r.text, isEnd: r.isEnd, run, names, resolved, scope });
           }
         }
       }
       for (const m of e.members) walk(m);
     };
     for (const r of state.model.roots) walk(r);
+  }
+  return { skippedDocuments };
+}
+
+/**
+ * Find every reference to `target` (an element, or all declarations of a merged element) by name
+ * in the workspace. Identifier tokens that read like the old name but did not resolve (or were
+ * not examined) are reported as not judged.
+ */
+export function scanReferences(index: ModelIndex, target: Element | readonly Element[], opts: ScanOptions = {}): ScanResult {
+  const targets = new Set<Element>(Array.isArray(target) ? target : [target as Element]);
+  const wanted = new Set<string>();
+  for (const t of targets) {
+    if (t.name !== undefined) wanted.add(t.name);
+    if (opts.includeShortNames && t.shortName !== undefined) wanted.add(t.shortName);
+  }
+  const res: ScanResult = { replacements: [], endsChanges: [], unjudged: [], skippedDocuments: [], firstSegScopes: [] };
+  const judged = new Map<string, Set<number>>();
+  const declNames = new Map<string, Set<number>>();
+  const set = (m: Map<string, Set<number>>, uri: string) => {
+    let s = m.get(uri);
+    if (!s) m.set(uri, (s = new Set()));
+    return s;
+  };
+  const matches = (tok: Tok, el: Element) => {
+    const n = unquoteName(tok.text);
+    return n === el.name || (!!opts.includeShortNames && n === el.shortName);
+  };
+  const walked = walkReferences(
+    index,
+    (v) => {
+      if (opts.snapshot) recordResolutions(index, v, opts.snapshot);
+      const replaced = new Set<number>();
+      v.names.forEach((tok, i) => {
+        const r = v.resolved[i];
+        if (r === undefined) return; // unresolved: leave the token to the unjudged count
+        set(judged, v.uri).add(tok.start);
+        if (targets.has(r) && matches(tok, r)) {
+          replaced.add(tok.start);
+          res.replacements.push({ uri: v.uri, tok, holder: v.holder, refText: v.refText, segIndex: i, runStart: v.run.toks[0]!.start });
+          if (i === 0) res.firstSegScopes.push(v.scope);
+        }
+      });
+      if (v.isEnd && replaced.size) res.endsChanges.push({ holder: v.holder, oldText: v.refText, tokens: v.run.toks, replaced });
+    },
+    {
+      targets,
+      onElement: (uri, e) => {
+        if (e.nameRange) set(declNames, uri).add(e.nameRange.start.offset);
+        if (e.shortNameRange) set(declNames, uri).add(e.shortNameRange.start.offset);
+      },
+    },
+  );
+  res.skippedDocuments = walked.skippedDocuments;
+  for (const uri of declNames.keys()) {
+    const text = index.getDocument(uri)!.text;
+    const j = judged.get(uri);
+    const d = declNames.get(uri)!;
     for (const t of tokenize(text)) {
-      if (!isName(t) || t.hidden || judged.has(t.start) || declNames.has(t.start) || unquoteName(t.text) !== oldName) continue;
+      if (!isName(t) || t.hidden || j?.has(t.start) || d.has(t.start) || !wanted.has(unquoteName(t.text))) continue;
       res.unjudged.push({ uri, ...positionOf(text, t.start) });
     }
   }
@@ -188,3 +273,57 @@ export function scanReferences(index: ModelIndex, target: Element): ScanResult {
 function isOwnName(e: Element, t: Tok): boolean {
   return t.start === e.nameRange?.start.offset || t.start === e.shortNameRange?.start.offset;
 }
+
+// ---------------------------------------------------------------------------- resolution snapshot
+
+export interface Decl {
+  uri: string;
+  off: number;
+}
+
+export interface Seen {
+  uri: string;
+  tok: number;
+  line: number;
+  column: number;
+  text: string;
+  decls: Decl[];
+  desc: string;
+}
+
+export const resolutionKey = (uri: string, tok: number, seg: number) => `${uri}\0${tok}\0${seg}`;
+
+function declsOf(index: ModelIndex, e: Element): Decl[] {
+  const all = e.qualifiedName !== undefined ? index.findByQualifiedName(e.qualifiedName) : [];
+  return (all.length ? all : [e]).map((d) => ({ uri: d.uri, off: (d.nameRange ?? d.range).start.offset }));
+}
+
+function insideOrMerged(e: Element, within: Element): boolean {
+  for (let x: Element | undefined = e; x; x = x.owner) {
+    if (x === within) return true;
+    if (within.qualifiedName !== undefined && x.qualifiedName === within.qualifiedName && x.kind === within.kind) return true;
+  }
+  return false;
+}
+
+/** What every reference the scanner can resolve resolves to, keyed by token position and segment. */
+export type Snapshot = Map<string, Seen>;
+
+/** Record what each segment of one reference resolves to. */
+export function recordResolutions(index: ModelIndex, v: RefVisit, out: Snapshot, within?: Element): void {
+  if (within && !insideOrMerged(v.holder, within)) return;
+  v.names.forEach((tok, i) => {
+    const r = v.resolved[i];
+    if (!r) return;
+    const p = positionOf(v.text, tok.start);
+    out.set(resolutionKey(v.uri, tok.start, i), { uri: v.uri, tok: tok.start, ...p, text: v.names.slice(0, i + 1).map((t) => t.text).join("::"), decls: declsOf(index, r), desc: r.qualifiedName ?? r.name ?? r.kind });
+  });
+}
+
+/** What every reference the scanner can resolve resolves to, keyed by token position and segment. */
+export function snapshotResolutions(index: ModelIndex, within?: Element): Snapshot {
+  const out: Snapshot = new Map();
+  walkReferences(index, (v) => recordResolutions(index, v, out, within));
+  return out;
+}
+
