@@ -25,7 +25,7 @@ export const DARK_PALETTE: Palette = {
 };
 
 /** Background colour of an export in the given fixed theme. */
-export const exportBackground = (theme: "light" | "editor-dark"): string => (theme === "light" ? LIGHT_PALETTE : DARK_PALETTE).bg;
+export const exportBackground = (theme: "light" | "editor-dark" | "editor-light"): string => (theme === "editor-dark" ? DARK_PALETTE : LIGHT_PALETTE).bg;
 
 export interface SvgOptions {
   /** Absent: live mode (CSS classes). Present: export mode (colours as attributes, background and margin). */

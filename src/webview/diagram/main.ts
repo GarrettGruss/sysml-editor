@@ -126,8 +126,47 @@ toolbar();
 const MAX_SIDE = 16_000;
 const MAX_PIXELS = 16_000_000;
 
-async function exportPng(theme: PngTheme, maxWidth = 1600): Promise<string> {
-  const svg = renderer.toSvgString(theme);
+/** A copy of a DOM subtree with its computed styles inlined, so it draws the same inside an SVG image. */
+function styledCopy(src: Element): Element {
+  const dst = src.cloneNode(false) as Element;
+  const cs = getComputedStyle(src);
+  let css = "";
+  for (let i = 0; i < cs.length; i++) css += `${cs[i]!}:${cs.getPropertyValue(cs[i]!)};`;
+  dst.setAttribute("style", css);
+  if (src instanceof HTMLInputElement) dst.setAttribute("value", src.value);
+  if (src instanceof HTMLTextAreaElement) dst.textContent = src.value;
+  else for (const c of Array.from(src.childNodes)) dst.append(c.nodeType === 1 ? styledCopy(c as Element) : c.cloneNode(true));
+  return dst;
+}
+
+/** The editor window as an SVG: the drawing and, as foreignObjects, the toolbar, palette and properties panel. */
+function windowSvg(theme: PngTheme): { svg: string; width: number; height: number } {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const inner = renderer.toSvgString(theme);
+  const m = /width="(\d+)" height="(\d+)"/.exec(inner);
+  const dw = Number(m?.[1] ?? 800);
+  const dh = Number(m?.[2] ?? 600);
+  const left = 150;
+  const right = 270;
+  const k = Math.min(1, (W - left - right - 20) / dw, (H - 20) / dh);
+  const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="10" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
+  let panels = "";
+  for (const sel of [".toolbar", ".palette", ".props"]) {
+    const e = document.querySelector(sel);
+    if (!e) continue;
+    const r = e.getBoundingClientRect();
+    const copy = styledCopy(e);
+    copy.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+    copy.setAttribute("style", (copy.getAttribute("style") ?? "") + ";position:static;margin:0;top:auto;left:auto;right:auto;");
+    panels += `<foreignObject x="${r.left}" y="${r.top}" width="${Math.ceil(r.width)}" height="${Math.ceil(r.height)}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
+  }
+  const bg = exportBackground(theme);
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${bg}"/>${nested}${panels}</svg>`, width: W, height: H };
+}
+
+async function exportPng(theme: PngTheme, maxWidth = 1600, panels = false): Promise<string> {
+  const svg = panels ? windowSvg(theme).svg : renderer.toSvgString(theme);
   const m = /width="(\d+)" height="(\d+)"/.exec(svg);
   const w = Number(m?.[1] ?? 800);
   const h = Number(m?.[2] ?? 600);
@@ -163,7 +202,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "exportPng":
       queue = queue
-        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth) }))
+        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
     case "command":

@@ -6,6 +6,8 @@ import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { isInheritedIn, isLibraryUri, type Element } from "../model/index.js";
 import type { ModelActions } from "../model-service/interactive.js";
+import { showFailure } from "../model-service/vscode-host.js";
+import type { OpFailure } from "../model-service/service.js";
 import { commonOwner, type Target } from "../model-service/service.js";
 import { typeCandidates } from "../model-service/support.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
@@ -37,11 +39,14 @@ export interface DiagramUi {
   input(options: vscode.InputBoxOptions): Promise<string | undefined>;
   /** A modal confirmation; true when the user chose `action`. */
   confirm(message: string, detail: string, action: string): Promise<boolean>;
+  /** Show a refused or failed model edit, with "Go to error" or "Go to Definition" when it offers them. */
+  fail(failure: OpFailure): Promise<void>;
 }
 
 export const defaultUi: DiagramUi = {
   pick: (items, options) => Promise.resolve(vscode.window.showQuickPick(items, options)),
   input: (options) => Promise.resolve(vscode.window.showInputBox(options)),
+  fail: (f) => showFailure(f),
   confirm: async (message, detail, action) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action,
 };
 
@@ -89,6 +94,8 @@ export interface DiagramTestApi {
   png(uri: vscode.Uri): Promise<string>;
   /** Base64 PNG of the editor appearance (selection and handles included) in a fixed dark palette. */
   pngEditor(uri: vscode.Uri): Promise<string>;
+  /** Base64 PNG of the editor window with the palette and properties panel, in the editor's own theme (light or dark). */
+  pngWindow(uri: vscode.Uri, theme: "editor-dark" | "editor-light"): Promise<string>;
   /** Replays a gesture in the webview as DOM events; resolves when it has been handled. */
   gesture(uri: vscode.Uri, g: TestGesture): Promise<void>;
   /** Replaces the questions the editor asks the user. */
@@ -807,8 +814,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     return this.errorLog.length ? ` (webview errors: ${this.errorLog.slice(-5).join(" | ")})` : "";
   }
 
-  private async exportPng(uri: vscode.Uri | string, theme: PngTheme, maxWidth?: number): Promise<string> {
-    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme, ...(maxWidth !== undefined ? { maxWidth } : {}) }));
+  private async exportPng(uri: vscode.Uri | string, theme: PngTheme, maxWidth?: number, panels = false): Promise<string> {
+    const r = await this.request<"pngResult">(uri, (requestId) => ({ type: "exportPng", requestId, theme, ...(maxWidth !== undefined ? { maxWidth } : {}), ...(panels ? { panels: true } : {}) }));
     if (r.error || !r.base64) throw new Error(r.error ?? "PNG export returned an empty image");
     return r.base64;
   }
@@ -825,6 +832,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     metrics: (uri) => this.request<"metricsResult">(uri, (requestId) => ({ type: "getMetrics", requestId })),
     png: (uri) => this.exportPng(uri, "light"),
     pngEditor: (uri) => this.exportPng(uri, "editor-dark"),
+    pngWindow: (uri, theme) => this.exportPng(uri, theme, 1800, true),
     gesture: async (uri, gesture) => {
       const r = await this.request<"gestureResult">(uri, (requestId) => ({ type: "testGesture", requestId, gesture }));
       if (r.error) throw new Error(`gesture ${gesture.kind} failed in the webview: ${r.error}`);

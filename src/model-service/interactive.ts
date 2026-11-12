@@ -2,7 +2,6 @@
 import * as vscode from "vscode";
 import type { Element, ModelIndex } from "../model/index.js";
 import type { DiagramUi } from "../diagram/diagram-editor.js";
-import { showFailure } from "./vscode-host.js";
 import { ADD_KINDS, confirmationText, deleteImpact, kindLabel, nameProblem, needsConfirmation } from "./support.js";
 import { allowedChildKinds, type AddSpec, type ModelService, type Origin, type OpResult, type Target } from "./service.js";
 import type { Placement } from "./diagram-changes.js";
@@ -17,7 +16,7 @@ export class ModelActions {
   /** Show a refusal (with its actions) or the warnings of a success. Returns the result. */
   async report(r: OpResult, what: string): Promise<OpResult> {
     if (!r.ok) {
-      await showFailure(r);
+      await this.ui().fail(r);
       return r;
     }
     if (r.unjudged && (r.unjudged.count > 0 || r.unjudged.skippedDocuments.length > 0)) {

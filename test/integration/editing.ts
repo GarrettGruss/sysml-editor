@@ -1,0 +1,529 @@
+import * as assert from "node:assert";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import * as path from "node:path";
+import * as vscode from "vscode";
+import { viaLm, viaMcp } from "./diagram-agent.js";
+import type { Ctx } from "./diagram-interaction.js";
+import type { DiagramDoc, Failure, Gesture, Metrics, MNode, ModelNode, PickItem } from "./index.js";
+
+type Test = [name: string, fn: () => Promise<void>];
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Model edits from the tree, the diagram editor and agents, through the real extension, files and editors. */
+export function editingTests(c: Ctx): Test[] {
+  const { api, folder } = c;
+  const uriOf = (name: string) => vscode.Uri.joinPath(folder, name);
+  const onDisk = (name: string) => readFileSync(uriOf(name).fsPath, "utf8");
+  const diskDiagram = (name: string) => JSON.parse(onDisk(name)) as DiagramDoc;
+  const mem = (name: string) => api.diagram.state(uriOf(name)).doc as DiagramDoc;
+  const metrics = (name: string) => api.diagram.metrics(uriOf(name));
+  const nodeOf = (m: Metrics, id: string): MNode => m.nodes.find((n) => n.id === id)!;
+  const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g);
+  const dirty = (name: string) => api.diagram.state(uriOf(name)).dirty;
+  const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
+    const end = Date.now() + ms;
+    while (!(await cond())) {
+      if (Date.now() > end) assert.fail(`timed out waiting for: ${what}`);
+      await sleep(25);
+    }
+  };
+  const textDoc = (name: string) => vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uriOf(name).fsPath);
+  const close = async () => {
+    await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+  };
+
+  const MODEL = (pkg: string) => `package ${pkg} {
+  // keep me
+  part def Engine;
+  part def Vehicle {
+    part engine : Engine;
+    port drive;
+    part spare;
+  }
+  part vehicle1 : Vehicle {
+    part battery;
+  }
+  part vehicle2 : Vehicle;
+}
+`;
+  const gen = (pkg: string, extra: object[] = []) => ({
+    version: 1, kind: "general", root: pkg, sources: [`tmp-${pkg.toLowerCase()}.sysml`],
+    nodes: [
+      { id: "n1", ref: pkg },
+      { id: "n2", ref: `${pkg}::Vehicle`, parent: "n1" },
+      { id: "n3", ref: `${pkg}::Engine`, parent: "n1" },
+      { id: "n4", ref: `${pkg}::Vehicle::spare`, parent: "n2" },
+      { id: "n5", ref: `${pkg}::Vehicle::engine`, parent: "n2" },
+      ...extra,
+    ],
+    edges: [],
+  });
+  const ic = (pkg: string) => ({
+    version: 1, kind: "interconnection", root: `${pkg}::vehicle1`, sources: [`tmp-${pkg.toLowerCase()}.sysml`],
+    nodes: [
+      { id: "n0", ref: `${pkg}::vehicle1` },
+      { id: "n1", ref: `${pkg}::Vehicle::engine`, parent: "n0" },
+      { id: "n2", ref: `${pkg}::vehicle1::battery`, parent: "n0" },
+      { id: "n3", ref: `${pkg}::Vehicle::drive`, parent: "n0" },
+    ],
+    edges: [],
+  });
+
+  /** A UI that answers the questions instead of a person; records what was asked and shown. */
+  interface Script { input?: string; pick?: string; confirm?: boolean }
+  const rec = { confirms: [] as { message: string; detail: string }[], fails: [] as Failure[], inputs: [] as { validate?: string }[] };
+  const script: Script = {};
+  const installUi = () => {
+    rec.confirms = []; rec.fails = []; rec.inputs = [];
+    api.diagram.setUi({
+      input: async (o) => { rec.inputs.push({ ...(o.validateInput && script.input !== undefined ? { validate: o.validateInput(script.input) } : {}) } as never); return script.input; },
+      pick: async (items: PickItem[]) => items.find((i) => i.label === script.pick),
+      confirm: async (message, detail) => { rec.confirms.push({ message, detail }); return script.confirm ?? true; },
+      fail: async (f) => { rec.fails.push(f); },
+    });
+  };
+
+  /** Write a model and diagram files, open the diagram, run, and clean up. */
+  const scenario = (pkg: string, diagrams: Record<string, object>, fn: (names: { model: string; diagram: string }) => Promise<void>, opts: { model?: string; openAll?: boolean; probe?: string } = {}) => async () => {
+    const model = `tmp-${pkg.toLowerCase()}.sysml`;
+    const names = Object.keys(diagrams);
+    writeFileSync(uriOf(model).fsPath, opts.model ?? MODEL(pkg));
+    for (const [n, d] of Object.entries(diagrams)) writeFileSync(uriOf(n).fsPath, JSON.stringify(d, null, 2) + "\n");
+    await vscode.workspace.openTextDocument(uriOf(model));
+    try {
+      await waitFor(() => api.model.index.findByQualifiedName(`${pkg}::${opts.probe ?? "Vehicle"}`).length > 0, 90000, `${pkg} is in the model`);
+    } catch (e) {
+      const st = api.model.index.getDocument(vscode.Uri.file(uriOf(model).fsPath).toString());
+      console.log(`  diagnostics: index state of ${model}: ${JSON.stringify(st ? { errors: st.errors, pending: st.detailsPending } : null)}; pending=${JSON.stringify((api.model.index as unknown as { pendingDetails(): string[] }).pendingDetails?.())}`);
+      throw e;
+    }
+    installUi();
+    script.input = undefined; script.pick = undefined; script.confirm = undefined;
+    try {
+      for (const n of opts.openAll ? names : [names[0]!]) {
+        await api.diagram.open(uriOf(n));
+        await c.eventually(async () => assert.ok((await metrics(n)).nodes.length > 0), `${n} rendered`);
+      }
+      await fn({ model, diagram: names[0]! });
+      assert.deepStrictEqual(api.diagram.errors(), [], "no webview errors");
+    } catch (e) {
+      console.log(`  diagnostics: refusals=${JSON.stringify(rec.fails)} confirms=${rec.confirms.length} webview errors=${JSON.stringify(api.diagram.errors())} model text on disk=${JSON.stringify(onDisk(model)).slice(0, 300)}`);
+      throw e;
+    } finally {
+      api.diagram.setUi(undefined);
+      await close();
+      rmSync(uriOf(model).fsPath, { force: true });
+      for (const n of names) rmSync(uriOf(n).fsPath, { force: true });
+      await sleep(150);
+    }
+  };
+
+  /** The file text with the edit's inserted line removed must equal the original: nothing else changed. */
+  const without = (text: string, inserted: RegExp) => text.replace(inserted, "");
+
+  const undoActive = async () => { await vscode.commands.executeCommand("undo"); };
+
+  return [
+    ["Add part to a part def: palette click inserts the declaration, saves it and the new node at once, and Undo reverses both in one step", scenario("EdAdd", { "tmp-edadd.sysmld": gen("EdAdd") }, async ({ model, diagram }) => {
+      const original = MODEL("EdAdd");
+      script.input = "wheel";
+      const m0 = await metrics(diagram);
+      assert.deepStrictEqual(m0.palette, ["Part def", "Port def", "Attribute def", "Item def", "Action def", "Part", "Port", "Attribute", "Item", "Action"], "General palette");
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10 });
+      await waitFor(() => onDisk(model).includes("part wheel;"), 15000, "the part is on disk without saving");
+      assert.strictEqual(without(onDisk(model), /    part wheel;\n/), original, "unrelated text is byte-identical");
+      assert.match(onDisk(model), /part spare;\n    part wheel;\n  \}/, "inserted after the last member with its indentation");
+      await waitFor(() => textDoc(model)?.isDirty === false, 5000, "the text document is saved");
+      await waitFor(() => diskDiagram(diagram).nodes.some((n) => n.ref === "EdAdd::Vehicle::wheel"), 15000, "the diagram file on disk lists the node");
+      const node = diskDiagram(diagram).nodes.find((n) => n.ref === "EdAdd::Vehicle::wheel")!;
+      assert.strictEqual(node.parent, "n2", "the node is inside Vehicle");
+      await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.text?.includes("wheel") && n.parent === "n2")), "a node for wheel is drawn inside Vehicle");
+      console.log(`  info: tab dirty after the model edit (nothing else changed): ${String(c.tabDirty(uriOf(diagram)))}; document dirty: ${String(dirty(diagram))}`);
+      // Undo from the diagram: one step
+      await undoActive();
+      await waitFor(() => onDisk(model) === original, 15000, "the text on disk is back");
+      assert.strictEqual(textDoc(model)?.getText(), original, "the buffer is back too");
+      await waitFor(() => !diskDiagram(diagram).nodes.some((n) => n.ref === "EdAdd::Vehicle::wheel"), 15000, "the node is gone from the file");
+      assert.ok(!mem(diagram).nodes.some((n) => n.ref === "EdAdd::Vehicle::wheel"));
+      // Redo repeats both
+      await vscode.commands.executeCommand("redo");
+      await waitFor(() => onDisk(model).includes("part wheel;") && diskDiagram(diagram).nodes.some((n) => n.ref === "EdAdd::Vehicle::wheel"), 15000, "redo repeats text and node");
+    })],
+
+    ["Diagram edit is on disk at once, and Pending layout is not saved by a model edit", scenario("EdLay", { "tmp-edlay.sysmld": gen("EdLay", []) }, async ({ model, diagram }) => {
+      // give n2 a stored position, save it, then move it without saving
+      api.diagram.edit(uriOf(diagram), [{ id: "n2", x: 40, y: 40 }]);
+      await api.diagram.save(uriOf(diagram));
+      assert.strictEqual(diskDiagram(diagram).nodes.find((n) => n.id === "n2")!.x, 40);
+      api.diagram.edit(uriOf(diagram), [{ id: "n2", x: 500, y: 300 }]);
+      assert.strictEqual(dirty(diagram), true);
+      script.input = "pad";
+      await gesture(diagram, { kind: "palette", item: "port", id: "n2", x: 12, y: 12 });
+      await waitFor(() => onDisk(model).includes("port pad;"), 15000, ".sysml on disk has the new port");
+      await waitFor(() => diskDiagram(diagram).nodes.some((n) => n.ref === "EdLay::Vehicle::pad"), 15000, ".sysmld on disk lists the new node");
+      const d = diskDiagram(diagram);
+      assert.strictEqual(d.nodes.find((n) => n.id === "n2")!.x, 40, "the moved node keeps its previous position on disk");
+      assert.strictEqual(d.nodes.find((n) => n.id === "n2")!.y, 40);
+      assert.strictEqual(mem(diagram).nodes.find((n) => n.id === "n2")!.x, 500, "the move is still in memory");
+      assert.strictEqual(dirty(diagram), true, "the diagram still has unsaved changes");
+      assert.strictEqual(c.tabDirty(uriOf(diagram)), true, "the tab is marked as modified");
+    })],
+
+    ["Undo in the text editor: the node disappears from the diagram and no unresolved placeholder is left", scenario("EdTxt", { "tmp-edtxt.sysmld": gen("EdTxt") }, async ({ model, diagram }) => {
+      const original = MODEL("EdTxt");
+      script.input = "wheel";
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10 });
+      await waitFor(() => diskDiagram(diagram).nodes.some((n) => n.ref === "EdTxt::Vehicle::wheel"), 15000, "node placed");
+      const doc = await vscode.workspace.openTextDocument(uriOf(model));
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+      await vscode.commands.executeCommand("undo");
+      await waitFor(() => doc.getText() === original, 5000, "the text editor undid the edit");
+      await waitFor(() => !mem(diagram).nodes.some((n) => n.ref === "EdTxt::Vehicle::wheel"), 15000, "the entry is removed from the diagram");
+      await c.eventually(async () => {
+        const m = await metrics(diagram);
+        assert.ok(!m.nodes.some((n) => n.shape === "unresolved"), "no unresolved placeholder");
+        assert.ok(!m.nodes.some((n) => n.text?.includes("wheel")));
+      }, "the view has no placeholder");
+      await waitFor(() => !diskDiagram(diagram).nodes.some((n) => n.ref === "EdTxt::Vehicle::wheel"), 15000, "the file on disk has no entry either");
+      assert.ok(diskDiagram(diagram).nodes.some((n) => n.ref === "EdTxt::Vehicle::spare"), "older entries stay");
+      await vscode.commands.executeCommand("workbench.action.files.revert");
+    })],
+
+    ["Closing without saving: the text and the diagram on disk both have the edited element, unsaved layout is gone", scenario("EdClose", { "tmp-edclose.sysmld": gen("EdClose") }, async ({ model, diagram }) => {
+      api.diagram.edit(uriOf(diagram), [{ id: "n3", x: 40, y: 40 }]);
+      await api.diagram.save(uriOf(diagram));
+      api.diagram.edit(uriOf(diagram), [{ id: "n3", x: 700, y: 700 }]); // unsaved layout
+      script.input = "wheel";
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10 });
+      await waitFor(() => onDisk(model).includes("part wheel;") && diskDiagram(diagram).nodes.some((n) => n.ref === "EdClose::Vehicle::wheel"), 15000, "both files have the element");
+      await close(); // reverts and closes without saving anything
+      assert.ok(onDisk(model).includes("part wheel;"), "the text has the element");
+      const d = diskDiagram(diagram);
+      assert.ok(d.nodes.some((n) => n.ref === "EdClose::Vehicle::wheel"), "the diagram has the node");
+      assert.strictEqual(d.nodes.find((n) => n.id === "n3")!.x, 40, "unsaved layout changes are gone");
+      await api.diagram.open(uriOf(diagram));
+      assert.ok(mem(diagram).nodes.some((n) => n.ref === "EdClose::Vehicle::wheel"), "reopened: the diagram shows the element");
+      assert.strictEqual(mem(diagram).nodes.find((n) => n.id === "n3")!.x, 40);
+    })],
+
+    ["Add connection: connect declaration in the common owner and an edge", scenario(
+      "EdConn",
+      {
+        "tmp-edconn.sysmld": {
+          version: 1, kind: "interconnection", root: "EdConn::Sys", sources: ["tmp-edconn.sysml"],
+          nodes: [
+            { id: "n0", ref: "EdConn::Sys" },
+            { id: "n1", ref: "EdConn::Sys::a", parent: "n0" },
+            { id: "n2", ref: "EdConn::Sys::b", parent: "n0" },
+            { id: "n3", ref: "EdConn::A::o", parent: "n1" },
+            { id: "n4", ref: "EdConn::B::i", parent: "n2" },
+          ],
+          edges: [],
+        },
+      },
+      async ({ model, diagram }) => {
+        const m0 = await metrics(diagram);
+        assert.deepStrictEqual(m0.palette, ["Part", "Port", "Attribute", "Connection"], "Interconnection palette");
+        await gesture(diagram, { kind: "connect", source: "n3", target: "n4" });
+        await waitFor(() => /connect a\.o to b\.i;/.test(onDisk(model)), 15000, "the connection is on disk");
+        assert.match(onDisk(model), /part b : B;\n    connect a\.o to b\.i;\n  \}/, "added to the common owner (Sys)");
+        await c.eventually(async () => assert.strictEqual((await metrics(diagram)).edges.length, 1), "an edge is drawn");
+        await waitFor(() => diskDiagram(diagram).edges.length === 1, 15000, "the edge is in the file on disk");
+        await undoActive();
+        await waitFor(() => !onDisk(model).includes("connect a.o"), 15000, "undo removes the connect");
+        await c.eventually(async () => assert.strictEqual((await metrics(diagram)).edges.length, 0), "and the edge");
+      },
+      { probe: "Sys", model: "package EdConn {\n  port def Pw;\n  part def A { port o : Pw; }\n  part def B { port i : Pw; }\n  part def Sys {\n    part a : A;\n    part b : B;\n  }\n}\n" },
+    )],
+
+    ["Delete from model: confirmed, the declaration goes from the file and the node from every open diagram and from closed diagram files; Delete key removes from the diagram only", scenario(
+      "EdDel",
+      { "tmp-eddel.sysmld": gen("EdDel"), "tmp-eddel2.sysmld": gen("EdDel"), "tmp-eddel3.sysmld": gen("EdDel") },
+      async ({ model, diagram }) => {
+        const original = MODEL("EdDel");
+        // Delete key: diagram only
+        await gesture(diagram, { kind: "select", id: "n4" });
+        await gesture(diagram, { kind: "key", key: "Delete" });
+        await waitFor(() => !mem(diagram).nodes.some((n) => n.id === "n4"), 5000, "the node is removed from the diagram");
+        assert.strictEqual(onDisk(model), original, "the .sysml file is unchanged by Delete");
+        assert.ok(rec.confirms.length === 0);
+        await undoActive();
+        await waitFor(() => mem(diagram).nodes.some((n) => n.id === "n4"), 5000, "undo brings the node back");
+        // Delete from Model on `engine` (n5), with two other diagrams: one open, one closed
+        await api.diagram.open(uriOf("tmp-eddel2.sysmld"));
+        await api.diagram.open(uriOf(diagram));
+        await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.length > 0), "rendered");
+        await gesture(diagram, { kind: "menu", id: "n5", action: "deleteModel" });
+        await waitFor(() => !onDisk(model).includes("part engine : Engine;"), 15000, "the declaration is removed from the file");
+        assert.strictEqual(rec.confirms.length, 0, "no owned members or other references: no confirmation needed");
+        assert.strictEqual(onDisk(model), original.replace("    part engine : Engine;\n", ""), "only that line is removed");
+        await waitFor(() => !mem(diagram).nodes.some((n) => n.ref === "EdDel::Vehicle::engine") && !mem("tmp-eddel2.sysmld").nodes.some((n) => n.ref === "EdDel::Vehicle::engine"), 15000, "gone from both open diagrams");
+        await waitFor(() => !diskDiagram("tmp-eddel3.sysmld").nodes.some((n) => n.ref === "EdDel::Vehicle::engine"), 15000, "gone from the closed diagram file");
+        await waitFor(() => !diskDiagram(diagram).nodes.some((n) => n.ref === "EdDel::Vehicle::engine"), 15000, "gone from the file of the open diagram");
+        // Delete with owned members asks first
+        script.confirm = false;
+        await gesture(diagram, { kind: "menu", id: "n2", action: "deleteModel" });
+        await waitFor(() => rec.confirms.length === 1, 5000, "a confirmation was asked");
+        assert.match(rec.confirms[0]!.detail, /owns 2 elements/);
+        await sleep(300);
+        assert.ok(onDisk(model).includes("part def Vehicle"), "declined: nothing deleted");
+      },
+      { openAll: false },
+    )],
+
+    ["Change type from the properties panel, and the panel's fields", scenario("EdTyp", { "tmp-edtyp.sysmld": gen("EdTyp") }, async ({ model, diagram }) => {
+      await gesture(diagram, { kind: "select", id: "n4" });
+      await c.eventually(async () => {
+        const p = (await metrics(diagram)).properties;
+        assert.strictEqual(p.id, "n4");
+        assert.strictEqual(p.kind, "part");
+        assert.strictEqual(p.qualifiedName, "EdTyp::Vehicle::spare");
+        assert.strictEqual(p.fields.name!.value, "spare");
+        assert.strictEqual(p.fields.type!.value, "");
+        assert.ok(Object.values(p.fields).every((f) => !f.disabled), "editable");
+      }, "the properties panel shows the selection");
+      await gesture(diagram, { kind: "property", field: "type", value: "Engine" });
+      await waitFor(() => onDisk(model).includes("part spare : Engine;"), 90000, "the declaration became `part spare : Engine;`");
+      assert.strictEqual(onDisk(model), MODEL("EdTyp").replace("part spare;", "part spare : Engine;"));
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).properties.fields.type!.value, "Engine"), "the panel shows the new type");
+      await gesture(diagram, { kind: "property", field: "multiplicity", value: "2" });
+      await waitFor(() => /part spare : Engine ?\[2\];/.test(onDisk(model)), 90000, "multiplicity");
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).properties.fields.multiplicity!.value, "[2]"), "the panel shows the multiplicity");
+      await gesture(diagram, { kind: "property", field: "documentation", value: "A spare." });
+      await waitFor(() => onDisk(model).includes("A spare."), 90000, "documentation");
+      // The panel never shows two selected elements, and a definition has no type field to edit
+      await gesture(diagram, { kind: "select", id: "n3" });
+      await c.eventually(async () => {
+        const p = (await metrics(diagram)).properties;
+        assert.strictEqual(p.id, "n3");
+        assert.strictEqual(p.fields.type!.disabled, true);
+      }, "a definition's type field is disabled");
+    })],
+
+    ["Inline rename: double-click edits the name in place, Enter commits and updates references and diagrams, Escape cancels", scenario("EdRen", { "tmp-edren.sysmld": gen("EdRen"), "tmp-edren2.sysmld": gen("EdRen") }, async ({ model, diagram }) => {
+      await gesture(diagram, { kind: "inlineRename", id: "n3", text: "Nope", commit: false });
+      await sleep(400);
+      assert.strictEqual(onDisk(model), MODEL("EdRen"), "Escape changes nothing");
+      assert.strictEqual((await metrics(diagram)).inlineEditor, false);
+      await gesture(diagram, { kind: "select", id: "n3" });
+      await gesture(diagram, { kind: "key", key: "F2" });
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).inlineEditor, true), "F2 opens the inline editor");
+      await gesture(diagram, { kind: "key", key: "Escape" });
+      await gesture(diagram, { kind: "inlineRename", id: "n3", text: "Motor", commit: true });
+      await waitFor(() => onDisk(model).includes("part def Motor;") && onDisk(model).includes("part engine : Motor;"), 15000, "declaration and references renamed");
+      assert.strictEqual(onDisk(model), MODEL("EdRen").replace("part def Engine;", "part def Motor;").replace("part engine : Engine;", "part engine : Motor;"));
+      await waitFor(() => diskDiagram(diagram).nodes.some((n) => n.ref === "EdRen::Motor") && diskDiagram("tmp-edren2.sysmld").nodes.some((n) => n.ref === "EdRen::Motor"), 15000, "diagram files follow the rename");
+      await c.eventually(async () => assert.ok(!(await metrics(diagram)).nodes.some((n) => n.shape === "unresolved")), "no placeholder");
+    })],
+
+    ["Inherited features: drawn as inherited, Delete refused with Go to Definition, nothing changes; Add goes to the usage", scenario("EdInh", { "tmp-edinh.sysmld": ic("EdInh") }, async ({ model, diagram }) => {
+      const original = MODEL("EdInh");
+      let m = await metrics(diagram);
+      assert.strictEqual(m.inheritedNodes, 2, "engine and drive are inherited");
+      assert.ok(nodeOf(m, "n1").inherited && nodeOf(m, "n3").inherited && !nodeOf(m, "n2").inherited && !nodeOf(m, "n0").inherited);
+      mkdirSync(c.artifactDir, { recursive: true });
+      writeFileSync(path.join(c.artifactDir, "diagram-inherited.png"), Buffer.from(await api.diagram.png(uriOf(diagram)), "base64"));
+      // Delete refused
+      await gesture(diagram, { kind: "menu", id: "n1", action: "deleteModel" });
+      await waitFor(() => rec.fails.length === 1, 5000, "a refusal is shown");
+      assert.match(rec.fails[0]!.reason, /inherited from Vehicle/);
+      assert.strictEqual(rec.fails[0]!.goToDefinition?.name, "EdInh::Vehicle");
+      assert.strictEqual(rec.confirms.length, 0, "no confirmation for a refused delete");
+      assert.strictEqual(onDisk(model), original, "nothing is deleted");
+      // Rename refused, and the panel is disabled for it
+      await gesture(diagram, { kind: "select", id: "n1" });
+      await c.eventually(async () => {
+        const p = (await metrics(diagram)).properties;
+        assert.strictEqual(p.id, "n1");
+        assert.ok(Object.values(p.fields).every((f) => f.disabled), "fields are disabled");
+        assert.match(p.note ?? "", /Inherited from EdInh::Vehicle/);
+      }, "properties are read-only with an explanation");
+      await gesture(diagram, { kind: "inlineRename", id: "n1", text: "x", commit: true }).catch(() => undefined);
+      assert.strictEqual((await metrics(diagram)).inlineEditor, false);
+      assert.strictEqual(onDisk(model), original);
+      // Add goes to the usage
+      script.input = "battery2";
+      await gesture(diagram, { kind: "palette", item: "part", id: "n0", x: 12, y: 12 });
+      await waitFor(() => onDisk(model).includes("part battery2;"), 15000, "added");
+      const t = onDisk(model);
+      assert.ok(t.indexOf("part battery2;") > t.indexOf("part vehicle1"), "inside vehicle1");
+      assert.ok(t.indexOf("part battery2;") < t.indexOf("part vehicle2"));
+      assert.strictEqual(t.replace("    part battery2;\n", ""), original, "Vehicle and everything else is unchanged");
+      await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.text?.includes("battery2"))), "battery2 is drawn");
+    })],
+
+    ["Tree: Add Child, Rename and Delete (with confirmation) edit the text and the tree", scenario("EdTree", { "tmp-edtree.sysmld": gen("EdTree") }, async ({ model }) => {
+      const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
+      const child = (p: ModelNode | undefined, l: string) => api.provider.getChildren(p).find((n) => label(n) === l.replace(/ .*$/, "") || label(n) === l);
+      const root = () => child(undefined, "EdTree")!;
+      await waitFor(() => !!root(), 10000, "the tree has the package");
+      const original = MODEL("EdTree");
+      // Add Child: pick "Part", then a name
+      script.pick = "Part"; script.input = "treechild";
+      await vscode.commands.executeCommand("sysml.tree.addChild", child(root(), "vehicle2"));
+      await waitFor(() => onDisk(model).includes("part treechild;"), 15000, "Add Child wrote the declaration");
+      assert.ok(onDisk(model).includes("part vehicle2 : Vehicle {\n    part treechild;\n  }"), "a body was created under the usage");
+      await waitFor(() => !!child(child(root(), "vehicle2"), "treechild"), 10000, "the tree shows it");
+      // name validation
+      script.input = "battery";
+      await vscode.commands.executeCommand("sysml.tree.rename", child(child(root(), "vehicle1"), "battery"));
+      // (the same name: nothing to do)
+      // Rename
+      script.input = "cell";
+      await vscode.commands.executeCommand("sysml.tree.rename", child(child(root(), "vehicle1"), "battery"));
+      await waitFor(() => onDisk(model).includes("part cell;"), 15000, "renamed");
+      // Delete: confirmation, then gone from the text and the tree
+      script.confirm = true;
+      const before = onDisk(model);
+      await vscode.commands.executeCommand("sysml.tree.delete", child(child(root(), "vehicle1"), "cell"));
+      assert.strictEqual(rec.confirms.length, 1, "the tree asks for confirmation");
+      await waitFor(() => !onDisk(model).includes("part cell;"), 15000, "the declaration is removed from the file");
+      assert.strictEqual(before.replace("    part cell;\n", ""), onDisk(model));
+      await waitFor(() => !child(child(root(), "vehicle1"), "cell"), 10000, "the node disappears from the tree");
+      // declining changes nothing
+      script.confirm = false;
+      const kept = onDisk(model);
+      await vscode.commands.executeCommand("sysml.tree.delete", child(root(), "vehicle2"));
+      await sleep(300);
+      assert.strictEqual(onDisk(model), kept);
+      assert.notStrictEqual(kept, original);
+    })],
+
+    ["Syntax errors: an edit is refused with Go to error, and valid files with undisplayed constructs are edited", scenario("EdErr", { "tmp-ederr.sysmld": gen("EdErr") }, async ({ model, diagram }) => {
+      const good = "package EdErrB {\n  part def A {\n    part x;\n  }\n}\n";
+      const valid = "package EdOk {\n  part def A;\n  state def S;\n  calc def K { in x; }\n}\n";
+      writeFileSync(uriOf("tmp-ederrb.sysml").fsPath, good);
+      writeFileSync(uriOf("tmp-edok.sysml").fsPath, valid);
+      try {
+        const bdoc = await vscode.workspace.openTextDocument(uriOf("tmp-ederrb.sysml"));
+        await vscode.workspace.openTextDocument(uriOf("tmp-edok.sysml"));
+        await waitFor(() => api.model.index.findByQualifiedName("EdErrB::A").length > 0 && api.model.index.findByQualifiedName("EdOk::A").length > 0, 90000, "both files indexed");
+        // break the first file in the editor (unsaved): its last good model is kept, the file has a syntax error
+        const we = new vscode.WorkspaceEdit();
+        we.replace(bdoc.uri, new vscode.Range(2, 4, 2, 11), "part x : ;");
+        await vscode.workspace.applyEdit(we);
+        const key = vscode.Uri.file(uriOf("tmp-ederrb.sysml").fsPath).toString();
+        await waitFor(() => (api.model.index.getDocument(key)?.errors.length ?? 0) > 0, 60000, "the syntax error is known");
+        const r = await api.agent.testCallToolOverMcp("sysml_create_element", { owner: "EdErrB::A", kind: "part", name: "y" });
+        assert.strictEqual(r.isError, true);
+        assert.match(r.text, /syntax error/);
+        assert.strictEqual(readFileSync(uriOf("tmp-ederrb.sysml").fsPath, "utf8"), good, "no text was changed or saved");
+        assert.ok(!bdoc.getText().includes("part y"));
+        const ok = await api.agent.testCallToolOverMcp("sysml_create_element", { owner: "EdOk::A", kind: "part", name: "y" });
+        assert.strictEqual(ok.isError, false, ok.text);
+        assert.match(readFileSync(uriOf("tmp-edok.sysml").fsPath, "utf8"), /state def S;\n  calc def K \{ in x; \}/, "undisplayed constructs untouched");
+        void model; void diagram;
+      } finally {
+        await close();
+        rmSync(uriOf("tmp-ederrb.sysml").fsPath, { force: true });
+        rmSync(uriOf("tmp-edok.sysml").fsPath, { force: true });
+      }
+    })],
+
+    ["Agent: Create and place on an open diagram is one undo step from the diagram; the file and node are on disk at once", scenario("EdAg1", { "tmp-edag1.sysmld": gen("EdAg1") }, async ({ model, diagram }) => {
+      const original = MODEL("EdAg1");
+      const r = await viaLm("sysml_create_element", { owner: "EdAg1::Vehicle", kind: "part", name: "battery", type: "Engine", diagram });
+      const j = JSON.parse(r.text) as { created: { qualifiedName: string }; filesChanged: string[]; diagram: { placed: boolean } };
+      assert.strictEqual(j.created.qualifiedName, "EdAg1::Vehicle::battery");
+      assert.deepStrictEqual(j.filesChanged, [model]);
+      assert.strictEqual(j.diagram.placed, true);
+      assert.match(onDisk(model), /part battery : Engine;/);
+      assert.ok(diskDiagram(diagram).nodes.some((n) => n.ref === "EdAg1::Vehicle::battery"), "node on disk");
+      assert.ok(mem(diagram).nodes.some((n) => n.ref === "EdAg1::Vehicle::battery"), "node in the open diagram");
+      await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.text?.includes("battery"))), "drawn");
+      await undoActive();
+      await waitFor(() => onDisk(model) === original && !mem(diagram).nodes.some((n) => n.ref === "EdAg1::Vehicle::battery"), 15000, "one undo reverses text and node");
+      await waitFor(() => !diskDiagram(diagram).nodes.some((n) => n.ref === "EdAg1::Vehicle::battery"), 15000, "and the file");
+    })],
+
+    ["Agent: an edit without a diagram is one undo step in the text editor; Delete versus remove; inherited delete refused; same results on both channels", scenario("EdAg2", { "tmp-edag2.sysmld": gen("EdAg2") }, async ({ model, diagram }) => {
+      const original = MODEL("EdAg2");
+      const bytesBefore = readFileSync(uriOf(model).fsPath);
+      const a = await viaLm("sysml_create_element", { owner: "EdAg2::Vehicle", kind: "port", name: "p9" });
+      assert.strictEqual(JSON.parse(a.text).created.qualifiedName, "EdAg2::Vehicle::p9");
+      assert.ok(onDisk(model).includes("port p9;"), "saved to disk");
+      const doc = await vscode.workspace.openTextDocument(uriOf(model));
+      assert.strictEqual(doc.isDirty, false);
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+      await vscode.commands.executeCommand("undo");
+      await waitFor(() => doc.getText() === original, 5000, "one undo in the text editor reverses the whole agent edit");
+      await vscode.commands.executeCommand("workbench.action.files.save");
+      assert.ok(readFileSync(uriOf(model).fsPath).equals(bytesBefore));
+      // identical results over both channels: refused calls give identical text, applied calls do too on identical starting text
+      const refusal = { element: "EdAg2::vehicle1::engine" };
+      const ra = await viaLm("sysml_delete_element", refusal);
+      const rb = await viaMcp(api, "sysml_delete_element", refusal);
+      assert.strictEqual(rb.isError, true);
+      assert.strictEqual(ra.text, rb.text, "identical refusal");
+      assert.match(rb.text, /inherited from Vehicle/);
+      assert.strictEqual(onDisk(model), original, "no file changes");
+      const call: [string, object] = ["sysml_rename_element", { element: "EdAg2::Engine", newName: "Motor" }];
+      const l = await viaLm(...call);
+      const afterLm = onDisk(model);
+      writeFileSync(uriOf(model).fsPath, original);
+      await waitFor(() => api.model.index.findByQualifiedName("EdAg2::Engine").length === 1, 15000, "restored");
+      await sleep(300);
+      const mcp = await viaMcp(api, ...call);
+      assert.strictEqual(mcp.isError, false, mcp.text);
+      assert.strictEqual(l.text, mcp.text, "identical result text");
+      assert.strictEqual(onDisk(model), afterLm, "identical file text");
+      assert.deepStrictEqual({ ...JSON.parse(l.text), x: 0 }, { ...JSON.parse(mcp.text), x: 0 });
+      // delete versus remove
+      writeFileSync(uriOf(model).fsPath, original);
+      await waitFor(() => api.model.index.findByQualifiedName("EdAg2::Engine").length === 1 && api.model.index.findByQualifiedName("EdAg2::Vehicle::engine").length === 1, 15000, "restored again");
+      await sleep(300);
+      const rm = await viaLm("sysml_remove_from_diagram", { path: diagram, ids: ["n5"] });
+      assert.ok(!rm.text.includes("error"));
+      assert.strictEqual(onDisk(model), original, "remove-from-diagram changes only the diagram");
+      const del = await viaLm("sysml_delete_element", { element: "EdAg2::Vehicle::spare" });
+      assert.strictEqual(JSON.parse(del.text).deleted, "EdAg2::Vehicle::spare");
+      assert.ok(!onDisk(model).includes("part spare;"), "delete-element removes the declaration");
+      assert.ok(!mem(diagram).nodes.some((n) => n.ref === "EdAg2::Vehicle::spare"), "and its node");
+    })],
+
+    ["Parity: the same edit from the GUI (tree) and from the agent gives byte-identical text", scenario("EdPar", { "tmp-edpar.sysmld": gen("EdPar") }, async ({ model }) => {
+      const original = MODEL("EdPar");
+      const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
+      const child = (p: ModelNode | undefined, l: string) => api.provider.getChildren(p).find((n) => label(n) === l);
+      await waitFor(() => !!child(undefined, "EdPar"), 10000, "tree");
+      script.pick = "Port"; script.input = "px";
+      await vscode.commands.executeCommand("sysml.tree.addChild", child(child(undefined, "EdPar"), "vehicle1"));
+      await waitFor(() => onDisk(model).includes("port px;"), 15000, "GUI edit");
+      const gui = onDisk(model);
+      writeFileSync(uriOf(model).fsPath, original);
+      await waitFor(() => !api.model.index.findByQualifiedName("EdPar::vehicle1::px").length, 15000, "reset");
+      await sleep(400);
+      const r = await viaLm("sysml_create_element", { owner: "EdPar::vehicle1", kind: "port", name: "px" });
+      assert.ok(!r.text.includes("Invalid"), r.text);
+      assert.strictEqual(onDisk(model), gui, "byte-identical");
+    })],
+
+    ["Undo investigation (design D6): where each undo goes after a diagram-made model edit", scenario("EdUndo", { "tmp-edundo.sysmld": gen("EdUndo") }, async ({ model, diagram }) => {
+      const log: string[] = [];
+      const snap = (tag: string) => log.push(`${tag}: .sysml on disk has w1=${String(onDisk(model).includes("w1"))} w2=${String(onDisk(model).includes("w2"))}; buffer w1=${String(textDoc(model)?.getText().includes("w1"))} w2=${String(textDoc(model)?.getText().includes("w2"))} dirty=${String(textDoc(model)?.isDirty)}; diagram (memory) w1=${String(mem(diagram).nodes.some((n) => n.ref?.endsWith("w1")))} w2=${String(mem(diagram).nodes.some((n) => n.ref?.endsWith("w2")))}; tab dirty=${String(c.tabDirty(uriOf(diagram)))}; active=${vscode.window.activeTextEditor ? "text editor" : "custom editor"}`);
+      script.input = "w1";
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10 });
+      await waitFor(() => onDisk(model).includes("part w1;"), 15000, "edit 1");
+      await sleep(500);
+      script.input = "w2";
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10 });
+      await waitFor(() => onDisk(model).includes("part w2;"), 15000, "edit 2");
+      await sleep(500);
+      snap("after two edits from the diagram");
+      await undoActive();
+      await sleep(2000);
+      snap("after one undo with the diagram active");
+      const doc = await vscode.workspace.openTextDocument(uriOf(model));
+      await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+      await vscode.commands.executeCommand("undo");
+      await sleep(2000);
+      snap("after one undo with the text editor active");
+      await vscode.commands.executeCommand("undo");
+      await sleep(2000);
+      snap("after a second undo with the text editor active");
+      await vscode.commands.executeCommand("workbench.action.files.revert");
+      console.log("  D6 observations:\n    " + log.join("\n    "));
+    })],
+  ];
+}

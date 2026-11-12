@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "kind": "general",
+  "root": "EdAdd",
+  "sources": [
+    "tmp-edadd.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "EdAdd"
+    },
+    {
+      "id": "n2",
+      "ref": "EdAdd::Vehicle",
+      "parent": "n1"
+    },
+    {
+      "id": "n3",
+      "ref": "EdAdd::Engine",
+      "parent": "n1"
+    },
+    {
+      "id": "n4",
+      "ref": "EdAdd::Vehicle::spare",
+      "parent": "n2"
+    },
+    {
+      "id": "n5",
+      "ref": "EdAdd::Vehicle::engine",
+      "parent": "n2"
+    }
+  ],
+  "edges": []
+}

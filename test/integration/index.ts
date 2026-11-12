@@ -6,11 +6,12 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { interactionTests } from "./diagram-interaction.js";
+import { editingTests } from "./editing.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
 export interface ModelNode { id: string; uri: string }
 export interface TestApi {
-  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[] } };
+  model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[]; pendingDetails(): string[] } };
   provider: {
     getChildren(n?: ModelNode): ModelNode[];
     getTreeItem(n: ModelNode): vscode.TreeItem;
@@ -28,16 +29,18 @@ export interface TestApi {
     metrics(uri: vscode.Uri): Promise<Metrics>;
     png(uri: vscode.Uri): Promise<string>;
     pngEditor(uri: vscode.Uri): Promise<string>;
+    pngWindow(uri: vscode.Uri, theme: "editor-dark" | "editor-light"): Promise<string>;
     save(uri: vscode.Uri): Promise<void>;
     edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
     state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
-    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string }) => Promise<string | undefined> } | undefined): void;
+    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void> } | undefined): void;
     activeUri(): string | undefined;
   };
   dnd: { handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void };
 }
+export interface Failure { reason: string; goToError?: { uri: string; line: number; column: number }; goToDefinition?: { uri: string; line: number; column: number; name: string } }
 export interface PickItem { label: string; description?: string; detail?: string }
 export interface DiagramDoc {
   version: number; kind: string; root: string; sources: string[];
@@ -50,15 +53,21 @@ export type Gesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[] }
+  | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
+  | { kind: "connect"; source: string; target: string }
+  | { kind: "inlineRename"; id: string; text: string; commit: boolean }
+  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation"; value: string }
   | { kind: "flush" };
-export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string }
+export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string }[];
   overlaps: number; overflows: number; outsideParent: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
+  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
+  properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }
 
 type Test = [name: string, fn: () => Promise<void>];
@@ -577,6 +586,7 @@ export async function run(): Promise<void> {
     ...diagramTests(),
     ...interactionTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];

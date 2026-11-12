@@ -2,7 +2,7 @@
 import type { ViewModel } from "./view-model.js";
 
 /** `light`: the fixed export theme. `editor-dark`: the editor appearance (selection handles included) in a fixed dark palette, for test artifacts. */
-export type PngTheme = "light" | "editor-dark";
+export type PngTheme = "light" | "editor-dark" | "editor-light";
 
 export interface NodeBox {
   id: string;
@@ -88,7 +88,7 @@ export type TestGesture =
 export type HostToWebview =
   /** `generation` is the document generation (bumped by every load); the webview echoes it in its edits so stale ones can be dropped. */
   | { type: "render"; viewModel: ViewModel; generation: number }
-  | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number }
+  | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number; /** Test artifact: the editor window with the palette and properties panel drawn from the live DOM, in the editor's own theme. */ panels?: boolean }
   | { type: "getMetrics"; requestId: number }
   | { type: "command"; name: DiagramCommand }
   | { type: "select"; ids: string[] }

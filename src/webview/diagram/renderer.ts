@@ -351,8 +351,9 @@ export class SvgRenderer implements DiagramRenderer {
   }
 
   private closeEditor(): void {
-    this.editor?.remove();
+    const e = this.editor;
     this.editor = undefined;
+    e?.remove();
   }
 
   /** The inline name editor: an input over the label. Enter commits through the host, Escape and leaving cancel. */
@@ -527,10 +528,10 @@ export class SvgRenderer implements DiagramRenderer {
 
   toSvgString(theme: PngTheme): string {
     if (!this.vm) return "";
-    const palette = theme === "light" ? LIGHT_PALETTE : DARK_PALETTE;
+    const palette = theme === "editor-dark" ? DARK_PALETTE : LIGHT_PALETTE;
     const rel = this.currentRel();
     const r = buildSvg(this.vm, rel, this.measure, { palette }, { routes: this.layoutRoutes, selected: new Set(theme === "light" ? [] : this.ia.selection) });
-    if (theme === "editor-dark") {
+    if (theme !== "light") {
       const { boxes, handles } = this.selectionBoxes();
       r.content += overlaySvg(boxes, handles, undefined, { palette });
     }
