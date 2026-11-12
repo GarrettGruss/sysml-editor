@@ -633,6 +633,47 @@ export function requirementsTests(c: Ctx): Test[] {
         rmSync(uriOf(file).fsPath, { force: true });
       }
     }],
+
+    ["Document view: a paragraph edit follows its paragraph when the file changes above it, and reports a conflict when its text changed", scenario("ReqD9", async ({ file, scope, qn, m, before }) => {
+      const sec = `section[data-qn="${qn(PR)}"]`;
+      const PARA = "Scope of the performance requirements.";
+      const doc = () => textDoc(file)!;
+      const paragraphs = async () => (await m()).document.paragraphs.filter((p) => p.section === qn(PR)).map((p) => p.text);
+      await api.requirements.setView(scope, "document");
+      // Open the first paragraph of the section for editing and type, without committing.
+      await gesture(scope, { kind: "click", selector: `${sec} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "input", selector: `${sec} textarea.para-edit`, value: "Scope, edited.", event: "input" });
+      assert.ok((await m()).pendingEdits.length >= 1, "the edit is pending");
+      // The file changes above the paragraph (every offset moves) through a workspace edit.
+      const we = new vscode.WorkspaceEdit();
+      we.insert(uriOf(file), new vscode.Position(0, 0), "// a note added above\n// and another\n");
+      assert.ok(await vscode.workspace.applyEdit(we));
+      await eventually(async () => assert.ok(doc().getText().startsWith("// a note added above")), "the edit is in the buffer");
+      await api.requirements.settled(scope);
+      await gesture(scope, { kind: "input", selector: `${sec} textarea.para-edit`, value: "Scope, edited.", event: "change" });
+      await waitFor(() => doc().getText().includes("Scope, edited."), 90000, "the paragraph the user was editing changed");
+      const t = doc().getText();
+      assert.ok(t.includes("comment /*\n         * Rules that apply to every requirement:"), "the second paragraph is untouched");
+      assert.ok(t.includes("doc /* This specification describes the requirements of the vehicle. */"), "the root paragraph is untouched");
+      assert.strictEqual(t.replace("// a note added above\n// and another\n", "").replace("Scope, edited.", PARA), before, "only that paragraph changed");
+      await clean(file);
+      await parses(file);
+      // Now the paragraph's own text changes elsewhere while a draft is open: a conflict, never another paragraph.
+      await eventually(async () => assert.ok((await paragraphs()).includes("Scope, edited.")), "the view shows the new text");
+      await gesture(scope, { kind: "click", selector: `${sec} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "input", selector: `${sec} textarea.para-edit`, value: "My draft.", event: "input" });
+      const we2 = new vscode.WorkspaceEdit();
+      const at = doc().getText().indexOf("Scope, edited.");
+      we2.replace(uriOf(file), new vscode.Range(doc().positionAt(at), doc().positionAt(at + "Scope, edited.".length)), "Changed elsewhere.");
+      assert.ok(await vscode.workspace.applyEdit(we2));
+      await eventually(async () => assert.strictEqual((await m()).conflicts.length, 1), "the field is marked as conflicted", 60000);
+      const afterConflict = doc().getText();
+      assert.ok(afterConflict.includes("Changed elsewhere."), "the model keeps the newer text");
+      await gesture(scope, { kind: "click", selector: `${sec} [data-testid=conflict-overwrite]` });
+      await waitFor(() => doc().getText().includes("My draft."), 90000, "overwrite applies the draft to the same paragraph");
+      assert.ok(doc().getText().includes("Rules that apply to every requirement:"), "the other paragraph is untouched");
+      assert.strictEqual((await m()).conflicts.length, 0);
+    }, { view: "document" })],
   ];
   return tests;
 }
