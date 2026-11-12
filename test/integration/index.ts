@@ -106,9 +106,9 @@ type Test = [name: string, fn: () => Promise<void>];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function waitFor(cond: () => boolean, ms: number, what: string): Promise<void> {
-  const end = Date.now() + ms;
+  const end = performance.now() + ms;
   while (!cond()) {
-    if (Date.now() > end) assert.fail(`timed out waiting for: ${what}`);
+    if (performance.now() > end) assert.fail(`timed out waiting for: ${what}`);
     await sleep(25);
   }
 }
@@ -383,9 +383,9 @@ export async function run(): Promise<void> {
       edit.insert(vehicleUri, new vscode.Position(1, 0), "  part def Gearbox;\n");
       assert.ok(await vscode.workspace.applyEdit(edit));
       assert.ok(doc.isDirty, "edit is unsaved");
-      const t0 = Date.now();
+      const t0 = performance.now();
       await waitFor(() => labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Gearbox"), 1000, "Gearbox in tree");
-      assert.ok(Date.now() - t0 < 1000);
+      assert.ok(performance.now() - t0 < 1000);
       const after = api.provider.getChildren(rootOf("Vehicle")).map((n) => n.id);
       for (const id of before) assert.ok(after.includes(id), "existing node ids are stable");
       assert.ok(fired.length > 0, "tree data change fired");
