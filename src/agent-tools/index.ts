@@ -6,6 +6,7 @@ export * from "./types.js";
 export { toolDefinitions, DEFAULT_DEPTH, MAX_DEPTH, NODE_CAP, PROBLEM_CAP, FILE_CAP, MEMBER_CAP, DECLARATION_CAP } from "./tools.js";
 export { validateSchema } from "./schema.js";
 export { validateDiagramPath, DIAGRAM_FILE_CAP, DIAGRAM_ELEMENT_CAP, DIAGRAM_ID_CAP } from "./diagram-tools.js";
+export { editToolDefinitions } from "./edit-tools.js";
 export { findUnresolvedNames } from "./unresolved.js";
 
 const err = (message: string): ToolResult => ({ isError: true, text: message });

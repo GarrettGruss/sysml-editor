@@ -38,7 +38,12 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   const actions = new ModelActions(edit, model.index, () => diagrams.ui);
   diagrams.modelActions = actions;
   const folders = () => (vscode.workspace.workspaceFolders ?? []).map((f) => ({ name: f.name, fsPath: f.uri.fsPath }));
-  const agent = new AgentIntegration(model, (m) => log.info(m), String(context.extension.packageJSON.version ?? "0.0.1"), new VsCodeDiagramService(diagrams, files, folders));
+  const diagramService = new VsCodeDiagramService(diagrams, files, folders);
+  const agent = new AgentIntegration(model, (m) => log.info(m), String(context.extension.packageJSON.version ?? "0.0.1"), diagramService, {
+    service: edit,
+    isTrusted: () => vscode.workspace.isTrusted,
+    diagramUri: (path) => diagramService.uriForPath(path),
+  });
   void agent.apply();
   diagrams.revealInTree = (el) => {
     const node = nodeForElement(model.index, el);

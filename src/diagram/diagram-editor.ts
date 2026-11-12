@@ -450,6 +450,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     switch (intent.kind) {
       case "add": {
         const ownerT = intent.ownerId !== undefined ? this.targetOf(doc, intent.ownerId) : undefined;
+        const refusal = ownerT ? actions.service.refuseIfInherited(ownerT, "extended") : undefined;
+        if (refusal) {
+          void actions.report(refusal, "");
+          return this.notice(doc, refusal.reason);
+        }
         const owner = ownerT?.element ?? (intent.ownerId === undefined ? resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc)) : undefined);
         if (!owner) return this.notice(doc, "The element to add to could not be found; it may be unresolved.");
         const r = await actions.addChild(owner, { kind: intent.paletteKind, origin, placement: { diagram: origin.diagram, ...(intent.ownerId !== undefined ? { parentNode: intent.ownerId } : {}), x: intent.x, y: intent.y } });

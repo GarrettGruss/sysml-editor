@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { planChannels, type ChannelPlan } from "./agent-channels.js";
-import { callTool, toolDefinitions, type DiagramService, type ToolContext, type ToolResult } from "./agent-tools/index.js";
+import { callTool, toolDefinitions, type DiagramService, type EditContext, type ToolContext, type ToolResult } from "./agent-tools/index.js";
 import { fsPathToToolPath, type FolderInfo } from "./agent-paths.js";
 import { McpServerController } from "./mcp/server-controller.js";
 import { startMcpServer } from "./mcp/server.js";
@@ -30,6 +30,7 @@ export class AgentIntegration implements vscode.Disposable {
     private readonly log: (msg: string) => void,
     private readonly version: string,
     private readonly diagrams?: DiagramService,
+    private readonly edits?: EditContext,
   ) {
     this.controller = new McpServerController<string[]>((workspaces) =>
       startMcpServer({ context: () => this.context(), workspaces, serverVersion: this.version, log: this.log }),
@@ -72,6 +73,7 @@ export class AgentIntegration implements vscode.Disposable {
       uriToPath,
       pathToUri: (p) => this.model.index.uris().find((u) => uriToPath(u) === p),
       ...(this.diagrams ? { diagrams: this.diagrams } : {}),
+      ...(this.edits ? { edits: this.edits } : {}),
     };
   }
 

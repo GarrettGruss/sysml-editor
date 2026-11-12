@@ -508,6 +508,236 @@
           ],
           "additionalProperties": false
         }
+      },
+      {
+        "name": "sysml_create_element",
+        "displayName": "SysML: Create Element",
+        "modelDescription": "Create a new element in the model by inserting its declaration into the owner's .sysml source, exactly as the diagram palette and the tree's Add Child do (minimal text edit, indentation copied, a body created when the owner ends in `;`). `owner` is the qualified name of the package, definition or usage to add it to (a feature a usage only inherits cannot be the owner; add to the usage itself). `kind` is one of: package, part def, port def, attribute def, item def, action def, requirement def, part, port, attribute, item, action, requirement. Optional `type` (qualified name or name of a definition of the matching kind; an import is added when needed), `multiplicity` (e.g. 0..1 or *), `shortName` and `documentation`. With `diagram`, a node for the new element is also placed on that diagram. The edit is applied directly, the file is saved, and the user can undo it in one step. Returns JSON with the new element's qualifiedName, the files changed and (with `diagram`) the placement. Refused for files with syntax errors, in an untrusted workspace and for names that already exist in the owner. Not for deleting (sysml_delete_element) or changing (sysml_set_element_properties).",
+        "toolReferenceName": "sysmlCreateElement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element to add to, e.g. VehicleModel::Vehicle."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "package",
+                "part def",
+                "port def",
+                "attribute def",
+                "item def",
+                "action def",
+                "requirement def",
+                "part",
+                "port",
+                "attribute",
+                "item",
+                "action",
+                "requirement"
+              ],
+              "description": "What to create."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Name of the new element (quoted automatically when it needs quotes)."
+            },
+            "type": {
+              "type": "string",
+              "description": "Type of a usage: qualified name or name of a definition, e.g. Engine or Powertrain::Engine."
+            },
+            "multiplicity": {
+              "type": "string",
+              "description": "Multiplicity of a usage, e.g. 4, 0..1 or *."
+            },
+            "shortName": {
+              "type": "string",
+              "description": "Short name, written as <shortName>."
+            },
+            "documentation": {
+              "type": "string",
+              "description": "Documentation text, written as a doc comment."
+            },
+            "diagram": {
+              "type": "string",
+              "description": "Optional workspace-relative path of a .sysmld diagram to place the new element on (as a node, or an edge for a relationship). The diagram file is updated on top of its last saved state; pending layout in an open diagram stays unsaved."
+            }
+          },
+          "required": [
+            "owner",
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_delete_element",
+        "displayName": "SysML: Delete Element",
+        "modelDescription": "Delete an element from the MODEL: its whole declaration (with its body, owned members and attached documentation) is removed from the .sysml source and saved, and nodes for it are removed from every diagram file. This is different from sysml_remove_from_diagram, which only removes a node from a diagram and leaves the model untouched. References to the deleted element elsewhere are not rewritten and will no longer resolve (check with sysml_validate). `element` is the qualified name. A feature that a usage only inherits from its definition (for example Model::vehicle1::engine, declared in Vehicle) cannot be deleted from the usage: the error names the declaring definition. Applied directly; the user can undo it in one step. Refused for files with syntax errors and in an untrusted workspace.",
+        "toolReferenceName": "sysmlDeleteElement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element to delete."
+            }
+          },
+          "required": [
+            "element"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_rename_element",
+        "displayName": "SysML: Rename Element",
+        "modelDescription": "Rename an element: its declaration and every reference to it that resolves in the workspace (qualified references change only the matching segment; names are quoted when needed), and every diagram file that refers to it. `element` is the qualified name, `newName` the new name. Returns JSON with the new qualifiedName, `referencesUpdated`, and `couldNotJudge` (mentions of the old name that the tool could not decide about, with a few locations: check them). Refused when the new name clashes with another member, for inherited features (rename them in their definition), for files with syntax errors and in an untrusted workspace. Applied directly; one undo step for the user.",
+        "toolReferenceName": "sysmlRenameElement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element to rename."
+            },
+            "newName": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The new name."
+            }
+          },
+          "required": [
+            "element",
+            "newName"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_set_element_properties",
+        "displayName": "SysML: Set Element Properties",
+        "modelDescription": "Change properties of an element in its .sysml source: `name`, `shortName`, `type` (of a usage: qualified name or name of a definition; an import is added when needed), `multiplicity` and `documentation`. Give only the properties to change; an empty string removes shortName, type, multiplicity or documentation. All changes are one edit. A feature that a usage only inherits cannot be changed from the usage (the error names the declaring definition). Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed and the qualifiedName after the edit.",
+        "toolReferenceName": "sysmlSetElementProperties",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "New name (same as sysml_rename_element)."
+            },
+            "shortName": {
+              "type": "string",
+              "description": "Short name; empty removes it."
+            },
+            "type": {
+              "type": "string",
+              "description": "Type of a usage; empty removes it."
+            },
+            "multiplicity": {
+              "type": "string",
+              "description": "Multiplicity, e.g. 4, 0..1 or *; empty removes it."
+            },
+            "documentation": {
+              "type": "string",
+              "description": "Documentation text; empty removes it."
+            }
+          },
+          "required": [
+            "element"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_create_relationship",
+        "displayName": "SysML: Create Relationship",
+        "modelDescription": "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. `kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
+        "toolReferenceName": "sysmlCreateRelationship",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "connection",
+                "satisfy"
+              ],
+              "description": "connection or satisfy."
+            },
+            "owner": {
+              "type": "string",
+              "description": "Qualified name of the element that receives the statement. Required for a connection."
+            },
+            "source": {
+              "type": "string",
+              "description": "connection: qualified name of the first end."
+            },
+            "target": {
+              "type": "string",
+              "description": "connection: qualified name of the second end."
+            },
+            "requirement": {
+              "type": "string",
+              "description": "satisfy: qualified name of the requirement."
+            },
+            "by": {
+              "type": "string",
+              "description": "satisfy: qualified name of the satisfying element."
+            },
+            "diagram": {
+              "type": "string",
+              "description": "Optional workspace-relative path of a .sysmld diagram to place the new element on (as a node, or an edge for a relationship). The diagram file is updated on top of its last saved state; pending layout in an open diagram stays unsaved."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
       }
     ],
     "customEditors": [

@@ -295,7 +295,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 10; // four model tools and six diagram tools
+  const TOOL_COUNT = 15; // four model read tools, six diagram tools and five model edit tools
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {

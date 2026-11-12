@@ -31,7 +31,7 @@ const fails = async (ctx: ToolContext, name: string, input: unknown = {}) => {
 describe("diagram tool definitions", () => {
   it("the write tools are marked not read-only, the others read-only", () => {
     const writes = toolDefinitions.filter((t) => !t.readOnly).map((t) => t.name).sort();
-    expect(writes).toEqual(["sysml_add_to_diagram", "sysml_create_diagram", "sysml_layout_diagram", "sysml_remove_from_diagram"]);
+    expect(writes).toEqual(["sysml_add_to_diagram", "sysml_create_diagram", "sysml_create_element", "sysml_create_relationship", "sysml_delete_element", "sysml_layout_diagram", "sysml_remove_from_diagram", "sysml_rename_element", "sysml_set_element_properties"]);
     expect(toolDefinitions.filter((t) => t.readOnly).map((t) => t.name)).toEqual(["sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate", "sysml_list_diagrams", "sysml_read_diagram"]);
     for (const t of toolDefinitions) expect(t.description.length).toBeGreaterThan(80);
   });
