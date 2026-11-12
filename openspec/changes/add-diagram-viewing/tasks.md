@@ -11,7 +11,7 @@
 
 ## 2. Diagram canvas
 
-- [ ] 2.1 Spike the canvas library (design D7): build one interconnection diagram with nested parts and border ports in maxGraph, check its maintenance status and how its undo fits the custom editor's edit stack; record the choice (maxGraph, Sprotty, or hand-built) in design.md
+- [x] 2.1 Spike the canvas library (design D7): build one interconnection diagram with nested parts and border ports in maxGraph, check its maintenance status and how its undo fits the custom editor's edit stack; record the choice (maxGraph, Sprotty, or hand-built) in design.md
 - [ ] 2.2 Build the diagram webview shell (theme variables, message protocol types shared with the host, content security policy, state restore); verify it renders in light, dark, and high-contrast themes
 - [ ] 2.3 Implement the SysML notation shapes on the chosen library (compartments, guillemet keywords, nested nodes, border ports, edge styles) for General, Interconnection, and Requirements views; verify image snapshot tests on fixture models
 - [ ] 2.4 Implement auto-layout (elkjs) in the webview that places only unpositioned nodes; verify a coordinate-free diagram gets positions and positioned nodes do not move

@@ -1,0 +1,21 @@
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--vscode-editor-background, #ffffff); color: var(--vscode-editor-foreground, #1f2328); font-family: var(--vscode-font-family); }
+.diagram { width: 100vw; height: 100vh; display: block; cursor: grab; outline: none; }
+.diagram:active { cursor: grabbing; }
+.diagram .f-none { fill: none; }
+.diagram .s-none { stroke: none; }
+.diagram .f-bg { fill: var(--vscode-editor-background, #ffffff); }
+.diagram .f-node { fill: var(--vscode-editorWidget-background, var(--vscode-editor-background, #ffffff)); }
+.diagram .f-line, .diagram .f-edge { fill: var(--vscode-editor-foreground, #1f2328); }
+.diagram .f-text { fill: var(--vscode-editor-foreground, #1f2328); }
+.diagram .f-subtext { fill: var(--vscode-descriptionForeground, var(--vscode-editor-foreground, #1f2328)); }
+.diagram .f-warn { fill: var(--vscode-editorWarning-foreground, #bf8700); }
+.diagram .s-line, .diagram .s-edge { stroke: var(--vscode-contrastBorder, var(--vscode-editor-foreground, #1f2328)); }
+.diagram .s-warn { stroke: var(--vscode-editorWarning-foreground, #bf8700); }
+.diagram .s-text, .diagram .s-subtext, .diagram .s-bg, .diagram .s-node { stroke: none; }
+.diagram text { font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; stroke: none; }
+.vscode-high-contrast .diagram .s-line, .vscode-high-contrast .diagram .s-edge { stroke-width: 2; }
+.error-page { padding: 24px; max-width: 760px; font-family: var(--vscode-font-family); }
+.error-page h1 { font-size: 1.3em; }
+.error-page code { font-family: var(--vscode-editor-font-family); }
+.error-page button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid var(--vscode-button-border, transparent); padding: 6px 14px; cursor: pointer; }
+.error-page li { margin: 4px 0; }
