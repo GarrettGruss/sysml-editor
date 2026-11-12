@@ -1,4 +1,7 @@
 import * as assert from "node:assert";
+import { spawnSync } from "node:child_process";
+import * as os from "node:os";
+import * as path from "node:path";
 import * as vscode from "vscode";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
@@ -11,6 +14,12 @@ interface TestApi {
     onDidChangeTreeData: vscode.Event<unknown>;
   };
   view: vscode.TreeView<ModelNode>;
+  agent: {
+    apply(): Promise<void>;
+    currentPlan(): { lmTools: boolean; mcpServer: boolean; registerWithVsCode: boolean };
+    mcpEndpoint(): { url: string; port: number; token: string } | undefined;
+    testCallToolOverMcp(name: string, input: object): Promise<{ text: string; isError: boolean }>;
+  };
 }
 
 type Test = [name: string, fn: () => Promise<void>];
@@ -140,6 +149,77 @@ export async function run(): Promise<void> {
         await waitFor(() => calls.some((c) => c.id === engine.id), 2000, "reveal of engine");
       } finally {
         (view as { reveal: typeof view.reveal }).reveal = orig;
+      }
+    }],
+    ["channel contract: every tool gives identical text over Language Model Tools and MCP", async () => {
+      await api.agent.apply();
+      assert.ok(api.agent.mcpEndpoint(), "MCP server is running under the default channels");
+      const lm = async (name: string, input: object) => {
+        const r = await vscode.lm.invokeTool(name, { toolInvocationToken: undefined, input });
+        return r.content.map((p) => (p as vscode.LanguageModelTextPart).value).join("");
+      };
+      const calls: Array<[string, object]> = [
+        ["sysml_list_files", {}],
+        ["sysml_get_element_tree", { depth: 1 }],
+        ["sysml_get_element", { qualifiedName: "Vehicle::Car" }],
+        ["sysml_validate", {}],
+      ];
+      for (const [name, input] of calls) {
+        const viaLm = await lm(name, input);
+        const viaMcp = await api.agent.testCallToolOverMcp(name, input);
+        assert.strictEqual(viaMcp.isError, false, `${name} over MCP`);
+        assert.strictEqual(viaLm, viaMcp.text, `${name}: identical results`);
+        JSON.parse(viaLm);
+      }
+      const car = JSON.parse(await lm("sysml_get_element", { qualifiedName: "Vehicle::Car" }));
+      assert.ok(car.elements.length > 0, "in-editor agent reads an element");
+    }],
+    ["channel contract: both channels see unsaved edits", async () => {
+      const edit = new vscode.WorkspaceEdit();
+      edit.insert(vehicleUri, new vscode.Position(1, 0), "  part def UnsavedClutch;\n");
+      assert.ok(await vscode.workspace.applyEdit(edit));
+      const doc = await vscode.workspace.openTextDocument(vehicleUri);
+      assert.ok(doc.isDirty, "edit is unsaved");
+      await waitFor(() => labels(api.provider.getChildren(rootOf("Vehicle"))).includes("UnsavedClutch"), 1500, "index sees the edit");
+      const input = { qualifiedName: "Vehicle::UnsavedClutch" };
+      const r = await vscode.lm.invokeTool("sysml_get_element", { toolInvocationToken: undefined, input });
+      const viaLm = r.content.map((p) => (p as vscode.LanguageModelTextPart).value).join("");
+      const viaMcp = await api.agent.testCallToolOverMcp("sysml_get_element", input);
+      assert.ok(viaLm.includes("UnsavedClutch"), "LM tools see unsaved content");
+      assert.ok(viaMcp.text.includes("UnsavedClutch"), "MCP sees unsaved content");
+      assert.strictEqual(viaLm, viaMcp.text);
+    }],
+    ["MCP rejects a wrong token; bridge reports no server for an unknown workspace", async () => {
+      const ep = api.agent.mcpEndpoint()!;
+      const res = await fetch(ep.url, { method: "POST", headers: { Authorization: "Bearer wrong", "content-type": "application/json" }, body: "{}" });
+      assert.strictEqual(res.status, 401);
+      const bridge = path.join(ext.extensionPath, "dist", "mcp-bridge.js");
+      const r = spawnSync("node", [bridge, "--workspace", path.join(os.tmpdir(), "sysml-no-such-workspace")], { encoding: "utf8" });
+      assert.strictEqual(r.status, 1);
+      assert.strictEqual(r.stderr.trim(), "VS Code must be open on this workspace");
+    }],
+    ["sysml.agent.channels switches channels without a reload", async () => {
+      const cfg = vscode.workspace.getConfiguration();
+      const set = async (v: string | undefined) => {
+        await cfg.update("sysml.agent.channels", v, vscode.ConfigurationTarget.Workspace);
+        await api.agent.apply();
+      };
+      const lmNames = () => vscode.lm.tools.map((t) => t.name).filter((n) => n.startsWith("sysml_")).sort();
+      try {
+        await set("mcp");
+        assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: false, mcpServer: true, registerWithVsCode: true });
+        assert.deepStrictEqual(lmNames(), []);
+        assert.ok(api.agent.mcpEndpoint());
+        await set("lmTools");
+        assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: true, mcpServer: false, registerWithVsCode: false });
+        assert.strictEqual(lmNames().length, 4);
+        assert.strictEqual(api.agent.mcpEndpoint(), undefined);
+        await set("both");
+        assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: true, mcpServer: true, registerWithVsCode: false });
+        assert.strictEqual(lmNames().length, 4);
+        assert.ok(api.agent.mcpEndpoint());
+      } finally {
+        await set(undefined);
       }
     }],
   ];
