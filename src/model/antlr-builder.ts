@@ -588,7 +588,10 @@ class Builder {
     if (!decl) return undefined;
     const qn = childCtxs(decl).find((q) => ruleName(q) === "qualifiedName")!;
     const recursive = decl.children.some((c) => c instanceof TerminalNode && c.symbol.text === "**");
-    return { target: ctxText(qn), wildcard: ruleName(decl) !== "membershipImport", recursive };
+    const info: ImportInfo = { target: ctxText(qn), wildcard: ruleName(decl) !== "membershipImport", recursive };
+    if ([ctx, decl, ...childCtxs(ctx)].some((c) => c.children?.some((k) => k instanceof TerminalNode && k.symbol.text === "all")))
+      info.all = true;
+    return info;
   }
 }
 

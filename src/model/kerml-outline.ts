@@ -329,6 +329,8 @@ class Reader {
       el.shortNameRange = this.range(t.start, t.end);
       i += 3;
     }
+    // `assoc all Name`, `struct all Name`: `all` is a modifier, not the name.
+    if (kind !== "import" && this.isWord(i, "all") && this.isNameTok(i + 1) && !NOT_A_NAME.has(this.toks[i + 1]!.text)) i++;
     if (kind !== "import" && this.isNameTok(i)) {
       const t = this.toks[i]!;
       if (t.type === "quoted" || !NOT_A_NAME.has(t.text)) {
@@ -417,7 +419,8 @@ class Reader {
   }
 
   private importInfo(): ImportInfo | undefined {
-    if (this.isWord(this.pos, "all")) this.pos++;
+    const all = this.isWord(this.pos, "all");
+    if (all) this.pos++;
     if (!this.isNameTok(this.pos)) return undefined;
     let target = this.toks[this.pos++]!.text;
     let wildcard = false;
@@ -437,7 +440,7 @@ class Reader {
         this.pos += 2;
       } else break;
     }
-    return { target, wildcard, recursive };
+    return all ? { target, wildcard, recursive, all } : { target, wildcard, recursive };
   }
 
   /** Relationships and multiplicity between the identification and the terminator. */
