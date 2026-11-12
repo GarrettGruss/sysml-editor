@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-12T02:42:34.117Z",
+  "date": "2026-11-12T02:45:44.380Z",
   "groups": {
     "release examples": {
       ".sysml": {
@@ -39,7 +39,7 @@
   "rejoinChecked": 346,
   "rejoinFailures": 0,
   "rejoinFailingFiles": [],
-  "standardLibrarySysmlParseMs": 17688,
+  "standardLibrarySysmlParseMs": 18257,
   "kermlFilesNotParsed": 94,
   "pass": true,
   "otherFailures": [
