@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { SEARCH_VIEW_ID, SearchViewProvider } from "./tree/search-view.js";
 import { nodeForElement, type ModelNode } from "./tree/tree-model.js";
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { VsCodeDiagramService } from "./diagram/agent-service.js";
@@ -16,7 +17,7 @@ import { registerRequirementsCommands } from "./requirements/commands.js";
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
   model: WorkspaceModel;
-  provider: Pick<ModelTreeProvider, "getParent" | "filter" | "setFilter" | "getTreeItem" | "isHanded" | "onDidChangeTreeData"> & { getChildren: ModelTreeProvider["getChildren"]; viewGetChildren: ModelTreeProvider["getChildren"] };
+  provider: Pick<ModelTreeProvider, "getParent" | "filter" | "setFilter" | "getTreeItem" | "isHanded" | "onDidChangeTreeData" | "ioCalls" | "pendingFolderRescans" | "setExpanded"> & { getChildren: ModelTreeProvider["getChildren"]; viewGetChildren: ModelTreeProvider["getChildren"] };
   view: vscode.TreeView<ModelNode>;
   agent: AgentIntegration;
   diagram: DiagramTestApi;
@@ -25,6 +26,8 @@ export interface TestApi {
   edit: ModelService;
   /** The requirements editor (table and document views). */
   requirements: RequirementsTestApi;
+  /** The search box: `post` delivers a message as the webview would. */
+  search: { post(message: unknown): void; query(): string };
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -59,12 +62,6 @@ export function activate(context: vscode.ExtensionContext): TestApi {
 
   requirements.revealInTree = diagrams.revealInTree;
 
-  const updateContext = () => {
-    const empty = !model.index.uris().some((u) => !model.index.isReadOnly(u));
-    void vscode.commands.executeCommand("setContext", "sysml.workspaceEmpty", empty);
-  };
-  // Until loading finishes the empty-workspace welcome must not show.
-  void vscode.commands.executeCommand("setContext", "sysml.workspaceEmpty", false);
   view.message = "Loading SysML model…";
   model.ready
     .catch((e: unknown) => {
@@ -73,11 +70,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     })
     .finally(() => {
       view.message = undefined;
-      updateContext();
     });
-  model.index.onDidChange(() => {
-    if (view.message === undefined) updateContext();
-  });
+  const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
   context.subscriptions.push(
     log,
@@ -85,6 +79,9 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     agent,
     provider,
     view,
+    view.onDidExpandElement((e) => provider.setExpanded(e.element, true)),
+    view.onDidCollapseElement((e) => provider.setExpanded(e.element, false)),
+    vscode.window.registerWebviewViewProvider(SEARCH_VIEW_ID, search, { webviewOptions: { retainContextWhenHidden: true } }),
     registerCursorSync(model.index, view, provider, (m) => log.warn(m)),
     diagrams,
     requirements,
@@ -100,6 +97,13 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
     vscode.commands.registerCommand("sysml.tree.showDiagrams", () => provider.setFilter("diagrams")),
     vscode.commands.registerCommand("sysml.tree.showElements", () => provider.setFilter("elements")),
+    vscode.commands.registerCommand("sysml.tree.clearSearch", () => {
+      provider.setQuery("");
+      search.setText("");
+    }),
+    provider.onDidChangeQuery((q) => {
+      view.description = q ? `Filter: ${q}` : undefined;
+    }),
   );
   // Tests read the tree directly; their objects are not the ones VS Code knows, so only `viewGetChildren` records.
   const testProvider = {
@@ -113,8 +117,15 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     getTreeItem: (n: ModelNode) => provider.getTreeItem(n),
     isHanded: (n: ModelNode) => provider.isHanded(n),
     onDidChangeTreeData: provider.onDidChangeTreeData,
+    get ioCalls() {
+      return provider.ioCalls;
+    },
+    get pendingFolderRescans() {
+      return provider.pendingFolderRescans;
+    },
+    setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
-  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query } };
 }
 
 export function deactivate(): void {}

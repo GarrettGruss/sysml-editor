@@ -11,20 +11,28 @@ The extension SHALL contribute a VS Code native tree view (not a webview) rooted
 - **WHEN** the workspace contains `models/vehicle/vehicle-general.sysmld` and the user switches the filter to Diagrams
 - **THEN** the tree shows `models`, then `vehicle`, then `vehicle-general.sysmld` with its diagram kind (for example "General") as description; the diagram file has no children and selecting it opens it in the diagram editor; `.sysml` files are not shown
 
+#### Scenario: Workspace without diagrams
+- **WHEN** the workspace contains no `.sysmld` files and the Diagrams view is selected
+- **THEN** the tree shows the workspace folders and their subfolders, all marked "no diagrams"
+
 #### Scenario: Multi-root workspace
 - **WHEN** the workspace has more than one workspace folder
 - **THEN** each view has one root node per workspace folder
 
-#### Scenario: Empty workspace
-- **WHEN** the workspace contains no `.sysml` files
-- **THEN** the view shows a welcome message with an action to create a new SysML file
+#### Scenario: Workspace without SysML files
+- **WHEN** the workspace contains no `.sysml` files and the Elements view is selected
+- **THEN** the tree still shows the workspace folders and their folders, all marked "no SysML files", and "New SysML File" is available from the view's title bar and from each folder's context menu, creating the file in that folder
+
+#### Scenario: No workspace folder
+- **WHEN** no folder is open
+- **THEN** the view shows a welcome message with an action to open a folder
 
 ### Requirement: Folders without SysML files
-In both views the tree SHALL show every workspace folder that is not excluded by `files.exclude` or `sysml.exclude`, including folders that contain no file of the kind the view shows at any depth. Such a folder SHALL be marked as empty (description "no SysML files" in the Elements view, "no diagrams" in the Diagrams view, and a dimmed icon) and SHALL have no children. Folders appear before files, each sorted by name.
+In both views the tree SHALL show every workspace folder that is not excluded by `files.exclude` or `sysml.exclude`, including folders that contain no file of the kind the view shows at any depth. Such a folder SHALL be marked as empty (description "no SysML files" in the Elements view, "no diagrams" in the Diagrams view, and a dimmed icon); expanding it SHALL show only its subfolders, which are marked the same way. Folders appear before files, each sorted by name.
 
 #### Scenario: Folder with no SysML files
 - **WHEN** the workspace contains a folder `docs/` with no `.sysml` file below it
-- **THEN** `docs` appears in the tree, marked "no SysML files", and cannot be expanded
+- **THEN** `docs` appears in the tree, marked "no SysML files", and expanding it shows only its subfolders, each marked "no SysML files"
 
 #### Scenario: Excluded folder
 - **WHEN** a folder matches `files.exclude` or `sysml.exclude` (for example `node_modules`)
@@ -61,3 +69,38 @@ When enabled, moving the cursor onto a declaration in the text editor SHALL reve
 #### Scenario: Cursor on declaration
 - **WHEN** the user places the cursor on `part engine : Engine;` in the text editor
 - **THEN** the `engine` tree item is revealed and selected
+
+### Requirement: Diagram list kept current without polling the workspace
+The Diagrams view SHALL keep its list of `.sysmld` files current from file-system events, and SHALL NOT periodically search the whole workspace. Because file watchers can miss changes inside a folder created moments earlier, the extension SHALL re-read only a newly created folder a small number of times over the following seconds, then stop.
+
+#### Scenario: Diagram deleted from a just-created folder
+- **WHEN** a folder is created, a diagram is added to it, and the diagram is deleted within a few seconds
+- **THEN** within ten seconds the folder is marked "no diagrams", and no full-workspace search ran
+
+#### Scenario: Idle workspace
+- **WHEN** no files or folders change
+- **THEN** the extension performs no directory reads or workspace searches for the Diagrams view
+
+### Requirement: Search above the tree
+The view container SHALL show a single-line search box above the tree. Typing SHALL filter the active view (Elements or Diagrams) to the nodes whose name matches the text, case-insensitively, plus the path leading to each match, expanded, including folders never expanded before. Clearing the box SHALL restore the unfiltered tree.
+
+#### Scenario: Search box is not part of the tree
+- **WHEN** the view container is shown
+- **THEN** the search box is a webview containing only the input, which talks to the extension only through `postMessage`, and the tree below it is the native tree view
+
+#### Scenario: Search for an element
+- **WHEN** the Elements view is selected and the user types `engine`
+- **THEN** the tree shows only the folders, files and owning elements leading to every element named like `engine`, with those elements visible, and selecting one behaves as in the unfiltered tree
+
+#### Scenario: Search in the Diagrams view
+- **WHEN** the Diagrams view is selected and the user types `state`
+- **THEN** the tree shows only the diagram files whose names match and the folders leading to them
+
+#### Scenario: No match
+- **WHEN** the text matches nothing
+- **THEN** the tree shows a single "No matches" item and the box keeps the text
+
+#### Scenario: Clear search
+- **WHEN** the user clears the box or presses Escape in it
+- **THEN** the unfiltered tree returns, with previously expanded nodes still expanded
+

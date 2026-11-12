@@ -10,7 +10,16 @@ export interface ModelNode {
   id: string;
   uri: string;
   /** Absent for element nodes (everything below a file in the Elements view). */
-  kind?: "folder" | "file" | "diagram";
+  kind?: "folder" | "file" | "diagram" | "message";
+}
+
+/** A path created or deleted in the workspace: `parent` is the folder URI key above `path`. */
+export interface FolderChange {
+  parent: string;
+  path: string;
+  deleted: boolean;
+  /** The URI the file system event carried (a `vscode.Uri`, opaque here), so it need not be rebuilt from `path`. */
+  uri?: unknown;
 }
 
 export interface NodeInfo {
@@ -252,6 +261,37 @@ export function isDiagramNode(n: ModelNode): boolean {
   return n.kind === "diagram";
 }
 
+export function isMessageNode(n: ModelNode): boolean {
+  return n.kind === "message";
+}
+
+/** The single item shown while a search matches nothing. */
+export const NO_MATCHES_NODE: ModelNode = { id: "!no-matches", uri: "", kind: "message" };
+
+/** Searches matching more than this many nodes show their paths collapsed. */
+export const MAX_AUTO_EXPAND = 200;
+/** Subfolders an empty folder lists before "...N more folders". */
+export const MAX_EMPTY_FOLDER_LISTING = 200;
+
+const TOO_MANY_PREFIX = "!too-many:";
+const MORE_FOLDERS_PREFIX = "!more-folders:";
+
+/** The item at the top of a search with too many matches to expand. */
+export function tooManyMatchesNode(count: number): ModelNode {
+  return { id: TOO_MANY_PREFIX + count, uri: "", kind: "message" };
+}
+
+export function moreFoldersNode(parentUri: string, count: number): ModelNode {
+  return { id: MORE_FOLDERS_PREFIX + count + ":" + parentUri, uri: "", kind: "message" };
+}
+
+/** The text of a message node. */
+export function messageText(node: ModelNode): string {
+  if (node.id.startsWith(TOO_MANY_PREFIX)) return `${node.id.slice(TOO_MANY_PREFIX.length)} matches, refine the search to expand`;
+  if (node.id.startsWith(MORE_FOLDERS_PREFIX)) return `\u2026${node.id.slice(MORE_FOLDERS_PREFIX.length).split(":")[0]} more folders`;
+  return "No matches";
+}
+
 export function isFileNode(n: ModelNode): boolean {
   return n.kind === "file";
 }
@@ -315,17 +355,16 @@ function relPath(root: string, uri: string): string {
 }
 
 /**
- * The roots of both views: one per workspace folder. Empty while the workspace has no `.sysml`
- * file at all, so the view's welcome message (with its New SysML File action) shows.
+ * The roots of the Elements view: one per workspace folder, also when no `.sysml` file exists (they are then
+ * marked "no SysML files"). Empty only when no folder is open, so the view's welcome message shows.
  */
-export function folderRoots(index: ModelIndex, env: FolderEnv): ModelNode[] {
-  if (workspaceUris(index).length === 0) return [];
+export function folderRoots(_index: ModelIndex, env: FolderEnv): ModelNode[] {
   return env.roots.map((r) => folderNode(r.uri));
 }
 
-/** The roots of the Diagrams view: the workspace folders, whenever any diagram exists. */
-export function diagramRoots(env: FolderEnv, diagrams: ReadonlySet<string>): ModelNode[] {
-  return diagrams.size === 0 ? [] : env.roots.map((r) => folderNode(r.uri));
+/** The roots of the Diagrams view: the workspace folders. */
+export function diagramRoots(env: FolderEnv, _diagrams: ReadonlySet<string>): ModelNode[] {
+  return env.roots.map((r) => folderNode(r.uri));
 }
 
 /** The shown entries of a folder: non-excluded sub folders (by name) and the names of files passing `isFile`, sorted. */
@@ -349,15 +388,21 @@ async function shownEntries(env: FolderEnv, node: ModelNode, isFile: (name: stri
   };
 }
 
+/** An empty folder lists at most MAX_EMPTY_FOLDER_LISTING subfolders, then a "more folders" item. */
+function capFolders(node: ModelNode, folders: ModelNode[], empty: boolean): ModelNode[] {
+  if (!empty || folders.length <= MAX_EMPTY_FOLDER_LISTING) return folders;
+  return [...folders.slice(0, MAX_EMPTY_FOLDER_LISTING), moreFoldersNode(node.uri, folders.length - MAX_EMPTY_FOLDER_LISTING)];
+}
+
 /** Folders (by name), then files (by name), of a folder. Empty folders have no children. */
 export async function folderChildren(index: ModelIndex, env: FolderEnv, node: ModelNode): Promise<ModelNode[]> {
-  if (!hasSysmlBelow(index, node.uri)) return [];
+  const empty = !hasSysmlBelow(index, node.uri);
   const indexed = new Set(workspaceUris(index));
   const e = await shownEntries(env, node, (n) => n.toLowerCase().endsWith(".sysml"));
   if (!e) return [];
   return [
-    ...e.folders.map((n) => folderNode(env.child(node.uri, n))),
-    ...e.files.map((n) => env.child(node.uri, n)).filter((u) => indexed.has(u)).map(fileNode),
+    ...capFolders(node, e.folders.map((n) => folderNode(env.child(node.uri, n))), empty),
+    ...(empty ? [] : e.files.map((n) => env.child(node.uri, n)).filter((u) => indexed.has(u)).map(fileNode)),
   ];
 }
 
@@ -374,6 +419,7 @@ export function folderInfo(index: ModelIndex, env: FolderEnv, node: ModelNode): 
 
 /** Parent in the Elements view: element -> file -> folders -> workspace folder. */
 export function folderParent(env: FolderEnv, node: ModelNode): ModelNode | undefined {
+  if (isMessageNode(node)) return undefined;
   if (isFolderNode(node)) {
     if (env.roots.some((r) => r.uri === node.uri) || !rootOf(env, node.uri)) return undefined;
     return folderNode(node.uri.slice(0, node.uri.lastIndexOf("/")));
@@ -457,12 +503,12 @@ export function hasDiagramBelow(diagrams: ReadonlySet<string>, folderUri: string
 
 /** Folders (by name), then diagram files (by name), of a folder. Folders without diagrams have no children. */
 export async function diagramChildren(diagrams: ReadonlySet<string>, env: FolderEnv, node: ModelNode): Promise<ModelNode[]> {
-  if (!hasDiagramBelow(diagrams, node.uri)) return [];
+  const empty = !hasDiagramBelow(diagrams, node.uri);
   const e = await shownEntries(env, node, (n) => n.toLowerCase().endsWith(".sysmld"));
   if (!e) return [];
   return [
-    ...e.folders.map((n) => folderNode(env.child(node.uri, n))),
-    ...e.files.map((n) => env.child(node.uri, n)).filter((u) => diagrams.has(u)).map(diagramNode),
+    ...capFolders(node, e.folders.map((n) => folderNode(env.child(node.uri, n))), empty),
+    ...(empty ? [] : e.files.map((n) => env.child(node.uri, n)).filter((u) => diagrams.has(u)).map(diagramNode)),
   ];
 }
 
@@ -483,4 +529,90 @@ export function affectedDiagramNodes(env: FolderEnv, previous: ReadonlySet<strin
   }
   for (const u of changed) if (current.has(u) && !out.has(u)) out.set(u, diagramNode(u));
   return [...out.values()];
+}
+
+// ---- Search: filter the tree to the nodes matching a query, plus the path to them ----
+
+/** Case-insensitive substring test of a trimmed query; an empty query matches nothing (it means "no filter"). */
+export function matchesQuery(text: string | undefined, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return q.length > 0 && text !== undefined && text.toLowerCase().includes(q);
+}
+
+/** What stays visible in the Elements view while a query is active. */
+export interface ElementFilter {
+  /** Element node ids that match or lead to a match. */
+  elements: ReadonlySet<string>;
+  /** The subset of `elements` that has a matching descendant (expanded while filtering). */
+  expanded: ReadonlySet<string>;
+  /** Files that contain a match, or whose name matches. */
+  files: ReadonlySet<string>;
+  /** The subset of `files` with matching elements (the others match by name only and show no children). */
+  contentFiles: ReadonlySet<string>;
+  /** The number of matching elements and file names. */
+  matches: number;
+  /** Folders above those files. */
+  folders: ReadonlySet<string>;
+}
+
+/** Match the declared name or short name of every element of every indexed workspace file. */
+export function buildElementFilter(index: ModelIndex, query: string): ElementFilter {
+  const elements = new Set<string>();
+  const expanded = new Set<string>();
+  const files = new Set<string>();
+  const contentFiles = new Set<string>();
+  let matches = 0;
+  for (const uri of workspaceUris(index)) {
+    if (matchesQuery(fileName(uri), query)) {
+      files.add(uri);
+      matches++;
+    }
+    const doc = index.getDocument(uri);
+    // A file that never parsed cleanly shows only its error placeholder, no elements.
+    if (!doc || (!doc.everParsedCleanly && doc.errors.length > 0)) continue;
+    const visit = (siblings: readonly Element[], parentId: string | undefined): boolean => {
+      let any = false;
+      const segs = segments(siblings);
+      for (const e of siblings) {
+        const id = parentId === undefined ? makeId(uri, [segs.get(e)!]) : parentId + "/" + segs.get(e)!;
+        const below = visit(visibleChildren(e), id);
+        const self = matchesQuery(e.name, query) || matchesQuery(e.shortName, query);
+        if (self) matches++;
+        if (self || below) {
+          elements.add(id);
+          if (below) expanded.add(id);
+          any = true;
+        }
+      }
+      return any;
+    };
+    if (visit(doc.model.roots.filter(isVisible), undefined)) {
+      files.add(uri);
+      contentFiles.add(uri);
+    }
+  }
+  return { elements, expanded, files, contentFiles, matches, folders: ancestorsOf(files) };
+}
+
+/** What stays visible in the Diagrams view while a query is active. */
+export interface DiagramFilter {
+  files: ReadonlySet<string>;
+  folders: ReadonlySet<string>;
+}
+
+/** Match the file names of the diagram set. */
+export function buildDiagramFilter(diagrams: Iterable<string>, query: string): DiagramFilter {
+  const files = new Set<string>();
+  for (const u of diagrams) if (matchesQuery(fileName(u), query)) files.add(u);
+  return { files, folders: ancestorsOf(files) };
+}
+
+/** Keep the folder and file/diagram nodes that lie on the way to a match. */
+export function keepFolderNodes(nodes: readonly ModelNode[], filter: { files: ReadonlySet<string>; folders: ReadonlySet<string> }): ModelNode[] {
+  return nodes.filter((n) => (isFolderNode(n) ? filter.folders.has(n.uri) : filter.files.has(n.uri)));
+}
+
+/** Keep the element nodes that match or lead to a match. */
+export function keepElementNodes(nodes: readonly ModelNode[], filter: ElementFilter): ModelNode[] {
+  return nodes.filter((n) => filter.elements.has(n.id));
 }

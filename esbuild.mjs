@@ -37,3 +37,10 @@ await build({
   entryPoints: ["src/webview/requirements/main.ts"], outfile: "dist/webview/requirements.js",
 });
 cpSync("src/webview/requirements/requirements.css", "dist/webview/requirements.css");
+
+// The search box above the tree, a small webview under the same strict CSP.
+await build({
+  bundle: true, platform: "browser", format: "iife", target: "es2022", minify: true,
+  entryPoints: ["src/webview/search/main.ts"], outfile: "dist/webview/search.js",
+});
+cpSync("src/webview/search/search.css", "dist/webview/search.css");

@@ -3,11 +3,13 @@ import * as vscode from "vscode";
 import { uriKey } from "../workspace/uri-key.js";
 import type { ModelIndex } from "../model/index.js";
 import { ELEMENT_MIME } from "../diagram/protocol.js";
+import { RescanScheduler } from "./rescan-scheduler.js";
 import { makeExcludeFilter, patternsFromObject } from "../workspace/exclude.js";
 import {
+  NO_MATCHES_NODE, MAX_AUTO_EXPAND, messageText, tooManyMatchesNode, buildDiagramFilter, buildElementFilter, isMessageNode, keepElementNodes, keepFolderNodes, isExcludedPath,
   affectedDiagramNodes, affectedFolderNodes, childNodes, diagramChildren, diagramFolderInfo, diagramKindLabel, elementNames, fileChildren, fileName, firstErrorPosition, firstErrorText,
   diagramRoots, folderChildren, folderInfo, folderParent, folderRoots, isDiagramNode, isErrorNode, isFileNode, isFolderNode, nodeAtOffset, nodeInfo, resolveNode, visibleDiagrams, workspaceUris,
-  type FolderEnv, type ModelNode,
+  type DiagramFilter, type ElementFilter, type FolderChange, type FolderEnv, type ModelNode,
 } from "./tree-model.js";
 
 export type TreeFilter = "elements" | "diagrams";
@@ -41,6 +43,12 @@ export function workspaceFolderEnv(): FolderEnv {
 }
 
 export const VIEW_ID = "sysmlModel";
+/** Seconds after a folder is created at which its subtree is read again for diagrams (watchers may have missed some). */
+const SUBTREE_RESCAN_MS = [1000, 3000, 10000];
+/** Created folders re-read at once per workspace folder; more collapse into their common folder. */
+const MAX_SCHEDULED_FOLDERS = 20;
+/** Event order entries kept before the ones no re-read can still need are dropped. */
+const MAX_EVENTS = 1000;
 
 const ICONS: Record<string, string> = {
   package: "package",
@@ -73,15 +81,51 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private readonly kinds = new Map<string, string | undefined>();
   private diagramsReady: Promise<void> = Promise.resolve();
   private readonly subs: vscode.Disposable[] = [];
+  private readonly env: FolderEnv;
+  /** Workspace searches and directory reads done for the tree (a test hook: an idle workspace does none). */
+  private io = 0;
+  /** The few re-reads of newly created folders: skipped below a scheduled folder, collapsed in bursts. */
+  private readonly rescans = new RescanScheduler<vscode.Uri>(
+    (_path, uri) => void this.rescanSubtree(uri),
+    SUBTREE_RESCAN_MS,
+    {
+      max: MAX_SCHEDULED_FOLDERS,
+      bucketOf: (path) => this.env.roots.find((r) => path === r.uri || path.startsWith(r.uri + "/"))?.uri,
+      // The common folder is above the original URI by the difference in segments; walk up from it.
+      merge: (common, from) => {
+        const f = from[0]!;
+        const up = f.path.split("/").length - common.split("/").length;
+        return up <= 0 ? f.payload : vscode.Uri.joinPath(f.payload, ...Array<string>(up).fill(".."));
+      },
+    },
+  );
+  private readonly emitterQuery = new vscode.EventEmitter<string>();
+  /** Fires with the new query text whenever the search changes. */
+  readonly onDidChangeQuery = this.emitterQuery.event;
+  private queryValue = "";
+  private queryGeneration = 0;
+  private elementFilterCache: ElementFilter | undefined;
+  private diagramFilterCache: DiagramFilter | undefined;
+  private filterTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Nodes the user expanded in the unfiltered tree, so their state returns when a search is cleared. */
+  private readonly expandedIds = new Set<string>();
   /** Why a document cannot be edited (workspace boundary, `sysml.exclude`, not a file); such nodes get no Add Child, Rename or Delete. */
   editBlocker?: (uri: string) => string | undefined;
 
   constructor(
     readonly index: ModelIndex,
-    private readonly env: FolderEnv = workspaceFolderEnv(),
+    env: FolderEnv = workspaceFolderEnv(),
     private readonly state?: vscode.Memento,
-    folderChanges?: vscode.Event<string>,
+    folderChanges?: vscode.Event<FolderChange>,
   ) {
+    this.env = Object.create(env, {
+      list: {
+        value: (folderUri: string) => {
+          this.io++;
+          return env.list(folderUri);
+        },
+      },
+    }) as FolderEnv;
     this.filterValue = state?.get<TreeFilter>(FILTER_KEY) === "diagrams" ? "diagrams" : "elements";
     this.files = new Set(workspaceUris(index));
     void vscode.commands.executeCommand("setContext", "sysml.treeFilter", this.filterValue);
@@ -93,21 +137,19 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       watcher.onDidDelete((u) => this.onDiagramFile(uriKey(u), false)),
       watcher.onDidChange((u) => this.onDiagramChanged(uriKey(u))),
       index.onDidChange((e) => this.onModelChange(e.uris)),
-      vscode.workspace.onDidChangeWorkspaceFolders(() => this.fullRefresh()),
+      vscode.workspace.onDidChangeWorkspaceFolders(() => this.rescanAll()),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (!["sysml.exclude", "files.exclude"].some((k) => e.affectsConfiguration(k))) return;
-        this.diagramsDirty = true;
-        if (this.filterValue === "diagrams") this.diagramsReady = this.scanDiagrams().then(() => this.fullRefresh());
-        this.fullRefresh();
+        if (["sysml.exclude", "files.exclude"].some((k) => e.affectsConfiguration(k))) this.rescanAll();
       }),
     );
-    // File watchers can miss changes in folders created moments before (inotify watches are added late), so while
-    // the Diagrams view is shown the diagram set is also re-read now and then; an unchanged set fires nothing.
-    const poll = setInterval(() => {
-      if (this.filterValue === "diagrams" && this.scanning === 0) this.diagramsReady = this.scanDiagrams();
-    }, 2000);
-    this.subs.push({ dispose: () => clearInterval(poll) });
     if (folderChanges) this.subs.push(folderChanges((parent) => this.onFolderChange(parent)));
+  }
+
+  /** The diagram set may be wrong everywhere (configuration or workspace folders changed): rescan now if shown, else when shown. */
+  private rescanAll(): void {
+    this.diagramsDirty = true;
+    if (this.filterValue === "diagrams") this.diagramsReady = this.scanDiagrams().then(() => this.fullRefresh());
+    this.fullRefresh();
   }
 
   /** Refresh everything; VS Code asks for the children again, so what was handed out is forgotten. */
@@ -161,6 +203,8 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private async scanDiagrams(): Promise<void> {
     const generation = ++this.scanGeneration;
     this.diagramsDirty = false;
+    this.scanEvents.clear();
+    this.lastEvent.clear(); // reads started before this scan give way to it anyway
     this.scanning++;
     try {
       await this.runScan(generation);
@@ -171,28 +215,50 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   private scanGeneration = 0;
   private scanning = 0;
+  /** File events seen while a full scan runs (the scan may have read the disk before them), replayed on its result. */
+  private readonly scanEvents = new Map<string, boolean>();
+  /** Order of the file events applied, so a folder re-read that started before an event does not undo it. */
+  private eventSeq = 0;
+  private readonly lastEvent = new Map<string, number>();
+  /** Start orders of the folder re-reads in flight. */
+  private readonly readsInFlight = new Set<number>();
+
+  /** Forget events no folder re-read in flight can compare against. */
+  private pruneEvents(): void {
+    if (this.lastEvent.size <= MAX_EVENTS) return;
+    const oldest = this.readsInFlight.size ? Math.min(...this.readsInFlight) : Infinity;
+    for (const [u, seq] of this.lastEvent) if (seq <= oldest) this.lastEvent.delete(u);
+  }
+
   /** The diagram set may be stale (changes seen while the Elements view was shown); rescanned when switching to Diagrams. */
   private diagramsDirty = false;
 
   private async runScan(generation: number): Promise<void> {
     let found: vscode.Uri[];
+    this.io++;
     try {
       found = await vscode.workspace.findFiles("**/*.sysmld", undefined);
     } catch {
       return;
     }
     if (generation !== this.scanGeneration) return;
-    this.applyDiagrams(visibleDiagrams(this.env, found.map(uriKey)));
+    const next = visibleDiagrams(this.env, found.map(uriKey));
+    for (const [u, created] of this.scanEvents) {
+      if (created && visibleDiagrams(this.env, [u]).size > 0) next.add(u);
+      else if (!created) next.delete(u);
+    }
+    this.scanEvents.clear();
+    this.applyDiagrams(next);
   }
 
   private applyDiagrams(next: ReadonlySet<string>): void {
     const previous = this.diagrams;
     this.diagrams = next;
     for (const u of this.kinds.keys()) if (!next.has(u)) this.kinds.delete(u);
+    this.diagramFilterCache = undefined;
     if (this.filterValue !== "diagrams") return;
-    // The roots appear with the first diagram and disappear with the last (the Diagrams view has no other roots).
-    if ((previous.size === 0) !== (next.size === 0)) {
-      this.fullRefresh();
+    if (this.queryValue) {
+      this.scheduleFilterRefresh();
       return;
     }
     const nodes = affectedDiagramNodes(this.env, previous, next);
@@ -205,34 +271,73 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       this.diagramsDirty = true;
       return;
     }
-    if (this.scanning > 0) {
-      this.scheduleRescan();
-      return;
-    }
+    if (this.scanning > 0) this.scanEvents.set(uri, created);
+    this.lastEvent.set(uri, ++this.eventSeq);
+    this.pruneEvents();
     const next = new Set(this.diagrams);
     if (created) {
       if (visibleDiagrams(this.env, [uri]).size === 0) return;
       next.add(uri);
-    } else if (!next.delete(uri)) {
-      this.scheduleRescan();
-      return;
-    }
+    } else if (!next.delete(uri)) return;
     this.applyDiagrams(next);
-    // Watchers can drop or reorder events (and a search may have read the disk mid-change): converge on the real set.
-    this.scheduleRescan();
   }
 
-  private rescanTimer: ReturnType<typeof setTimeout> | undefined;
-
-  private scheduleRescan(): void {
-    if (this.filterValue !== "diagrams") {
-      this.diagramsDirty = true;
-      return;
+  /**
+   * File watchers can miss changes inside a folder created moments earlier (the watch is added late), so
+   * that one folder's subtree is read again at about 1 s, 3 s and 10 s, then never again. Only directories.
+   */
+  private async rescanCreatedFolder(path: string, uri: vscode.Uri): Promise<void> {
+    if (this.filterValue !== "diagrams" || isExcludedPath(this.env, path)) return;
+    try {
+      if (((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) === 0) return;
+    } catch {
+      return; // gone again
     }
-    clearTimeout(this.rescanTimer);
-    this.rescanTimer = setTimeout(() => {
-      this.diagramsReady = this.scanDiagrams();
-    }, 150);
+    if (this.filterValue !== "diagrams") return;
+    this.rescans.schedule(path, uri);
+  }
+
+  /** Reconcile the diagram entries below `path` (adds and removes) with the disk and refresh the affected folders. */
+  private async rescanSubtree(uri: vscode.Uri): Promise<void> {
+    if (this.filterValue !== "diagrams") return;
+    const path = uriKey(uri);
+    const generation = this.scanGeneration;
+    const start = this.eventSeq;
+    this.io++;
+    let found: vscode.Uri[];
+    this.readsInFlight.add(start);
+    try {
+      found = await vscode.workspace.findFiles(new vscode.RelativePattern(uri, "**/*.sysmld"));
+    } catch {
+      return;
+    } finally {
+      this.readsInFlight.delete(start);
+    }
+    // A full scan started meanwhile has the newer word.
+    if (generation !== this.scanGeneration || this.filterValue !== "diagrams") return;
+    const prefix = path + "/";
+    const fresh = (u: string) => (this.lastEvent.get(u) ?? 0) > start;
+    // Entries an event touched after the read began keep the event's word.
+    const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix) || fresh(u)));
+    for (const u of visibleDiagrams(this.env, found.map(uriKey))) if (!fresh(u) || this.diagrams.has(u)) next.add(u);
+    if (next.size === this.diagrams.size && [...next].every((u) => this.diagrams.has(u))) return;
+    this.applyDiagrams(next);
+  }
+
+  /** A deleted folder takes the diagrams below it out of the set. */
+  private dropDiagramsBelow(path: string): void {
+    const prefix = path + "/";
+    const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix)));
+    if (next.size !== this.diagrams.size) this.applyDiagrams(next);
+  }
+
+  /** Test hooks: how many workspace searches and directory reads the tree did, and how many folder re-reads are still due. */
+  get ioCalls(): number {
+    return this.io;
+  }
+
+  get pendingFolderRescans(): number {
+    return this.rescans.pending;
   }
 
   private onDiagramChanged(uri: string): void {
@@ -245,6 +350,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private async loadKind(uri: string): Promise<void> {
     if (this.kinds.has(uri)) return;
     let label: string | undefined;
+    this.io++;
     try {
       const bytes = await vscode.workspace.fs.readFile(vscode.Uri.parse(uri));
       label = diagramKindLabel(new TextDecoder().decode(bytes.subarray(0, 4096)));
@@ -258,12 +364,17 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private folderTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** A path was created or deleted below `parent` (a folder URI key): refresh that node only, batched. */
-  private onFolderChange(parent: string): void {
-    if (this.filterValue === "diagrams") {
-      this.scheduleRescan();
-      return;
+  private onFolderChange({ parent, path, deleted, uri }: FolderChange): void {
+    if (deleted) {
+      this.rescans.cancel(path);
+      const prefix = path + "/";
+      for (const id of [...this.expandedIds]) if (id === path || id.startsWith(prefix)) this.expandedIds.delete(id);
     }
-    this.diagramsDirty = true;
+    if (this.filterValue === "diagrams") {
+      if (deleted) this.dropDiagramsBelow(path);
+      else void this.rescanCreatedFolder(path, (uri as vscode.Uri | undefined) ?? vscode.Uri.parse(path));
+    } else this.diagramsDirty = true;
+    this.leafFolders.delete(parent);
     if (!this.handed.has(parent)) return;
     const root = this.env.roots.find((r) => parent === r.uri || parent.startsWith(r.uri + "/"));
     if (!root || this.env.excluded(parent.slice(root.uri.length + 1))) return;
@@ -285,10 +396,9 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   private onModelChange(uris: string[]): void {
     const nodes = this.filterValue === "elements" ? affectedFolderNodes(this.index, this.env, this.files, uris) : [];
-    const wasEmpty = this.files.size === 0;
     this.files = new Set(workspaceUris(this.index));
-    // The roots appear and disappear with the first and last file (the welcome message shows when there are none).
-    if (wasEmpty !== (this.files.size === 0)) this.fullRefresh();
+    this.elementFilterCache = undefined;
+    if (this.queryValue) this.scheduleFilterRefresh();
     else if (nodes.length) this.fireTargeted(nodes);
   }
 
@@ -305,22 +415,119 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     };
     if (this.filterValue === "diagrams") {
       return this.diagramsReady.then(async () => {
-        if (!node) return track(diagramRoots(this.env, this.diagrams));
+        const f = this.queryValue ? this.diagramFilterNow() : undefined;
+        if (!node) {
+          const roots = diagramRoots(this.env, this.diagrams);
+          if (!f) return track(roots);
+          const kept = keepFolderNodes(roots, f);
+          return track(this.withTooMany(kept));
+        }
         if (!isFolderNode(node)) return [];
-        const kids = await diagramChildren(this.diagrams, this.env, node);
+        let kids = await diagramChildren(this.diagrams, this.env, node);
+        this.noteSubfolders(node, kids);
+        if (f) kids = keepFolderNodes(kids, f);
         await Promise.all(kids.filter(isDiagramNode).map((k) => this.loadKind(k.uri)));
         return track(kids);
       });
     }
-    if (!node) return track(folderRoots(this.index, this.env));
-    if (isFolderNode(node)) return folderChildren(this.index, this.env, node).then(track);
-    if (isFileNode(node)) return track(fileChildren(this.index, node));
-    return track(childNodes(this.index, node));
+    const f = this.queryValue ? this.elementFilterNow() : undefined;
+    if (!node) {
+      const roots = folderRoots(this.index, this.env);
+      if (!f) return track(roots);
+      const kept = keepFolderNodes(roots, f);
+      return track(this.withTooMany(kept));
+    }
+    if (isMessageNode(node)) return [];
+    if (isFolderNode(node)) {
+      return folderChildren(this.index, this.env, node).then((k) => {
+        this.noteSubfolders(node, k);
+        return track(f ? keepFolderNodes(k, f) : k);
+      });
+    }
+    const kids = isFileNode(node) ? fileChildren(this.index, node) : childNodes(this.index, node);
+    return track(f ? keepElementNodes(kids, f) : kids);
+  }
+
+  /** The roots of a filtered view: "no matches" for none, a "refine the search" item first when there are too many to expand. */
+  private withTooMany(kept: ModelNode[]): ModelNode[] {
+    if (!kept.length) return [NO_MATCHES_NODE];
+    return this.tooManyMatches() ? [tooManyMatchesNode(this.matchCount()), ...kept] : kept;
+  }
+
+  /** Empty folders without subfolders found when last listed: shown as leaves. */
+  private readonly leafFolders = new Set<string>();
+
+  private noteSubfolders(node: ModelNode, kids: readonly ModelNode[]): void {
+    if (kids.length === 0) this.leafFolders.add(node.uri);
+    else this.leafFolders.delete(node.uri);
+  }
+
+  private elementFilterNow(): ElementFilter {
+    return (this.elementFilterCache ??= buildElementFilter(this.index, this.queryValue));
+  }
+
+  private diagramFilterNow(): DiagramFilter {
+    return (this.diagramFilterCache ??= buildDiagramFilter(this.diagrams, this.queryValue));
+  }
+
+  get query(): string {
+    return this.queryValue;
+  }
+
+  /** Filter the active view to the nodes matching `text` (and the path to them); an empty text restores the tree. */
+  setQuery(text: string): void {
+    const q = text.trim();
+    if (q === this.queryValue) return;
+    this.queryValue = q;
+    this.queryGeneration++;
+    this.elementFilterCache = undefined;
+    this.diagramFilterCache = undefined;
+    clearTimeout(this.filterTimer);
+    this.emitterQuery.fire(q);
+    void vscode.commands.executeCommand("setContext", "sysml.searchActive", q.length > 0);
+    this.fullRefresh();
+  }
+
+  /** How many nodes match the active query (0 without one). */
+  private matchCount(): number {
+    if (!this.queryValue) return 0;
+    return this.filterValue === "diagrams" ? this.diagramFilterNow().files.size : this.elementFilterNow().matches;
+  }
+
+  private tooManyMatches(): boolean {
+    return this.matchCount() > MAX_AUTO_EXPAND;
+  }
+
+  /** The model or the diagram set changed while a query is active: recompute the matches once the changes settle. */
+  private scheduleFilterRefresh(): void {
+    clearTimeout(this.filterTimer);
+    this.filterTimer = setTimeout(() => this.fullRefresh(), 150);
+  }
+
+  /** The user expanded or collapsed a node in the unfiltered tree; remembered so the state returns after a search. */
+  setExpanded(node: ModelNode, expanded: boolean): void {
+    if (this.queryValue) return;
+    if (expanded) this.expandedIds.add(node.id);
+    else this.expandedIds.delete(node.id);
+  }
+
+  /** Whether the node is part of the filtered tree (always true without a query). */
+  private isShown(node: ModelNode): boolean {
+    if (!this.queryValue) return true;
+    if (this.filterValue === "diagrams") {
+      const f = this.diagramFilterNow();
+      return isFolderNode(node) ? f.folders.has(node.uri) : f.files.has(node.uri);
+    }
+    const f = this.elementFilterNow();
+    if (isFolderNode(node)) return f.folders.has(node.uri);
+    if (isFileNode(node)) return f.files.has(node.uri);
+    return f.elements.has(node.id);
   }
 
   /** Select a node; VS Code resolves it through getParent/getChildren. Failures are logged. */
   async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void): Promise<void> {
     const say = log ?? ((m: string) => console.warn(m));
+    if (!this.isShown(node)) return;
     try {
       await view.reveal(node, { select: true, focus: false, expand: false });
     } catch (e) {
@@ -345,7 +552,9 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     }
     if (isFolderNode(node)) {
       const f = this.filterValue === "diagrams" ? diagramFolderInfo(this.diagrams, this.env, node) : folderInfo(this.index, this.env, node);
-      const item = new vscode.TreeItem(f.label, f.empty ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
+      // An empty folder expands to its subfolders; it is a leaf once a listing found none (read lazily).
+      const leaf = f.empty && this.leafFolders.has(node.uri);
+      const item = new vscode.TreeItem(f.label, leaf ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
       item.id = node.id;
       item.description = f.description;
       item.iconPath = f.empty ? new vscode.ThemeIcon("folder", new vscode.ThemeColor("disabledForeground")) : new vscode.ThemeIcon("folder");
@@ -364,6 +573,37 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   }
 
   getTreeItem(node: ModelNode): vscode.TreeItem {
+    const item = this.buildItem(node);
+    if (isMessageNode(node)) return item;
+    if (!this.queryValue) {
+      if (item.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed && this.expandedIds.has(node.id)) item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+      return item;
+    }
+    // While searching, the ids differ from the normal ones so VS Code applies the expanded state given here
+    // instead of the one it remembers for the unfiltered tree, which returns when the search is cleared.
+    item.id = `q${this.queryGeneration}:${node.id}`;
+    // A search with many matches shows its path nodes collapsed: expanding them all would render nearly the whole model.
+    const open = this.tooManyMatches() ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded;
+    if (this.filterValue === "diagrams" || isFolderNode(node)) {
+      if (item.collapsibleState === vscode.TreeItemCollapsibleState.Collapsed) item.collapsibleState = open;
+    } else if (isFileNode(node)) {
+      // A file matching only by name has no matching children to show.
+      item.collapsibleState = this.elementFilterNow().contentFiles.has(node.uri) ? open : vscode.TreeItemCollapsibleState.None;
+    } else {
+      const f = this.elementFilterNow();
+      // Elements that only match have their children hidden: no twistie.
+      item.collapsibleState = f.expanded.has(node.id) ? open : vscode.TreeItemCollapsibleState.None;
+    }
+    return item;
+  }
+
+  private buildItem(node: ModelNode): vscode.TreeItem {
+    if (isMessageNode(node)) {
+      const item = new vscode.TreeItem(messageText(node), vscode.TreeItemCollapsibleState.None);
+      item.id = node.id;
+      item.contextValue = node === NO_MATCHES_NODE ? "sysmlNoMatches" : "sysmlMessage";
+      return item;
+    }
     if (isFolderNode(node) || isFileNode(node) || isDiagramNode(node)) return this.folderItem(node);
     const info = nodeInfo(this.index, node);
     const item = new vscode.TreeItem(info?.label ?? "<gone>");
@@ -390,7 +630,9 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   dispose(): void {
     clearTimeout(this.folderTimer);
-    clearTimeout(this.rescanTimer);
+    clearTimeout(this.filterTimer);
+    this.rescans.clear();
+    this.emitterQuery.dispose();
     for (const s of this.subs) s.dispose();
     this.emitter.dispose();
   }
@@ -453,16 +695,30 @@ export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<Mode
   });
 }
 
+/** Create `model.sysml` (or `modelN.sysml`) in the folder node, else in the workspace folder (asking which when there are several). */
 export async function createNewFile(node?: ModelNode): Promise<void> {
-  const folder = node && isFolderNode(node) ? { uri: vscode.Uri.parse(node.uri) } : vscode.workspace.workspaceFolders?.[0];
+  let folderUri: vscode.Uri | undefined;
+  if (node && isFolderNode(node)) folderUri = vscode.Uri.parse(node.uri);
+  else {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    if (folders.length === 1) folderUri = folders[0]!.uri;
+    else if (folders.length > 1) {
+      const pick = await vscode.window.showQuickPick(
+        folders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+        { placeHolder: "Folder for the new SysML file" },
+      );
+      if (!pick) return;
+      folderUri = pick.uri;
+    }
+  }
   const content = new TextEncoder().encode("package NewPackage {\n}\n");
-  if (!folder) {
+  if (!folderUri) {
     const doc = await vscode.workspace.openTextDocument({ content: "package NewPackage {\n}\n" });
     await vscode.window.showTextDocument(doc);
     return;
   }
-  let uri = vscode.Uri.joinPath(folder.uri, "model.sysml");
-  for (let i = 2; await exists(uri); i++) uri = vscode.Uri.joinPath(folder.uri, `model${i}.sysml`);
+  let uri = vscode.Uri.joinPath(folderUri, "model.sysml");
+  for (let i = 2; await exists(uri); i++) uri = vscode.Uri.joinPath(folderUri, `model${i}.sysml`);
   await vscode.workspace.fs.writeFile(uri, content);
   await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
 }
