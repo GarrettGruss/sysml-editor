@@ -115,6 +115,7 @@
         "modelDescription": "List the SysML v2 (.sysml) files of the workspace with their root package names and whether each has syntax errors. Standard library files are not listed. Use it first to find out what models exist; then use sysml_get_element_tree or sysml_get_element. Returns JSON: { files: [{ path, rootPackages, hasSyntaxErrors }] } with paths relative to the workspace root.",
         "toolReferenceName": "sysmlListFiles",
         "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
         "inputSchema": {
           "type": "object",
           "properties": {},
@@ -127,6 +128,7 @@
         "modelDescription": "Browse the ownership hierarchy of the SysML v2 model. Without `root` it starts at all root packages of the workspace; with `root` (a qualified name such as VehicleModel::Vehicle) it returns that subtree, which can also be a standard library element. `depth` is the number of levels returned (root level counts as 1; default 2, max 10). A node cut off by the depth limit has `truncated: true` and `childCount`; request that node's qualifiedName as `root` to go deeper. At most 500 nodes are returned; if that cap is hit the result says so, then request a subtree. Imports, comments and documentation are not shown. Elements without a name have a `locator` (owner, kind, ends) instead of a qualifiedName. Returns JSON: { nodes: [{ qualifiedName, kind, name, type?, children? }] }.",
         "toolReferenceName": "sysmlGetElementTree",
         "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -151,6 +153,7 @@
         "modelDescription": "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, specializes/subsets/redefines, multiplicity, documentation, visibility, owner, owned members (name, kind, type), relationship statements it owns (connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",
         "toolReferenceName": "sysmlGetElement",
         "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -171,6 +174,7 @@
         "modelDescription": "Check SysML v2 files for problems and return them as a list; an empty list means clean. Call it after writing or editing a .sysml file. Reports (1) syntax errors and (2) unresolved names, limited to what can be judged reliably: the type after ':' of a usage, supertypes (:>) of definitions, and import targets. It does NOT check redefinitions, subsetting, feature chains, expressions, or semantic rules. A file with syntax errors is not checked for unresolved names. `file` is a workspace-relative path; without it the whole workspace is checked. Reflects unsaved editor content. Returns JSON: { problems: [{ file, line, column, severity, message }] } with 1-based line and column.",
         "toolReferenceName": "sysmlValidate",
         "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
         "inputSchema": {
           "type": "object",
           "properties": {
