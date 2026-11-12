@@ -129,7 +129,9 @@ const result = {
   stragglerErrorsInExpectedFiles: suspicious,
   topErrors: topErrors.map(([message, count]) => ({ message, count })),
 };
-writeFileSync(join(root, "scripts/parser-gate-result.json"), JSON.stringify(result, null, 2) + "\n");
+if (process.argv.includes("--write")) {
+  writeFileSync(join(root, "scripts/parser-gate-result.json"), JSON.stringify(result, null, 2) + "\n");
+}
 
 console.log(JSON.stringify(summary, null, 2));
 console.log(`.kerml files: ${kerml.length} not parsed by this parser (handled by the KerML outline indexer)`);

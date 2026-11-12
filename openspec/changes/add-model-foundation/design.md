@@ -88,6 +88,8 @@ Changes: `src/parser/dfa-snapshot.ts` (extract/load/purge), `src/parser/dfa-snap
 
 Remaining: the first file with a syntax error (or a construct not in the training set) in a session pays a one-off purge and partial cold rebuild (seconds; for example a held-out run trained on the release files only, parsing the community models, cost 0.3 to 3.9 s on the few files that triggered it). Not tried: serializing full ATN configs (exact states, no purge), a parse worker, and grammar rewrites of `usageDeclaration` / `featureSpecializationPart`, which would also shrink the cold cost.
 
+Library load (task 2.6), measured in a fresh Node 24 process with the DFA snapshot active (`loadLibrary` over all 94 library files: 58 `.sysml` through ANTLR, 36 `.kerml` through the outline indexer): 530 to 610 ms for the load itself, plus 150 to 290 ms to import the modules and the snapshot. That is well under the 1.5 s budget, so the cached library index mentioned earlier is not needed and is not built; the library is parsed at activation. With `SYSML_DFA_SNAPSHOT=off` the same load takes about 29 s, so the snapshot is a hard requirement for this decision.
+
 Decisions taken from the gate: (1) the gate counts `.sysml` files that are valid under the official grammar; community files using pre-release syntax (bare `import`, package-level `actor`) are expected-invalid test cases. (2) The vendored lexer is patched to keep whitespace and line notes on a hidden channel. (3) KerML is not parsed by this parser: the standard library's `.kerml` files are read by a small outline indexer (task 2.6), and user-written `.kerml` files are not supported in this change. Task 2.3 (own full parser) is not needed.
 
 ### D8: Tree view
