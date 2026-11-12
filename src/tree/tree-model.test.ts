@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import {
-  affectedNodes, childNodes, firstErrorText, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
+  affectedNodes, childNodes, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -120,5 +120,36 @@ describe("tree model", () => {
     expect(affectedNodes(ix, roots, ["file:///w/b.sysml"]).full).toBe(true);
     ix.removeDocument(A);
     expect(affectedNodes(ix, roots, [A]).full).toBe(true);
+  });
+});
+
+describe("files that never parsed cleanly", () => {
+  const B = "file:///w/broken.sysml";
+  it("show an error root with the file name, and keep clean files unchanged", () => {
+    const ix = new ModelIndex();
+    ix.setDocument(B, "package Broken {\n  part def\n");
+    const roots = rootNodes(ix);
+    expect(roots).toHaveLength(1);
+    expect(isErrorNode(roots[0]!)).toBe(true);
+    expect(nodeInfo(ix, roots[0]!)).toMatchObject({ label: "broken.sysml", description: "syntax error", icon: "error", isRoot: true, hasChildren: false });
+    expect(childNodes(ix, roots[0]!)).toEqual([]);
+    expect(firstErrorText(ix, B)).toMatch(/^line \d+, column \d+/);
+    expect(firstErrorPosition(ix, B)).toMatchObject({ line: expect.any(Number), column: expect.any(Number) });
+  });
+  it("is replaced by the real roots once the file parses", () => {
+    const ix = new ModelIndex();
+    ix.setDocument(B, "package Broken {\n  part def\n");
+    const before = rootNodes(ix).map((n) => n.id);
+    ix.setDocument(B, "package Broken { part def X; }");
+    const r = affectedNodes(ix, before, [B]);
+    expect(r.full).toBe(true);
+    expect(info(ix, rootNodes(ix)[0]!).label).toBe("Broken");
+  });
+  it("a file that parsed before keeps its last good model instead", () => {
+    const ix = setup();
+    ix.setDocument(A, SRC + "package {");
+    const roots = rootNodes(ix);
+    expect(roots.every((n) => !isErrorNode(n))).toBe(true);
+    expect(info(ix, roots[0]!).label).toBe("P");
   });
 });

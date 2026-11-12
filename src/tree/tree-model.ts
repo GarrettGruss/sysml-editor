@@ -58,11 +58,28 @@ export function workspaceUris(index: ModelIndex): string[] {
   return index.uris().filter((u) => !isLibraryUri(u)).sort();
 }
 
+/** Path segment of the placeholder root for a file that never parsed cleanly. */
+const ERROR_SEGMENT = "!syntax-error";
+
+export function isErrorNode(node: ModelNode): boolean {
+  return node.id === makeId(node.uri, [ERROR_SEGMENT]);
+}
+
+/** Zero-based position of the first syntax error of the document. */
+export function firstErrorPosition(index: ModelIndex, uri: string): { line: number; column: number } | undefined {
+  const err = index.getDocument(uri)?.errors[0];
+  return err ? { line: err.line, column: err.column } : undefined;
+}
+
 export function rootNodes(index: ModelIndex): ModelNode[] {
   const out: ModelNode[] = [];
   for (const uri of workspaceUris(index)) {
     const doc = index.getDocument(uri);
     if (!doc) continue;
+    if (!doc.everParsedCleanly && doc.errors.length > 0) {
+      out.push({ id: makeId(uri, [ERROR_SEGMENT]), uri });
+      continue;
+    }
     const roots = doc.model.roots.filter(isVisible);
     const segs = segments(roots);
     for (const r of roots) out.push({ id: makeId(uri, [segs.get(r)!]), uri });
@@ -71,6 +88,7 @@ export function rootNodes(index: ModelIndex): ModelNode[] {
 }
 
 export function childNodes(index: ModelIndex, node: ModelNode): ModelNode[] {
+  if (isErrorNode(node)) return [];
   const el = resolveNode(index, node);
   if (!el) return [];
   const kids = visibleChildren(el);
@@ -80,6 +98,7 @@ export function childNodes(index: ModelIndex, node: ModelNode): ModelNode[] {
 
 /** Find the element a node id refers to in the current model, if it still exists. */
 export function resolveNode(index: ModelIndex, node: ModelNode): Element | undefined {
+  if (isErrorNode(node)) return undefined;
   const doc = index.getDocument(node.uri);
   if (!doc || !node.id.startsWith(node.uri + ID_SEP)) return undefined;
   const path = node.id.slice(node.uri.length + 1).split("/");
@@ -145,6 +164,10 @@ export function firstErrorText(index: ModelIndex, uri: string): string | undefin
 }
 
 export function nodeInfo(index: ModelIndex, node: ModelNode): NodeInfo | undefined {
+  if (isErrorNode(node)) {
+    if (!firstErrorText(index, node.uri)) return undefined;
+    return { label: fileName(node.uri), description: "syntax error", icon: "error", isRoot: true, hasChildren: false };
+  }
   const e = resolveNode(index, node);
   if (!e) return undefined;
   const isRoot = !node.id.slice(node.uri.length).includes("/");

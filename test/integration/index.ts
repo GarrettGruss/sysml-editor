@@ -45,8 +45,25 @@ export async function run(): Promise<void> {
 
   const tests: Test[] = [
     ["roots are the workspace packages, not the library", async () => {
-      assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Notes", "Ports", "Vehicle"]);
+      assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Notes", "Ports", "Vehicle", "broken.sysml"]);
       assert.ok(ix.uris().some((u) => ix.isReadOnly(u)), "library is loaded");
+      const lib = labels(api.provider.getChildren());
+      assert.ok(!lib.includes("ScalarValues") && !lib.includes("ISQ"), "library packages are not roots");
+    }],
+    ["files under sysml.exclude are not indexed", async () => {
+      assert.ok(!ix.uris().some((u) => u.includes("/ignored/")), "ignored/ is not indexed");
+      assert.ok(!labels(api.provider.getChildren()).includes("Ignored"));
+    }],
+    ["a file that never parsed cleanly shows an error node", async () => {
+      const node = rootOf("broken.sysml");
+      const item = api.provider.getTreeItem(node);
+      assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "error");
+      assert.strictEqual(item.description, "syntax error");
+      assert.match(String(item.tooltip), /line \d+, column \d+/);
+      await vscode.commands.executeCommand("sysml.goToDefinition", node);
+      const ed = vscode.window.activeTextEditor!;
+      assert.ok(ed.document.uri.path.endsWith("/broken.sysml"));
+      assert.ok(ed.selection.active.line >= 0);
     }],
     ["children of a part def and typed usage presentation", async () => {
       const vehicle = rootOf("Vehicle");
