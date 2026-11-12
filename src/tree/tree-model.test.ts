@@ -203,12 +203,16 @@ describe("Elements view", () => {
     expect(kids.map((k) => k.kind)).toEqual(["folder", "folder", "folder", "file", "file"]);
   });
 
-  it("marks folders with no SysML file below as empty, with no children", async () => {
+  it("marks folders with no SysML file below as empty, listing only their subfolders", async () => {
     const i = ix();
     expect(folderInfo(i, env, folderNode("file:///w/docs"))).toEqual({ label: "docs", description: "no SysML files", empty: true });
     expect(folderInfo(i, env, folderNode("file:///w/Alpha"))).toMatchObject({ empty: false, description: undefined });
     expect(folderInfo(i, env, folderNode("file:///w"))).toMatchObject({ label: "w" });
-    expect(await folderChildren(i, env, folderNode("file:///w/docs"))).toEqual([]);
+    const docsKids = await folderChildren(i, env, folderNode("file:///w/docs"));
+    expect(docsKids.every((n) => n.kind === "folder")).toBe(true);
+    const wKids = await folderChildren(new ModelIndex(), env, folderNode("file:///w"));
+    expect(wKids.length).toBeGreaterThan(0);
+    expect(wKids.every((n) => n.kind === "folder")).toBe(true);
     expect(hasSysmlBelow(i, "file:///w/Alpha")).toBe(true);
     expect(hasSysmlBelow(i, "file:///w/zeta")).toBe(false);
     // a file below an excluded folder does not count when it is not indexed
@@ -313,13 +317,15 @@ describe("Diagrams view", () => {
     expect(folderParent(env, leaf)).toEqual(folderNode("file:///w/Alpha"));
   });
 
-  it("marks folders without diagrams 'no diagrams' with no children", async () => {
+  it("marks folders without diagrams 'no diagrams', listing only their subfolders", async () => {
     expect(diagramFolderInfo(diagrams, env, folderNode("file:///w/docs"))).toEqual({ label: "docs", description: "no diagrams", empty: true });
     expect(diagramFolderInfo(diagrams, env, folderNode("file:///w/Alpha"))).toMatchObject({ empty: false, description: undefined });
     expect(diagramFolderInfo(diagrams, env, folderNode("file:///w"))).toMatchObject({ label: "w", empty: false });
-    expect(await diagramChildren(diagrams, env, folderNode("file:///w/docs"))).toEqual([]);
+    expect((await diagramChildren(diagrams, env, folderNode("file:///w/docs"))).every((n) => n.kind === "folder")).toBe(true);
     expect(hasDiagramBelow(diagrams, "file:///w/zeta")).toBe(false);
-    expect(await diagramChildren(new Set(), env, folderNode("file:///w/Alpha"))).toEqual([]);
+    const none = await diagramChildren(new Set(), env, folderNode("file:///w/Alpha"));
+    expect(none.length).toBeGreaterThan(0);
+    expect(none.every((n) => n.kind === "folder")).toBe(true);
   });
 
   it("reads the kind cheaply and falls back to nothing", () => {
@@ -344,8 +350,8 @@ describe("Diagrams view", () => {
 
 describe("diagramRoots", () => {
   const env = { roots: [{ name: "w", uri: "file:///w" }] } as unknown as FolderEnv;
-  it("returns the workspace roots only when a diagram exists", () => {
-    expect(diagramRoots(env, new Set())).toEqual([]);
+  it("returns the workspace roots, also without diagrams", () => {
+    expect(diagramRoots(env, new Set()).map((n) => n.uri)).toEqual(["file:///w"]);
     expect(diagramRoots(env, new Set(["file:///w/a.sysmld"])).map((n) => n.uri)).toEqual(["file:///w"]);
   });
 });

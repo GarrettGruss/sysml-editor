@@ -58,7 +58,7 @@ export function foldersTests(c: Ctx): Test[] {
     rmSync(dir(), { recursive: true, force: true });
     mkdirSync(dir("empty"), { recursive: true });
     mkdirSync(dir("Nest", "deep"), { recursive: true });
-    mkdirSync(dir("docs"), { recursive: true });
+    mkdirSync(dir("docs", "sub"), { recursive: true });
     writeFileSync(dir("docs", "guide.md"), "# not sysml\n");
     writeFileSync(dir("Nest", "deep", "m.sysml"), "package Deep { part def X; }\n");
     writeFileSync(dir("b.sysml"), "package Bee;\n");
@@ -90,10 +90,17 @@ export function foldersTests(c: Ctx): Test[] {
           const n = await find(tmp, empty);
           const item = api.provider.getTreeItem(n);
           assert.strictEqual(item.description, "no SysML files");
-          assert.strictEqual(item.collapsibleState, vscode.TreeItemCollapsibleState.None);
+          // lazy: expandable until a listing (possibly an earlier test's) found no subfolders
+          if (empty === "docs") assert.strictEqual(item.collapsibleState, vscode.TreeItemCollapsibleState.Collapsed, "a folder with subfolders can be expanded");
           assert.strictEqual((item.iconPath as vscode.ThemeIcon).id, "folder");
           assert.strictEqual(((item.iconPath as vscode.ThemeIcon).color as vscode.ThemeColor).id, "disabledForeground");
-          assert.deepStrictEqual(await kids(n), []);
+          const sub = await kids(n);
+          assert.deepStrictEqual(sub.map(label), empty === "docs" ? ["sub"] : [], "only subfolders");
+          for (const k of sub) {
+            assert.strictEqual(api.provider.getTreeItem(k).description, "no SysML files");
+            assert.strictEqual(api.provider.getTreeItem(k).collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
+          }
+          if (empty === "empty") assert.strictEqual(api.provider.getTreeItem(n).collapsibleState, vscode.TreeItemCollapsibleState.None, "no subfolders: a leaf");
         }
         const nest = await find(tmp, "Nest");
         assert.strictEqual(api.provider.getTreeItem(nest).description, undefined);
@@ -228,9 +235,12 @@ export function foldersTests(c: Ctx): Test[] {
           const n = await find(tmp, empty);
           const item = api.provider.getTreeItem(n);
           assert.strictEqual(item.description, "no diagrams");
-          assert.strictEqual(item.collapsibleState, vscode.TreeItemCollapsibleState.None);
+          if (empty === "docs") assert.strictEqual(item.collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
           assert.strictEqual(((item.iconPath as vscode.ThemeIcon).color as vscode.ThemeColor).id, "disabledForeground");
-          assert.deepStrictEqual(await kids(n), []);
+          const sub = await kids(n);
+          assert.deepStrictEqual(sub.map(label), empty === "docs" ? ["sub"] : [], "only subfolders");
+          for (const k of sub) assert.strictEqual(api.provider.getTreeItem(k).description, "no diagrams");
+          if (empty === "empty") assert.strictEqual(api.provider.getTreeItem(n).collapsibleState, vscode.TreeItemCollapsibleState.None, "no subfolders: a leaf");
         }
         const deep = await find(await find(tmp, "Nest"), "deep");
         assert.strictEqual(api.provider.getTreeItem(deep).description, undefined);
@@ -320,6 +330,38 @@ export function foldersTests(c: Ctx): Test[] {
         assert.ok(!events.includes(undefined), "no full refresh was fired");
       } finally {
         sub.dispose();
+        rmSync(dir(), { recursive: true, force: true });
+        await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
+      }
+    })],
+    ["Elements view: a folder with no .sysml file below it expands to dimmed subfolders", withFolders(async () => {
+      // The fixture workspace has models, so the rule is exercised on a folder with none below it (tmp-tree/docs); the workspace root itself is covered by a unit test with an empty index.
+      setup();
+      try {
+        await waitFor(() => indexed("a.sysml"), 20000, "files indexed");
+        const tmp = await find((await kids())[0]!, "tmp-tree");
+        const docs = await find(tmp, "docs");
+        assert.strictEqual(api.provider.getTreeItem(docs).description, "no SysML files");
+        const sub = await find(docs, "sub");
+        assert.strictEqual(api.provider.getTreeItem(sub).description, "no SysML files");
+        assert.strictEqual(api.provider.getTreeItem(sub).contextValue, "sysmlFolderEmpty");
+      } finally {
+        rmSync(dir(), { recursive: true, force: true });
+        await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
+      }
+    })],
+    ["Diagrams view: folders that have no diagrams below them are shown with their subfolders, marked 'no diagrams'", withFilter("diagrams", async () => {
+      setup();
+      try {
+        const root = (await kids())[0]!;
+        await waitFor(async () => (await kids(root)).some((n) => label(n) === "tmp-tree"), 20000, "tmp-tree is listed");
+        const tmp = await find(root, "tmp-tree");
+        assert.strictEqual(api.provider.getTreeItem(tmp).description, "no diagrams");
+        assert.deepStrictEqual((await kids(tmp)).map(label), ["docs", "empty", "Nest"]);
+        const nest = await find(tmp, "Nest");
+        assert.deepStrictEqual((await kids(nest)).map(label), ["deep"]);
+        assert.strictEqual(api.provider.getTreeItem(await find(nest, "deep")).description, "no diagrams");
+      } finally {
         rmSync(dir(), { recursive: true, force: true });
         await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
       }

@@ -195,6 +195,9 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private scanning = 0;
   /** File events seen while a full scan runs (the scan may have read the disk before them), replayed on its result. */
   private readonly scanEvents = new Map<string, boolean>();
+  /** Order of the file events applied, so a folder re-read that started before an event does not undo it. */
+  private eventSeq = 0;
+  private readonly lastEvent = new Map<string, number>();
   /** The diagram set may be stale (changes seen while the Elements view was shown); rescanned when switching to Diagrams. */
   private diagramsDirty = false;
 
@@ -226,11 +229,6 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       this.scheduleFilterRefresh();
       return;
     }
-    // The roots appear with the first diagram and disappear with the last (the Diagrams view has no other roots).
-    if ((previous.size === 0) !== (next.size === 0)) {
-      this.fullRefresh();
-      return;
-    }
     const nodes = affectedDiagramNodes(this.env, previous, next);
     if (nodes.length) this.fireTargeted(nodes);
   }
@@ -242,6 +240,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       return;
     }
     if (this.scanning > 0) this.scanEvents.set(uri, created);
+    this.lastEvent.set(uri, ++this.eventSeq);
     const next = new Set(this.diagrams);
     if (created) {
       if (visibleDiagrams(this.env, [uri]).size === 0) return;
@@ -269,6 +268,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private async rescanSubtree(path: string): Promise<void> {
     if (this.filterValue !== "diagrams") return;
     const generation = this.scanGeneration;
+    const start = this.eventSeq;
     this.io++;
     let found: vscode.Uri[];
     try {
@@ -279,8 +279,10 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     // A full scan started meanwhile has the newer word.
     if (generation !== this.scanGeneration || this.filterValue !== "diagrams") return;
     const prefix = path + "/";
-    const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix)));
-    for (const u of visibleDiagrams(this.env, found.map(uriKey))) next.add(u);
+    const fresh = (u: string) => (this.lastEvent.get(u) ?? 0) > start;
+    // Entries an event touched after the read began keep the event's word.
+    const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix) || fresh(u)));
+    for (const u of visibleDiagrams(this.env, found.map(uriKey))) if (!fresh(u) || this.diagrams.has(u)) next.add(u);
     if (next.size === this.diagrams.size && [...next].every((u) => this.diagrams.has(u))) return;
     this.applyDiagrams(next);
   }
@@ -329,6 +331,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       if (deleted) this.dropDiagramsBelow(path);
       else this.rescanCreatedFolder(path);
     } else this.diagramsDirty = true;
+    this.leafFolders.delete(parent);
     if (!this.handed.has(parent)) return;
     const root = this.env.roots.find((r) => parent === r.uri || parent.startsWith(r.uri + "/"));
     if (!root || this.env.excluded(parent.slice(root.uri.length + 1))) return;
@@ -378,6 +381,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
         }
         if (!isFolderNode(node)) return [];
         let kids = await diagramChildren(this.diagrams, this.env, node);
+        this.noteSubfolders(node, kids);
         if (f) kids = keepFolderNodes(kids, f);
         await Promise.all(kids.filter(isDiagramNode).map((k) => this.loadKind(k.uri)));
         return track(kids);
@@ -391,9 +395,22 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       return track(kept.length ? kept : [NO_MATCHES_NODE]);
     }
     if (isMessageNode(node)) return [];
-    if (isFolderNode(node)) return folderChildren(this.index, this.env, node).then((k) => track(f ? keepFolderNodes(k, f) : k));
+    if (isFolderNode(node)) {
+      return folderChildren(this.index, this.env, node).then((k) => {
+        this.noteSubfolders(node, k);
+        return track(f ? keepFolderNodes(k, f) : k);
+      });
+    }
     const kids = isFileNode(node) ? fileChildren(this.index, node) : childNodes(this.index, node);
     return track(f ? keepElementNodes(kids, f) : kids);
+  }
+
+  /** Empty folders without subfolders found when last listed: shown as leaves. */
+  private readonly leafFolders = new Set<string>();
+
+  private noteSubfolders(node: ModelNode, kids: readonly ModelNode[]): void {
+    if (kids.length === 0) this.leafFolders.add(node.uri);
+    else this.leafFolders.delete(node.uri);
   }
 
   private elementFilterNow(): ElementFilter {
@@ -474,7 +491,9 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     }
     if (isFolderNode(node)) {
       const f = this.filterValue === "diagrams" ? diagramFolderInfo(this.diagrams, this.env, node) : folderInfo(this.index, this.env, node);
-      const item = new vscode.TreeItem(f.label, f.empty ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
+      // An empty folder expands to its subfolders; it is a leaf once a listing found none (read lazily).
+      const leaf = f.empty && this.leafFolders.has(node.uri);
+      const item = new vscode.TreeItem(f.label, leaf ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
       item.id = node.id;
       item.description = f.description;
       item.iconPath = f.empty ? new vscode.ThemeIcon("folder", new vscode.ThemeColor("disabledForeground")) : new vscode.ThemeIcon("folder");

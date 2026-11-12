@@ -336,9 +336,9 @@ export function folderRoots(_index: ModelIndex, env: FolderEnv): ModelNode[] {
   return env.roots.map((r) => folderNode(r.uri));
 }
 
-/** The roots of the Diagrams view: the workspace folders, whenever any diagram exists. */
-export function diagramRoots(env: FolderEnv, diagrams: ReadonlySet<string>): ModelNode[] {
-  return diagrams.size === 0 ? [] : env.roots.map((r) => folderNode(r.uri));
+/** The roots of the Diagrams view: the workspace folders. */
+export function diagramRoots(env: FolderEnv, _diagrams: ReadonlySet<string>): ModelNode[] {
+  return env.roots.map((r) => folderNode(r.uri));
 }
 
 /** The shown entries of a folder: non-excluded sub folders (by name) and the names of files passing `isFile`, sorted. */
@@ -364,13 +364,13 @@ async function shownEntries(env: FolderEnv, node: ModelNode, isFile: (name: stri
 
 /** Folders (by name), then files (by name), of a folder. Empty folders have no children. */
 export async function folderChildren(index: ModelIndex, env: FolderEnv, node: ModelNode): Promise<ModelNode[]> {
-  if (!hasSysmlBelow(index, node.uri)) return [];
+  const empty = !hasSysmlBelow(index, node.uri);
   const indexed = new Set(workspaceUris(index));
   const e = await shownEntries(env, node, (n) => n.toLowerCase().endsWith(".sysml"));
   if (!e) return [];
   return [
     ...e.folders.map((n) => folderNode(env.child(node.uri, n))),
-    ...e.files.map((n) => env.child(node.uri, n)).filter((u) => indexed.has(u)).map(fileNode),
+    ...(empty ? [] : e.files.map((n) => env.child(node.uri, n)).filter((u) => indexed.has(u)).map(fileNode)),
   ];
 }
 
@@ -471,12 +471,12 @@ export function hasDiagramBelow(diagrams: ReadonlySet<string>, folderUri: string
 
 /** Folders (by name), then diagram files (by name), of a folder. Folders without diagrams have no children. */
 export async function diagramChildren(diagrams: ReadonlySet<string>, env: FolderEnv, node: ModelNode): Promise<ModelNode[]> {
-  if (!hasDiagramBelow(diagrams, node.uri)) return [];
+  const empty = !hasDiagramBelow(diagrams, node.uri);
   const e = await shownEntries(env, node, (n) => n.toLowerCase().endsWith(".sysmld"));
   if (!e) return [];
   return [
     ...e.folders.map((n) => folderNode(env.child(node.uri, n))),
-    ...e.files.map((n) => env.child(node.uri, n)).filter((u) => diagrams.has(u)).map(diagramNode),
+    ...(empty ? [] : e.files.map((n) => env.child(node.uri, n)).filter((u) => diagrams.has(u)).map(diagramNode)),
   ];
 }
 
