@@ -22,7 +22,8 @@ VS Code is open on that workspace.
 | `sysml_delete_element` | Delete an element from the model (its declaration and body, and its entries on every diagram). Not the same as removing it from a diagram. |
 | `sysml_rename_element` | Rename an element, every reference to it, and the diagram files that refer to it. |
 | `sysml_set_element_properties` | Change name, short name, type, multiplicity or documentation of an element. |
-| `sysml_create_relationship` | Add a `connect` (connection), `satisfy`, `verify` or `derivation` (a `#derivation connection`) statement. |
+| `sysml_create_relationship` | Add a `connect` (connection), `satisfy`, `verify` or `derivation` (a `#derivation connection`) statement, a `succession` (`first a then b;`, optional guard), a `transition` (`transition first a accept T if g do e then b;`) or a `message` (`message [name] [of T] from a to b;`, ordered after the last message). |
+| `sysml_set_transition` | Change the trigger, guard and effect of an existing transition; the text is parsed before anything changes. |
 | `sysml_create_requirement` | Create a requirement (or `requirement def`) with an optional id (`<'R1'>`) and documentation. |
 | `sysml_read_requirements_document` | Read a package as a specification document in Markdown: generated section numbers, table of contents, paragraphs, requirement items and appendices, each heading and requirement followed by a `<!-- qn: ... -->` marker with its qualified name. Read-only; output is cut at 60000 characters with a note. |
 
@@ -71,8 +72,8 @@ and the model read tools) keep working.
 
 ## Model edits
 
-`sysml_create_element`, `sysml_delete_element`, `sysml_rename_element`, `sysml_set_element_properties` and
-`sysml_create_relationship` change the SysML text, the source of truth. They go through the same operations as the tree
+`sysml_create_element`, `sysml_delete_element`, `sysml_rename_element`, `sysml_set_element_properties`,
+`sysml_create_relationship` and `sysml_set_transition` change the SysML text, the source of truth. They go through the same operations as the tree
 (Add Child, Rename, Delete) and the diagram editor (palette, connection tool, Delete from Model, inline rename, properties panel), so an agent and a
 person making the same edit produce byte-identical text (a parity test runs each operation both ways).
 
@@ -94,7 +95,13 @@ person making the same edit produce byte-identical text (a parity test runs each
 - **Diagram problems are reported**: `diagramFilesNotUpdated` lists diagram files that could not be updated (unreadable, with parse errors, or changed on disk meanwhile).
 - **Results** are JSON with `filesChanged` (workspace-relative paths), the resulting `qualifiedName`, and for renames `referencesUpdated` and
   `couldNotJudge` (mentions of the old name the tool could not decide about, with a few locations). A delete reports `remainingReferences` (with locations) and, separately, `remainingMentionsNotChecked`.
-- The five tools are marked not read-only (`readOnlyHint: false` over MCP, the `edits-model` tag in the manifest).
+- The six tools are marked not read-only (`readOnlyHint: false` over MCP, the `edits-model` tag in the manifest).
+
+### Behaviour: actions, states, successions, transitions and messages
+
+`sysml_create_diagram` and `sysml_read_diagram` handle the kinds `actionFlow`, `stateTransition` and `sequence` (the root must fit the kind; otherwise the error says why). The JSON description of an edge has a `behavior` object: a succession has its `guard` (`else` for an else branch) and `implied` when it is written as part of a node declaration (`then action b;`); a flow its `item` and the parameter ends; a transition its `trigger`, `guard` and `effect` as source text; a message its `itemType`, its `order` in time (from 0) and `unordered: true` when the model gives no order between it and another message. A sequence diagram also lists `messages` in time order. Unnamed statements have a `locator` in `element` (the same `{ owner, kind, ends, index? }` the diagram file uses).
+
+`sysml_create_element` also creates `state`, `state def` and, inside an action, the control nodes `fork`, `join`, `decide` and `merge` (give them a name: successions refer to nodes by name). `sysml_create_relationship` with `kind` `succession`, `transition` or `message` writes the same text as the Action Flow, State Transition and Sequence palettes (`first a then b;`, `transition first a accept T then b;`, `then message m of T from a to b;` right after the last message). A succession that already exists is refused. Trigger, guard and effect are parsed with the edit and refused with the syntax error when invalid. `sysml_delete_element` deletes an action, state, control node or message together with the successions, transitions and flows that connect it, in one edit; an unnamed succession, transition or message is given as `statement` (its locator). A succession written as `then ...` inside a node declaration cannot be deleted on its own.
 
 ### Images
 

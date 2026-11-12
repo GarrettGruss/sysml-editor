@@ -430,6 +430,81 @@ export function behaviorTests(c: Ctx): Test[] {
       png("editor-state-palette-dark.png", await api.diagram.pngWindow(uriOf(f), "editor-dark"));
     })],
 
+    // ---- end to end (6.3) ---------------------------------------------------------------------------
+    ...(["actionFlow", "stateTransition", "sequence"] as const).map((kind): Test => {
+      const cfg = {
+        actionFlow: { pkg: "BhE2eA", source: "actions.sysml", root: "deliverOrder" },
+        stateTransition: { pkg: "BhE2eS", source: "states.sysml", root: "lamp" },
+        sequence: { pkg: "BhE2eQ", source: "interaction.sysml", root: "OrderInteraction" },
+      }[kind];
+      return [`End to end (${kind}): generate, edit from the diagram and from an agent, save, reopen, read as JSON and PNG; the text, the diagram and the agent's output agree`, scenario(cfg.pkg, cfg.source, kind, cfg.root, async ({ model, diagram, id, original }) => {
+        const pkg = cfg.pkg;
+        // 1. from the diagram
+        if (kind === "actionFlow") {
+          await gesture(diagram, { kind: "connect", source: id("deliverOrder::retry"), target: id("deliverOrder::ship"), relation: "succession" });
+          await waitFor(() => onDisk(model).includes("first retry then ship;"), 15000, "the diagram's succession is on disk");
+        } else if (kind === "stateTransition") {
+          script.input = "idle";
+          await gesture(diagram, { kind: "palette", item: "state", id: id("lamp"), x: 30, y: 40 });
+          await waitFor(() => onDisk(model).includes("state idle;"), 15000, "the state is on disk");
+          await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.shape === "state" && n.text?.includes("idle"))), "the idle node is drawn");
+          await gesture(diagram, { kind: "connect", source: id("lamp::off"), target: id("lamp::idle"), relation: "transition" });
+          await waitFor(() => onDisk(model).includes("transition first off then idle;"), 15000, "the transition is on disk");
+        } else {
+          script.input = "confirm";
+          await gesture(diagram, { kind: "connect", source: id("OrderInteraction::customer"), target: id("OrderInteraction::warehouse"), relation: "message" });
+          await waitFor(() => onDisk(model).includes("then message confirm from customer to warehouse;"), 15000, "the diagram's message is on disk");
+        }
+        await savedAndClean(model);
+        // 2. from an agent, placed on the same open diagram
+        const call = kind === "actionFlow" ? { kind: "succession", owner: `${pkg}::deliverOrder`, source: "start", target: "retry", diagram }
+          : kind === "stateTransition" ? { kind: "transition", owner: `${pkg}::lamp`, source: "idle", target: "off", trigger: "Reset", guard: "ok", diagram }
+          : { kind: "message", owner: `${pkg}::OrderInteraction`, from: "warehouse", to: "customer", name: "deliver", itemType: "Shipment", diagram };
+        const made = await viaLm("sysml_create_relationship", call);
+        assert.ok(JSON.parse(made.text).filesChanged.length === 1, made.text);
+        const wanted = kind === "actionFlow" ? "first start then retry;" : kind === "stateTransition" ? "transition first idle accept Reset if ok then off;" : "then message deliver of Shipment from warehouse to customer;";
+        await waitFor(() => onDisk(model).includes(wanted), 15000, "the agent's statement is on disk");
+        await savedAndClean(model);
+        assert.strictEqual(api.model.index.getDocument(vscode.Uri.file(uriOf(model).fsPath).toString())?.errors.length, 0, "the model parses");
+        // 3. save the diagram, close, reopen
+        await c.eventually(async () => clean(await metrics(diagram), `${kind} after both edits`), "a clean layout after both edits");
+        await api.diagram.save(uriOf(diagram));
+        await close();
+        await api.diagram.open(uriOf(diagram));
+        await c.eventually(async () => {
+          const m = await metrics(diagram);
+          assert.ok(m.nodes.length > 0 && m.nodes.every((n) => n.shape !== "unresolved") && !m.nodes.some((n) => n.shape === undefined), "reopened and resolved");
+        }, "reopened");
+        // 4. read as JSON on both channels and as a PNG; everything agrees
+        const a = await viaLm("sysml_read_diagram", { path: diagram, includeImage: true });
+        const b = await viaMcp(api, "sysml_read_diagram", { path: diagram, includeImage: true });
+        assert.strictEqual(a.text, b.text, "identical JSON over both channels");
+        assert.ok(a.images.length === 1 && b.images.length === 1 && a.images[0]!.data.length > 2000, "both channels return a PNG");
+        const desc = JSON.parse(a.text);
+        const d = desc.diagram ?? desc;
+        assert.strictEqual(d.kind, kind);
+        assert.strictEqual(d.unresolved.length, 0, "nothing unresolved");
+        const m = await metrics(diagram);
+        assert.strictEqual(d.edges.length, m.edges.length, "the JSON and the drawing show the same edges");
+        const text = onDisk(model);
+        if (kind === "actionFlow") {
+          const guards = d.edges.map((e: { behavior?: { guard?: string } }) => e.behavior?.guard).filter(Boolean).sort();
+          assert.deepStrictEqual(guards, ["else", "pack.weight >= 100"], "guards read as source text");
+          assert.ok(d.edges.some((e: { element: { ends?: string[] } }) => e.element.ends?.join() === "start,retry"), "the agent's succession");
+          assert.ok(d.edges.some((e: { element: { ends?: string[] } }) => e.element.ends?.join() === "retry,ship"), "the diagram's succession");
+        } else if (kind === "stateTransition") {
+          const tr = d.edges.filter((e: { behavior?: { type: string } }) => e.behavior?.type === "transition").map((e: { behavior: { trigger?: string; guard?: string } }) => `${e.behavior.trigger ?? ""}|${e.behavior.guard ?? ""}`).sort();
+          assert.deepStrictEqual(tr, ["Overheat|", "Reset|ok", "TurnOff|", "TurnOn|powerAvailable", "|"].sort());
+          assert.ok(m.edges.some((e) => e.label === "Reset [ok]"), "the agent's label is drawn");
+        } else {
+          assert.deepStrictEqual(d.messages.map((x: { name: string; order: number }) => `${x.order}:${x.name}`), ["0:placeOrder", "1:pickGoods", "2:sendReceipt", "3:confirm", "4:deliver"], "time order, in the JSON");
+          const ordered = m.edges.filter((e) => e.style === "message").sort((x, y) => x.order! - y.order!).map((e) => e.label);
+          assert.deepStrictEqual(ordered, ["placeOrder : Order", "pickGoods : Shipment", "sendReceipt : Receipt", "confirm", "deliver : Shipment"], "time order, in the drawing");
+        }
+        assert.ok(text.length > original.length, "the text grew by both statements");
+      })];
+    }),
+
     // ---- delete from the model ----------------------------------------------------------------
     ["Delete from Model: a state is deleted together with its transitions in one edit, the confirmation lists them, undo restores everything", scenario("BhDel", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
       const off = id("lamp::off");
