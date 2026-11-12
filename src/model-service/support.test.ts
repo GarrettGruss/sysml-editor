@@ -41,6 +41,8 @@ describe("tree and dialog helpers", () => {
     const impact = deleteImpact(index, q("P::Engine"));
     expect(impact.ownedMembers).toBe(0);
     expect(impact.references).toBe(2);
+    expect(impact.locations.length).toBe(2);
+    expect(confirmationText(q("P::Engine"), impact).detail).toMatch(/referenced in 2 places elsewhere \(m\.sysml:\d+, m\.sysml:\d+\)/);
     expect(needsConfirmation(impact)).toBe(true);
     const sub = deleteImpact(index, q("P::Vehicle::sub"));
     expect(sub).toMatchObject({ ownedMembers: 1, references: 0 });

@@ -121,6 +121,32 @@ describe.skipIf(!present)("edit plans on the Annex A fixture (1,581 lines)", { t
     }
   });
 
+  it("inserted members have the right kind, name, type and owner in the re-parsed model", () => {
+    const defs = els.filter((e) => e.kind === "part def" && e.qualifiedName !== undefined && e.name !== undefined);
+    const owners = spread(els.filter((e) => e.bodyRange && e.kind === "package" && e.qualifiedName !== undefined), 3);
+    expect(owners.length).toBeGreaterThan(0);
+    for (const o of owners) {
+      const type = defs.find((d) => ix.resolve(d.name!, o) === d)!;
+      expect(type, o.qualifiedName).toBeDefined();
+      const plan = check(planInsertMember(ix, o, { kind: "part", name: "zzTyped", type, multiplicity: "2" }), `typed insert into ${o.qualifiedName}`);
+      expect(plan, `typed insert into ${o.qualifiedName}`).toBeDefined();
+      const ix2 = new ModelIndex();
+      ix2.setDocument(URI, out(plan!));
+      const added = ix2.findByQualifiedName(`${o.qualifiedName}::zzTyped`);
+      expect(added).toHaveLength(1);
+      const a = added[0]!;
+      expect(a.kind).toBe("part");
+      expect(a.name).toBe("zzTyped");
+      expect(a.owner?.qualifiedName).toBe(o.qualifiedName);
+      expect(a.multiplicity).toBe("[2]");
+      expect(a.typeNames).toHaveLength(1);
+      expect(ix2.resolve(a.typeNames[0]!, a.owner!)?.qualifiedName).toBe(type.qualifiedName);
+      // everything else in the owner is still there
+      const o2 = ix2.findByQualifiedName(o.qualifiedName!)[0]!;
+      expect(o2.members.filter((m) => m !== a).map((m) => `${m.kind}:${m.name ?? ""}`)).toEqual(o.members.map((m) => `${m.kind}:${m.name ?? ""}`));
+    }
+  });
+
   it("round trip: insert then delete restores the text byte for byte (owners with a body)", () => {
     const owners = spread(els.filter((e) => e.bodyRange && e.members.length > 0 && !e.kind.startsWith("enum") && e.kind !== "doc" && e.kind !== "comment" && e.qualifiedName !== undefined), 12);
     for (const o of owners) {
@@ -211,6 +237,22 @@ describe.skipIf(!present)("edit plans on the Annex A fixture (1,581 lines)", { t
         });
       }
       expect(checked).toBeGreaterThan(0);
+      // Every other resolvable reference in the file still resolves to the same element as before.
+      let preserved = 0;
+      for (const e of els) {
+        const texts = refTexts(e);
+        if (!texts.length) continue;
+        const e2 = at(m2, rootPath(state.model, e));
+        const texts2 = refTexts(e2);
+        texts.forEach((t, i) => {
+          const before = ix.resolve(t, e.owner ?? e);
+          if (!before) return;
+          preserved++;
+          const want = at(m2, rootPath(state.model, before));
+          expect(ix2.resolve(texts2[i]!, e2.owner ?? e2), `after renaming ${target.qualifiedName}: ${e.qualifiedName ?? e.kind}: ${t} -> ${texts2[i]}`).toBe(want);
+        });
+      }
+      expect(preserved).toBeGreaterThan(checked);
     }
     expect(renamed).toBe(5);
   });
@@ -224,15 +266,30 @@ describe.skipIf(!present)("edit plans on the Annex A fixture (1,581 lines)", { t
       const other = defs.find((d) => d.name !== u.types[0] && ix.resolve(d.name!, u.owner!) === d)!;
       const p = check(planSetType(ix, u, other), `set type ${u.qualifiedName}`);
       expect(p).toBeDefined();
+      const ix2 = new ModelIndex();
+      ix2.setDocument(URI, out(p!));
+      const u2 = ix2.findByQualifiedName(u.qualifiedName!)[0]!;
+      expect(u2.typeNames).toHaveLength(1);
+      expect(ix2.resolve(u2.typeNames[0]!, u2.owner!)?.qualifiedName, u.qualifiedName).toBe(other.qualifiedName);
+      expect(u2.multiplicity).toBe(u.multiplicity);
       n++;
     }
     // documentation: replace an existing doc, create one, remove one
     const documented = els.find((e) => e.bodyRange && e.members.some((m) => m.kind === "doc") && e.name)!;
-    expect(check(planSetDocumentation(ix, documented, "Replaced documentation."), "set doc (replace)")).toBeDefined();
-    expect(check(planSetDocumentation(ix, documented, "Line one.\nLine two."), "set doc (multi)")).toBeDefined();
-    expect(check(planSetDocumentation(ix, documented, undefined), "set doc (remove)")).toBeDefined();
+    const docAfter = (plan: PlanResult | undefined, e: Element): string | undefined => {
+      const ix2 = new ModelIndex();
+      ix2.setDocument(URI, out(plan!));
+      const e2 = ix2.findByQualifiedName(e.qualifiedName!).find((x) => x.kind === e.kind)!;
+      expect(e2, e.qualifiedName).toBeDefined();
+      // the element keeps its members other than the doc
+      expect(e2.members.filter((m) => m.kind !== "doc").map((m) => m.name)).toEqual(e.members.filter((m) => m.kind !== "doc").map((m) => m.name));
+      return e2.documentation;
+    };
+    expect(docAfter(check(planSetDocumentation(ix, documented, "Replaced documentation."), "set doc (replace)"), documented)).toBe("Replaced documentation.");
+    expect(docAfter(check(planSetDocumentation(ix, documented, "Line one.\nLine two."), "set doc (multi)"), documented)).toBe("Line one.\nLine two.");
+    expect(docAfter(check(planSetDocumentation(ix, documented, undefined), "set doc (remove)"), documented)).toBeUndefined();
     const undocumented = els.filter((e) => e.name && e.isDefinition && !e.members.some((m) => m.kind === "doc"));
-    for (const e of spread(undocumented, 3)) expect(check(planSetDocumentation(ix, e, "Created."), `set doc (create) ${e.qualifiedName}`)).toBeDefined();
+    for (const e of spread(undocumented, 3)) expect(docAfter(check(planSetDocumentation(ix, e, "Created."), `set doc (create) ${e.qualifiedName}`), e), e.qualifiedName).toBe("Created.");
     // connect two members of an owner
     let connected = 0;
     for (const o of els.filter((e) => e.bodyRange && e.members.filter((m) => m.isUsage && m.name).length >= 2 && e.name)) {
@@ -246,6 +303,8 @@ describe.skipIf(!present)("edit plans on the Annex A fixture (1,581 lines)", { t
       const o2 = ix2.findByQualifiedName(o.qualifiedName!)[0]!;
       const c = o2.members.filter((m) => m.kind === "connect").find((m) => m.ends.join() === [a!.name, b!.name].join());
       expect(c, o.qualifiedName).toBeDefined();
+      expect(c!.owner).toBe(o2);
+      expect(o2.members.filter((m) => m.kind === "connect")).toHaveLength(o.members.filter((m) => m.kind === "connect").length + 1);
       expect(ix2.resolve(c!.ends[0]!, o2)?.qualifiedName).toBe(a!.qualifiedName);
       expect(ix2.resolve(c!.ends[1]!, o2)?.qualifiedName).toBe(b!.qualifiedName);
     }

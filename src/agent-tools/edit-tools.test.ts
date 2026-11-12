@@ -86,6 +86,15 @@ describe("edit tools", () => {
     expect(r.json.filesChanged).toEqual(["m.sysml"]);
   });
 
+  it("Delete warns about references that remain, with locations (review finding 8)", async () => {
+    const { ctx } = setup();
+    const r = await call(ctx, "sysml_delete_element", { element: "VehicleModel::Engine" });
+    expect(r.isError).toBeUndefined();
+    expect(r.json.remainingReferences).toBe(1);
+    expect(r.json.remainingReferenceLocations).toEqual(["m.sysml:8:19"]);
+    expect(String(r.json.warning)).toMatch(/no longer resolve/);
+  });
+
   it("Agent edit refused: the inherited engine of car1 cannot be deleted; the error names the definition and nothing changes", async () => {
     const { host, ctx } = setup();
     const r = await call(ctx, "sysml_delete_element", { element: "VehicleModel::car1::engine" });

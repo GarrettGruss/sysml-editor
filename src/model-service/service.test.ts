@@ -227,3 +227,35 @@ describe("staleness and failures", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe("review fixes surfaced by the service", () => {
+  test("Delete reports the references that remain, with locations", async () => {
+    const { svc } = setup();
+    const r = ok(await svc.deleteElement(svc.find("Model::Engine")!));
+    expect(r.remainingReferences?.count).toBe(1);
+    expect(r.remainingReferences?.locations[0]).toMatchObject({ uri: URI });
+  });
+
+  test("Rename lists diagram files that could not be parsed", async () => {
+    const { host, svc } = setup();
+    host.addDiagram("file:///w/broken.sysmld", "{ not json");
+    const r = ok(await svc.rename(svc.find("Model::Engine")!, "Motor"));
+    expect(r.skippedDiagrams).toEqual(["file:///w/broken.sysmld"]);
+  });
+
+  test("the host refuses plan sources that do not match the buffer (one staleness mechanism)", async () => {
+    const { host, svc } = setup();
+    const plan = (await import("../edit/index.js")).planInsertMember(host.index, host.index.findByQualifiedName("Model::Vehicle")[0]!, "part w;");
+    if (!plan.ok) throw new Error(plan.reason);
+    host.buffers.set(URI, "// x\n" + host.buffers.get(URI)!);
+    expect(await host.applyAndSave(plan.edits, plan.sources!)).toEqual({ ok: false, stale: true });
+    void svc;
+  });
+
+  test("a rename updates a closed diagram whose names are quoted", async () => {
+    const { host, svc } = setup();
+    host.addDiagram("file:///w/q.sysmld", DIAGRAM(`[{"id":"n1","ref":"'Model'::'Engine'"}]`));
+    ok(await svc.rename(svc.find("Model::Engine")!, "Motor"));
+    expect(host.diagramOnDisk("file:///w/q.sysmld").nodes[0]!.ref).toBe("Model::Motor");
+  });
+});

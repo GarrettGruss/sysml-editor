@@ -374,9 +374,15 @@ describe("rename", () => {
     if (!r.ok) expect(r.reason).toMatch(/already has a member/);
     expect(planRename(ix, el(ix, "P::Engine"), "Engine").ok).toBe(false);
     expect(planRename(ix, el(ix, "P::Engine"), "").ok).toBe(false);
-    // renaming Q::T to Motor would shadow P::Motor where it is referenced
-    expect(planRename(ix, el(ix, "P::Q::T"), "Motor").ok).toBe(false);
+    // The conservative "new name is visible where the old one was used" refusal is gone: renaming Q::T
+    // to Motor shadows P::Motor in Q, but nothing there referred to P::Motor, so it is fine ...
+    expect(planRename(ix, el(ix, "P::Q::T"), "Motor").ok).toBe(true);
     expect(planRename(ix, el(ix, "P::Q::T"), "Other").ok).toBe(true);
+    // ... and it is refused as soon as something in Q does refer to P::Motor (the semantic check).
+    const ix2 = one("package P {\n    part def Motor;\n    package Q { part def T; part x : T; part z : Motor; }\n}\n");
+    const r2 = planRename(ix2, el(ix2, "P::Q::T"), "Motor");
+    expect(r2.ok).toBe(false);
+    if (!r2.ok) expect(r2.reason).toMatch(/'Motor' at a\.sysml:3 would resolve to P::Q::Motor instead of P::Motor/);
   });
 
   it("keeps references through the short name valid", () => {
