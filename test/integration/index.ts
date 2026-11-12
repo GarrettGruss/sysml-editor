@@ -225,7 +225,8 @@ export async function run(): Promise<void> {
       try {
         await set("mcp");
         assert.deepStrictEqual(api.agent.currentPlan(), { lmTools: false, mcpServer: true, registerWithVsCode: true });
-        await listing(0);
+        // vscode.lm.tools lists every tool declared in the manifest, whatever the `when` clause says;
+        // the clause only governs what VS Code's chat offers. So in mcp mode check the call fails.
         await invoke(false);
         assert.ok(api.agent.mcpEndpoint());
         await set("lmTools");
