@@ -518,6 +518,25 @@ export function requirementsTests(c: Ctx): Test[] {
       assert.strictEqual(onDisk(file).replace("Agent: 0 to 100 km/h in under 4 s.", "The vehicle shall accelerate from 0 to 100 km/h in under 8 s."), readFileSync(FIXTURE, "utf8").replace(/VehicleSpec/g, "ReqE2E"), "nothing but the text of R3 changed in four edits");
     })],
 
+    ["Document annotations: the library is bundled and read-only in the model, and the command copies it into the workspace (without overwriting)", async () => {
+      const copy = "DocumentAnnotations.sysml";
+      try {
+        await waitFor(() => api.model.index.findByQualifiedName("DocumentAnnotations::DocumentRoot").some((e) => api.model.index.isReadOnly((e as { uri: string }).uri)), 120000, "the bundled library is indexed read-only");
+        const first = await vscode.commands.executeCommand<string | undefined>("sysml.copyDocumentAnnotations");
+        assert.ok(first?.endsWith(copy), "the command reports the copy");
+        const text = onDisk(copy);
+        assert.match(text, /library package DocumentAnnotations/);
+        assert.match(text, /metadata def DocumentRoot/);
+        assert.match(text, /metadata def Appendix;/);
+        writeFileSync(uriOf(copy).fsPath, text + "// edited\n");
+        await vscode.commands.executeCommand("sysml.copyDocumentAnnotations");
+        assert.ok(onDisk(copy).endsWith("// edited\n"), "an existing file is not overwritten");
+      } finally {
+        rmSync(uriOf(copy).fsPath, { force: true });
+        await sleep(300);
+      }
+    }],
+
     ["Agent: read_requirements_document returns the document view (same on both channels); create_requirement and a derivation produce the editor's text", async () => {
       const pkg = "ReqA1";
       const pkgB = "ReqA2";
