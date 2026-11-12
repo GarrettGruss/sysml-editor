@@ -48,4 +48,5 @@
 - [x] 6.1 Folders layout (default): workspace folder, folder, file, then elements; a title-bar action switches to the Packages layout and the choice is remembered per workspace; verify with unit tests over a fake folder listing
 - [x] 6.2 Show every non-excluded folder, marking those with no `.sysml` file below them "no SysML files" with no children; folders before files, sorted by name; verify exclusions follow `files.exclude` and `sysml.exclude`
 - [x] 6.3 Keep tree actions, Go to Definition, follow-cursor reveal and incremental refresh working in both layouts, including folder create and delete; verify with integration tests and a text dump of the Folders layout in `out/test-artifacts/tree-folders.txt` (the harness captures no tree images; integration tests written and compile, waiting on CI)
+- [x] 6.4 Replace the Folders/Packages toggle with an Elements/Diagrams filter (Packages layout removed): the Diagrams view shows `.sysmld` files as leaves with their kind, opening on selection, folders without diagrams marked "no diagrams"; drop the separate Diagrams list from the view; verify with unit and integration tests
 

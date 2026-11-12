@@ -10,17 +10,18 @@ import { interactionTests } from "./diagram-interaction.js";
 import { foldersTests } from "./folders.js";
 import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
+import { elementRoots } from "./tree-util.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
-export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" }
+export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" | "diagram" }
 export interface TestApi {
   model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[]; pendingDetails(): string[] } };
   provider: {
-    /** An array in the Packages layout; the Folders layout may answer with a promise (await it). */
+    /** An array below a file node (the elements); the folder levels, and the Diagrams view, answer with a promise (await it). */
     getChildren(n?: ModelNode): ModelNode[];
     getParent(n: ModelNode): ModelNode | undefined;
-    readonly layout: "folders" | "packages";
-    setLayout(layout: "folders" | "packages"): Promise<void>;
+    readonly filter: "elements" | "diagrams";
+    setFilter(filter: "elements" | "diagrams"): Promise<void>;
     getTreeItem(n: ModelNode): vscode.TreeItem;
     onDidChangeTreeData: vscode.Event<unknown>;
   };
@@ -134,15 +135,14 @@ export async function run(): Promise<void> {
   const api = (await ext.activate()) as TestApi;
   assert.strictEqual(ext.isActive, true, "extension activated");
   await api.model.ready;
-  // The Folders layout is the default; every suite below but the folder one reads package roots, so it runs in the Packages layout.
-  const defaultLayout = api.provider.layout;
-  await api.provider.setLayout("packages");
+  // The Elements view is the default; the suites below read the top-level elements of the workspace files through it (see elementRoots).
+  const defaultFilter = api.provider.filter;
 
   const ix = api.model.index;
   const labelOf = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
   const labels = (nodes: ModelNode[]) => nodes.map(labelOf);
   const rootOf = (label: string) => {
-    const n = api.provider.getChildren().find((r) => labelOf(r) === label);
+    const n = elementRoots(api).find((r) => labelOf(r) === label);
     assert.ok(n, `root ${label}`);
     return n;
   };
@@ -347,18 +347,18 @@ export async function run(): Promise<void> {
   const TOOL_COUNT = 18; // four model read tools, six diagram tools, six model edit tools (one sets a transition) and two requirements tools
 
   const tests: Test[] = [
-    ["the tree starts in the Folders layout", async () => {
-      assert.strictEqual(defaultLayout, "folders");
+    ["the tree starts in the Elements view", async () => {
+      assert.strictEqual(defaultFilter, "elements");
     }],
-    ["roots are the workspace packages, not the library", async () => {
-      assert.deepStrictEqual(labels(api.provider.getChildren()).sort(), ["Delivery", "Design", "Lamp", "Mobility", "Notes", "Ordering", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
+    ["the top-level elements of the workspace files are the packages, not the library", async () => {
+      assert.deepStrictEqual(labels(elementRoots(api)).sort(), ["Delivery", "Design", "Lamp", "Mobility", "Notes", "Ordering", "Ports", "Requirements", "Vehicle", "broken.sysml"]);
       assert.ok(ix.uris().some((u) => ix.isReadOnly(u)), "library is loaded");
-      const lib = labels(api.provider.getChildren());
+      const lib = labels(elementRoots(api));
       assert.ok(!lib.includes("ScalarValues") && !lib.includes("ISQ"), "library packages are not roots");
     }],
     ["files under sysml.exclude are not indexed", async () => {
       assert.ok(!ix.uris().some((u) => u.includes("/ignored/")), "ignored/ is not indexed");
-      assert.ok(!labels(api.provider.getChildren()).includes("Ignored"));
+      assert.ok(!labels(elementRoots(api)).includes("Ignored"));
     }],
     ["a file that never parsed cleanly shows an error node", async () => {
       const node = rootOf("broken.sysml");
@@ -531,7 +531,7 @@ export async function run(): Promise<void> {
       const doc = await vscode.workspace.openTextDocument(vehicleUri);
 
       // (1) the tree as the provider presents it
-      assert.ok(labels(api.provider.getChildren()).includes("Vehicle"));
+      assert.ok(labels(elementRoots(api)).includes("Vehicle"));
       assert.ok(!labels(api.provider.getChildren(rootOf("Vehicle"))).includes("Trailer"));
 
       // (2) an unsaved edit adds a part def

@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { DiagramDoc, Gesture, Metrics, MNode, ModelNode, PickItem, TestApi } from "./index.js";
+import { elementRoots } from "./tree-util.js";
 
 type Test = [name: string, fn: () => Promise<void>];
 
@@ -37,7 +38,7 @@ export function interactionTests(c: Ctx): Test[] {
     }
   };
   const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
-  const rootOf = (l: string) => api.provider.getChildren().find((r) => label(r) === l)!;
+  const rootOf = (l: string) => elementRoots(api).find((r) => label(r) === l)!;
   const childOf = (parent: ModelNode, l: string) => {
     const n = api.provider.getChildren(parent).find((r) => label(r) === l);
     assert.ok(n, `tree node ${l}`);

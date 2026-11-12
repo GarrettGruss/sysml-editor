@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { makeExcludeFilter } from "../workspace/exclude.js";
 import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import {
-  affectedFolderNodes, affectedNodes, childNodes, fileChildren, folderChildren, folderInfo, folderParent, folderRoots, hasSysmlBelow, fileNode, folderNode, type FolderEnv, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
+  affectedDiagramNodes, affectedFolderNodes, diagramChildren, diagramFolderInfo, diagramKindLabel, diagramNode, folderChain, isExcludedPath, visibleDiagrams, hasDiagramBelow, childNodes, fileChildren, folderChildren, folderInfo, folderParent, folderRoots, hasSysmlBelow, fileNode, folderNode, type FolderEnv, elementNames, nodeForElement, firstErrorPosition, firstErrorText, isErrorNode, iconKeyOf, nodeAtOffset, nodeInfo, resolveNode, rootNodes,
   type ModelNode,
 } from "./tree-model.js";
 
@@ -111,17 +111,6 @@ describe("tree model", () => {
     expect(resolveNode(ix, at("package Inner"))?.name).toBe("Inner");
     expect(nodeAtOffset(ix, A, SRC.length + 5)).toBeUndefined();
   });
-
-  it("computes affected nodes", () => {
-    const ix = setup();
-    const roots = rootNodes(ix).map((n) => n.id);
-    expect(affectedNodes(ix, roots, [A])).toEqual({ full: false, ids: roots });
-    expect(affectedNodes(ix, roots, [`${LIBRARY_URI_SCHEME}:///x.sysml`])).toEqual({ full: false, ids: [] });
-    ix.setDocument("file:///w/b.sysml", "package B;");
-    expect(affectedNodes(ix, roots, ["file:///w/b.sysml"]).full).toBe(true);
-    ix.removeDocument(A);
-    expect(affectedNodes(ix, roots, [A]).full).toBe(true);
-  });
 });
 
 describe("files that never parsed cleanly", () => {
@@ -140,10 +129,9 @@ describe("files that never parsed cleanly", () => {
   it("is replaced by the real roots once the file parses", () => {
     const ix = new ModelIndex();
     ix.setDocument(B, "package Broken {\n  part def\n");
-    const before = rootNodes(ix).map((n) => n.id);
+    expect(isErrorNode(rootNodes(ix)[0]!)).toBe(true);
     ix.setDocument(B, "package Broken { part def X; }");
-    const r = affectedNodes(ix, before, [B]);
-    expect(r.full).toBe(true);
+    expect(isErrorNode(rootNodes(ix)[0]!)).toBe(false);
     expect(info(ix, rootNodes(ix)[0]!).label).toBe("Broken");
   });
   it("a file that parsed before keeps its last good model instead", () => {
@@ -174,7 +162,7 @@ describe("elements and tree nodes", () => {
   });
 });
 
-describe("Folders layout", () => {
+describe("Elements view", () => {
   // A fake disk: folder uri -> entries.
   const disk: Record<string, { name: string; isDir: boolean }[]> = {
     "file:///w": [
@@ -239,7 +227,7 @@ describe("Folders layout", () => {
     expect(names(await folderChildren(ix(), nested, folderNode("file:///w")))).not.toContain("Alpha");
   });
 
-  it("walks down to the elements and keeps the element ids of the Packages layout", async () => {
+  it("walks down to the elements", async () => {
     const i = ix();
     const sub = (await folderChildren(i, env, folderNode("file:///w/Alpha")))[0]!;
     expect(sub.id).toBe("file:///w/Alpha/sub");
@@ -280,5 +268,75 @@ describe("Folders layout", () => {
     expect(kids).toHaveLength(1);
     expect(isErrorNode(kids[0]!)).toBe(true);
     expect(folderParent(env, kids[0]!)).toEqual(fileNode("file:///w/top.sysml"));
+  });
+});
+
+describe("Diagrams view", () => {
+  const disk: Record<string, { name: string; isDir: boolean }[]> = {
+    "file:///w": [
+      { name: "zeta", isDir: true }, { name: "Alpha", isDir: true }, { name: "docs", isDir: true }, { name: "node_modules", isDir: true },
+      { name: "top.sysmld", isDir: false }, { name: "B.sysmld", isDir: false }, { name: "a.sysmld", isDir: false }, { name: "x.sysml", isDir: false }, { name: "skip.sysmld", isDir: false },
+    ],
+    "file:///w/Alpha": [{ name: "g.sysmld", isDir: false }, { name: "sub", isDir: true }],
+    "file:///w/Alpha/sub": [{ name: "deep.sysmld", isDir: false }],
+    "file:///w/zeta": [],
+    "file:///w/docs": [{ name: "guide.md", isDir: false }, { name: "m.sysml", isDir: false }],
+    "file:///w/node_modules": [{ name: "n.sysmld", isDir: false }],
+  };
+  const env: FolderEnv = {
+    roots: [{ name: "w", uri: "file:///w" }],
+    list: async (u) => disk[u] ?? [],
+    child: (f, n) => `${f}/${n}`,
+    excluded: makeExcludeFilter(["**/node_modules/**", "skip.sysmld"]),
+  };
+  const all = ["top", "B", "a", "skip"].map((n) => `file:///w/${n}.sysmld`).concat(["file:///w/Alpha/g.sysmld", "file:///w/Alpha/sub/deep.sysmld", "file:///w/node_modules/n.sysmld", "file:///w/other/outside.sysmld"]);
+  const diagrams = visibleDiagrams(env, all.slice(0, 7));
+  const names = (ns: ModelNode[]) => ns.map((n) => n.id.split("/").pop());
+
+  it("drops excluded files, also below an excluded folder", () => {
+    expect([...diagrams].sort()).toEqual(["file:///w/Alpha/g.sysmld", "file:///w/Alpha/sub/deep.sysmld", "file:///w/B.sysmld", "file:///w/a.sysmld", "file:///w/top.sysmld"]);
+    expect(isExcludedPath(env, "file:///w/node_modules/n.sysmld")).toBe(true);
+    expect(isExcludedPath(env, "file:///elsewhere/x.sysmld")).toBe(true);
+    expect(isExcludedPath(env, "file:///w/a.sysmld")).toBe(false);
+  });
+
+  it("lists folders then diagram leaves, sorted, without .sysml files or excluded entries", async () => {
+    const kids = await diagramChildren(diagrams, env, folderNode("file:///w"));
+    expect(names(kids)).toEqual(["Alpha", "docs", "zeta", "a.sysmld", "B.sysmld", "top.sysmld"]);
+    expect(kids.map((k) => k.kind)).toEqual(["folder", "folder", "folder", "diagram", "diagram", "diagram"]);
+  });
+
+  it("diagram nodes are leaves with their folder as parent", async () => {
+    const leaf = diagramNode("file:///w/Alpha/g.sysmld");
+    expect(await diagramChildren(diagrams, env, leaf)).toEqual([]);
+    expect(folderParent(env, leaf)).toEqual(folderNode("file:///w/Alpha"));
+  });
+
+  it("marks folders without diagrams 'no diagrams' with no children", async () => {
+    expect(diagramFolderInfo(diagrams, env, folderNode("file:///w/docs"))).toEqual({ label: "docs", description: "no diagrams", empty: true });
+    expect(diagramFolderInfo(diagrams, env, folderNode("file:///w/Alpha"))).toMatchObject({ empty: false, description: undefined });
+    expect(diagramFolderInfo(diagrams, env, folderNode("file:///w"))).toMatchObject({ label: "w", empty: false });
+    expect(await diagramChildren(diagrams, env, folderNode("file:///w/docs"))).toEqual([]);
+    expect(hasDiagramBelow(diagrams, "file:///w/zeta")).toBe(false);
+    expect(await diagramChildren(new Set(), env, folderNode("file:///w/Alpha"))).toEqual([]);
+  });
+
+  it("reads the kind cheaply and falls back to nothing", () => {
+    expect(diagramKindLabel('{\n  "version": 1,\n  "kind": "actionFlow",\n  "root": "P"\n}')).toBe("Action Flow");
+    expect(diagramKindLabel('{"version":1,"kind":"stateTransition"}')).toBe("State Transition");
+    for (const [k, l] of [["general", "General"], ["interconnection", "Interconnection"], ["sequence", "Sequence"], ["requirements", "Requirements"]]) expect(diagramKindLabel(`{"kind":"${k}"}`)).toBe(l);
+    expect(diagramKindLabel("not json")).toBeUndefined();
+    expect(diagramKindLabel('{"kind":"mystery"}')).toBeUndefined();
+    expect(diagramKindLabel("")).toBeUndefined();
+  });
+
+  it("refreshes the folders above an added or removed diagram, and only the file for a rewrite", () => {
+    const added = new Set([...diagrams, "file:///w/zeta/new.sysmld"]);
+    expect(affectedDiagramNodes(env, diagrams, added).map((n) => n.id)).toEqual(["file:///w", "file:///w/zeta"]);
+    const removed = new Set([...diagrams].filter((u) => u !== "file:///w/Alpha/sub/deep.sysmld"));
+    expect(affectedDiagramNodes(env, diagrams, removed).map((n) => n.id)).toEqual(["file:///w", "file:///w/Alpha", "file:///w/Alpha/sub"]);
+    expect(affectedDiagramNodes(env, diagrams, diagrams, ["file:///w/a.sysmld"])).toEqual([diagramNode("file:///w/a.sysmld")]);
+    expect(affectedDiagramNodes(env, diagrams, diagrams, ["file:///w/gone.sysmld"])).toEqual([]);
+    expect(folderChain(env, "file:///w/zeta/new.sysmld").map((n) => n.id)).toEqual(["file:///w", "file:///w/zeta"]);
   });
 });

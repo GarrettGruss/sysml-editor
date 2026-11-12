@@ -5,15 +5,16 @@ import type { ModelIndex } from "../model/index.js";
 import { ELEMENT_MIME } from "../diagram/protocol.js";
 import { makeExcludeFilter, patternsFromObject } from "../workspace/exclude.js";
 import {
-  affectedFolderNodes, affectedNodes, childNodes, elementNames, fileChildren, fileName, firstErrorPosition, firstErrorText, folderChildren, folderInfo, folderParent,
-  folderRoots, isErrorNode, isFileNode, isFolderNode, nodeAtOffset, nodeInfo, parentNode, resolveNode, rootNodes, workspaceUris,
+  affectedDiagramNodes, affectedFolderNodes, childNodes, diagramChildren, diagramFolderInfo, diagramKindLabel, elementNames, fileChildren, fileName, firstErrorPosition, firstErrorText,
+  folderChildren, folderInfo, folderParent, folderRoots, isDiagramNode, isErrorNode, isFileNode, isFolderNode, nodeAtOffset, nodeInfo, resolveNode, visibleDiagrams, workspaceUris,
   type FolderEnv, type ModelNode,
 } from "./tree-model.js";
 
-export type TreeLayout = "folders" | "packages";
-const LAYOUT_KEY = "sysml.treeLayout";
+export type TreeFilter = "elements" | "diagrams";
+const FILTER_KEY = "sysml.treeFilter";
+export const DIAGRAM_VIEW_TYPE_ID = "sysml.diagram";
 
-/** The directory listing and exclusion rules of the Folders layout, backed by the workspace. */
+/** The directory listing and exclusion rules of the tree, backed by the workspace. */
 export function workspaceFolderEnv(): FolderEnv {
   let key = "";
   let filter: (rel: string) => boolean = () => false;
@@ -65,9 +66,12 @@ const ICONS: Record<string, string> = {
 export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vscode.Disposable {
   private readonly emitter = new vscode.EventEmitter<ModelNode | ModelNode[] | undefined>();
   readonly onDidChangeTreeData = this.emitter.event;
-  private rootIds: string[] = [];
   private files = new Set<string>();
-  private layoutValue: TreeLayout = "folders";
+  private filterValue: TreeFilter = "elements";
+  /** The `.sysmld` files shown in the Diagrams view, and their kind labels (undefined when unreadable). */
+  private diagrams: ReadonlySet<string> = new Set();
+  private readonly kinds = new Map<string, string | undefined>();
+  private diagramsReady: Promise<void> = Promise.resolve();
   private readonly subs: vscode.Disposable[] = [];
   /** Why a document cannot be edited (workspace boundary, `sysml.exclude`, not a file); such nodes get no Add Child, Rename or Delete. */
   editBlocker?: (uri: string) => string | undefined;
@@ -78,30 +82,81 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     private readonly state?: vscode.Memento,
     folderChanges?: vscode.Event<string>,
   ) {
-    this.layoutValue = state?.get<TreeLayout>(LAYOUT_KEY) === "packages" ? "packages" : "folders";
-    this.rootIds = rootNodes(index).map((n) => n.id);
+    this.filterValue = state?.get<TreeFilter>(FILTER_KEY) === "diagrams" ? "diagrams" : "elements";
     this.files = new Set(workspaceUris(index));
-    void vscode.commands.executeCommand("setContext", "sysml.treeLayout", this.layoutValue);
+    void vscode.commands.executeCommand("setContext", "sysml.treeFilter", this.filterValue);
+    this.diagramsReady = this.scanDiagrams();
+    const watcher = vscode.workspace.createFileSystemWatcher("**/*.sysmld");
     this.subs.push(
+      watcher,
+      watcher.onDidCreate(() => this.scheduleRescan()),
+      watcher.onDidDelete(() => this.scheduleRescan()),
+      watcher.onDidChange((u) => this.onDiagramChanged(uriKey(u))),
       index.onDidChange((e) => this.onModelChange(e.uris)),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.emitter.fire(undefined)),
       vscode.workspace.onDidChangeConfiguration((e) => {
-        if (["sysml.exclude", "files.exclude"].some((k) => e.affectsConfiguration(k))) this.emitter.fire(undefined);
+        if (!["sysml.exclude", "files.exclude"].some((k) => e.affectsConfiguration(k))) return;
+        this.diagramsReady = this.scanDiagrams().then(() => this.emitter.fire(undefined));
+        this.emitter.fire(undefined);
       }),
     );
     if (folderChanges) this.subs.push(folderChanges((parent) => this.onFolderChange(parent)));
   }
 
-  get layout(): TreeLayout {
-    return this.layoutValue;
+  get filter(): TreeFilter {
+    return this.filterValue;
   }
 
-  async setLayout(layout: TreeLayout): Promise<void> {
-    if (layout === this.layoutValue) return;
-    this.layoutValue = layout;
-    await this.state?.update(LAYOUT_KEY, layout);
-    await vscode.commands.executeCommand("setContext", "sysml.treeLayout", layout);
+  async setFilter(filter: TreeFilter): Promise<void> {
+    if (filter === this.filterValue) return;
+    this.filterValue = filter;
+    await this.state?.update(FILTER_KEY, filter);
+    await vscode.commands.executeCommand("setContext", "sysml.treeFilter", filter);
     this.emitter.fire(undefined);
+  }
+
+  /** Scan the workspace for `.sysmld` files (files.exclude applies to the search, sysml.exclude to the result) and refresh the affected nodes. */
+  private async scanDiagrams(): Promise<void> {
+    let found: vscode.Uri[];
+    try {
+      found = await vscode.workspace.findFiles("**/*.sysmld", undefined);
+    } catch {
+      return;
+    }
+    const next = visibleDiagrams(this.env, found.map(uriKey));
+    const previous = this.diagrams;
+    this.diagrams = next;
+    for (const u of this.kinds.keys()) if (!next.has(u)) this.kinds.delete(u);
+    if (this.filterValue !== "diagrams") return;
+    const nodes = affectedDiagramNodes(this.env, previous, next);
+    if (nodes.length) this.emitter.fire(nodes);
+  }
+
+  private rescanTimer: ReturnType<typeof setTimeout> | undefined;
+
+  private scheduleRescan(): void {
+    clearTimeout(this.rescanTimer);
+    this.rescanTimer = setTimeout(() => {
+      this.diagramsReady = this.scanDiagrams();
+    }, 150);
+  }
+
+  private onDiagramChanged(uri: string): void {
+    this.kinds.delete(uri);
+    if (this.filterValue === "diagrams" && this.diagrams.has(uri)) this.emitter.fire([{ id: uri, uri, kind: "diagram" }]);
+  }
+
+  /** The kind label of a diagram file, cached; read from the first bytes of the file. */
+  private async loadKind(uri: string): Promise<void> {
+    if (this.kinds.has(uri)) return;
+    let label: string | undefined;
+    try {
+      const bytes = await vscode.workspace.fs.readFile(vscode.Uri.parse(uri));
+      label = diagramKindLabel(new TextDecoder().decode(bytes.subarray(0, 4096)));
+    } catch {
+      label = undefined;
+    }
+    this.kinds.set(uri, label);
   }
 
   /** Folder nodes handed out by getChildren, so changes in folders nobody sees are ignored. */
@@ -111,7 +166,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   /** A path was created or deleted below `parent` (a folder URI key): refresh that node only, batched. */
   private onFolderChange(parent: string): void {
-    if (this.layoutValue !== "folders") return;
+    if (this.filterValue === "diagrams") this.scheduleRescan();
     if (!this.rendered.has(parent)) return;
     const root = this.env.roots.find((r) => parent === r.uri || parent.startsWith(r.uri + "/"));
     if (!root || this.env.excluded(parent.slice(root.uri.length + 1))) return;
@@ -132,56 +187,51 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   }
 
   private onModelChange(uris: string[]): void {
-    if (this.layoutValue === "folders") {
-      const nodes = affectedFolderNodes(this.index, this.env, this.files, uris);
-      const wasEmpty = this.files.size === 0;
-      this.files = new Set(workspaceUris(this.index));
-      // The roots appear and disappear with the first and last file (the welcome message shows when there are none).
-      if (wasEmpty !== (this.files.size === 0)) this.emitter.fire(undefined);
-      else if (nodes.length) this.emitter.fire(nodes);
-      return;
-    }
+    const nodes = this.filterValue === "elements" ? affectedFolderNodes(this.index, this.env, this.files, uris) : [];
+    const wasEmpty = this.files.size === 0;
     this.files = new Set(workspaceUris(this.index));
-    const r = affectedNodes(this.index, this.rootIds, uris);
-    this.rootIds = rootNodes(this.index).map((n) => n.id);
-    if (r.full) this.emitter.fire(undefined);
-    else if (r.ids.length) {
-      const ids = new Set(r.ids);
-      this.emitter.fire(rootNodes(this.index).filter((n) => ids.has(n.id)));
-    }
+    // The roots appear and disappear with the first and last file (the welcome message shows when there are none).
+    if (wasEmpty !== (this.files.size === 0)) this.emitter.fire(undefined);
+    else if (nodes.length) this.emitter.fire(nodes);
   }
 
   getChildren(node?: ModelNode): ModelNode[] | Promise<ModelNode[]> {
-    if (this.layoutValue === "folders") {
-      if (!node) {
-        const roots = folderRoots(this.index, this.env);
-        for (const r of roots) this.rendered.add(r.id);
-        return roots;
-      }
-      if (isFolderNode(node)) {
-        return folderChildren(this.index, this.env, node).then((kids) => {
-          for (const k of kids) if (isFolderNode(k)) this.rendered.add(k.id);
-          return kids;
-        });
-      }
-      if (isFileNode(node)) return fileChildren(this.index, node);
-      return childNodes(this.index, node);
+    const track = (kids: ModelNode[]) => {
+      for (const k of kids) if (isFolderNode(k)) this.rendered.add(k.id);
+      return kids;
+    };
+    if (this.filterValue === "diagrams") {
+      return this.diagramsReady.then(async () => {
+        if (!node) return track(folderRoots(this.index, this.env));
+        if (!isFolderNode(node)) return [];
+        const kids = await diagramChildren(this.diagrams, this.env, node);
+        await Promise.all(kids.filter(isDiagramNode).map((k) => this.loadKind(k.uri)));
+        return track(kids);
+      });
     }
-    if (!node) {
-      const roots = rootNodes(this.index);
-      this.rootIds = roots.map((n) => n.id);
-      return roots;
-    }
+    if (!node) return track(folderRoots(this.index, this.env));
+    if (isFolderNode(node)) return folderChildren(this.index, this.env, node).then(track);
+    if (isFileNode(node)) return fileChildren(this.index, node);
     return childNodes(this.index, node);
   }
 
   getParent(node: ModelNode): ModelNode | undefined {
-    return this.layoutValue === "folders" ? folderParent(this.env, node) : parentNode(node);
+    return folderParent(this.env, node);
   }
 
   private folderItem(node: ModelNode): vscode.TreeItem {
+    if (isDiagramNode(node)) {
+      const item = new vscode.TreeItem(fileName(node.uri), vscode.TreeItemCollapsibleState.None);
+      item.id = node.id;
+      item.description = this.kinds.get(node.uri);
+      item.iconPath = new vscode.ThemeIcon("type-hierarchy");
+      item.contextValue = "sysmlDiagram";
+      item.tooltip = vscode.Uri.parse(node.uri).fsPath;
+      item.command = { command: "vscode.openWith", title: "Open Diagram", arguments: [vscode.Uri.parse(node.uri), DIAGRAM_VIEW_TYPE_ID] };
+      return item;
+    }
     if (isFolderNode(node)) {
-      const f = folderInfo(this.index, this.env, node);
+      const f = this.filterValue === "diagrams" ? diagramFolderInfo(this.diagrams, this.env, node) : folderInfo(this.index, this.env, node);
       const item = new vscode.TreeItem(f.label, f.empty ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed);
       item.id = node.id;
       item.description = f.description;
@@ -201,7 +251,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   }
 
   getTreeItem(node: ModelNode): vscode.TreeItem {
-    if (isFolderNode(node) || isFileNode(node)) return this.folderItem(node);
+    if (isFolderNode(node) || isFileNode(node) || isDiagramNode(node)) return this.folderItem(node);
     const info = nodeInfo(this.index, node);
     const item = new vscode.TreeItem(info?.label ?? "<gone>");
     item.id = node.id;
@@ -227,6 +277,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   dispose(): void {
     clearTimeout(this.folderTimer);
+    clearTimeout(this.rescanTimer);
     for (const s of this.subs) s.dispose();
     this.emitter.dispose();
   }

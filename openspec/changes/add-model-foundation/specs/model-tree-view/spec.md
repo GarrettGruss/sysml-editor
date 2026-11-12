@@ -1,26 +1,26 @@
 ## ADDED Requirements
 
 ### Requirement: Native tree view of model hierarchy
-The extension SHALL contribute a VS Code native tree view (not a webview) that displays the ownership hierarchy of all SysML v2 elements parsed from `.sysml` files in the workspace. The view SHALL offer two layouts, switched by a title-bar action and remembered per workspace: Folders (the default), rooted at the workspace folders and showing folder, then file, then the file's elements; and Packages, rooted at top-level packages and namespaces.
+The extension SHALL contribute a VS Code native tree view (not a webview) rooted at the workspace folders, showing folders, then files, then their contents. A filter in the view's title bar, remembered per workspace, SHALL switch between two views that both keep the folder structure: Elements (the default), which shows `.sysml` files and the ownership hierarchy of their elements; and Diagrams, which shows `.sysmld` diagram files.
 
 #### Scenario: Workspace with SysML files in folders
-- **WHEN** the workspace contains `fixtures/sysml-v2-models/SE_Models/Vehicle.sysml` and the user opens the SysML Model view in the Folders layout
+- **WHEN** the workspace contains `fixtures/sysml-v2-models/SE_Models/Vehicle.sysml` and the user opens the SysML Model view in the Elements view
 - **THEN** the tree shows `fixtures`, then `sysml-v2-models`, then `SE_Models`, then `Vehicle.sysml`, and expanding the file shows its top-level elements, whose owned members appear in source order
+
+#### Scenario: Diagrams view
+- **WHEN** the workspace contains `models/vehicle/vehicle-general.sysmld` and the user switches the filter to Diagrams
+- **THEN** the tree shows `models`, then `vehicle`, then `vehicle-general.sysmld` with its diagram kind (for example "General") as description; the diagram file has no children and selecting it opens it in the diagram editor; `.sysml` files are not shown
 
 #### Scenario: Multi-root workspace
 - **WHEN** the workspace has more than one workspace folder
-- **THEN** the Folders layout has one root node per workspace folder
-
-#### Scenario: Packages layout
-- **WHEN** the user switches to the Packages layout
-- **THEN** the tree lists each top-level package without folders or files, and expanding a node shows its owned members in source order
+- **THEN** each view has one root node per workspace folder
 
 #### Scenario: Empty workspace
 - **WHEN** the workspace contains no `.sysml` files
 - **THEN** the view shows a welcome message with an action to create a new SysML file
 
 ### Requirement: Folders without SysML files
-In the Folders layout the tree SHALL show every workspace folder that is not excluded by `files.exclude` or `sysml.exclude`, including folders that contain no `.sysml` file at any depth. Such a folder SHALL be marked as empty (description "no SysML files" and a dimmed icon) and SHALL have no children. Folders appear before files, each sorted by name.
+In both views the tree SHALL show every workspace folder that is not excluded by `files.exclude` or `sysml.exclude`, including folders that contain no file of the kind the view shows at any depth. Such a folder SHALL be marked as empty (description "no SysML files" in the Elements view, "no diagrams" in the Diagrams view, and a dimmed icon) and SHALL have no children. Folders appear before files, each sorted by name.
 
 #### Scenario: Folder with no SysML files
 - **WHEN** the workspace contains a folder `docs/` with no `.sysml` file below it

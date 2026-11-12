@@ -98,8 +98,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     }),
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     vscode.commands.registerCommand("sysml.newFile", createNewFile),
-    vscode.commands.registerCommand("sysml.tree.showPackages", () => provider.setLayout("packages")),
-    vscode.commands.registerCommand("sysml.tree.showFolders", () => provider.setLayout("folders")),
+    vscode.commands.registerCommand("sysml.tree.showDiagrams", () => provider.setFilter("diagrams")),
+    vscode.commands.registerCommand("sysml.tree.showElements", () => provider.setFilter("elements")),
   );
   return { model, provider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi };
 }

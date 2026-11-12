@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { viaLm, viaMcp } from "./diagram-agent.js";
 import type { Ctx } from "./diagram-interaction.js";
 import type { DiagramDoc, Failure, Gesture, Metrics, MNode, ModelNode, PickItem } from "./index.js";
+import { elementRoots } from "./tree-util.js";
 
 type Test = [name: string, fn: () => Promise<void>];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -415,9 +416,8 @@ export function editingTests(c: Ctx): Test[] {
       assert.notStrictEqual(kept, original);
     })],
 
-    ["Folders layout: element nodes are editable (sysmlElement context value, Add Child and Rename work)", scenario("EdFold", { "tmp-edfold.sysmld": gen("EdFold") }, async ({ model }) => {
-      await api.provider.setLayout("folders");
-      try {
+    ["Elements view, reached through the folders and the file: element nodes are editable (sysmlElement context value, Add Child and Rename work)", scenario("EdFold", { "tmp-edfold.sysmld": gen("EdFold") }, async ({ model }) => {
+      {
         const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
         const kids = async (n?: ModelNode): Promise<ModelNode[]> => await api.provider.getChildren(n);
         const find = async (p: ModelNode | undefined, l: string) => (await kids(p)).find((n) => label(n) === l)!;
@@ -434,8 +434,6 @@ export function editingTests(c: Ctx): Test[] {
         await vscode.commands.executeCommand("sysml.tree.rename", await find(await v1(), "battery"));
         await waitFor(() => onDisk(model).includes("part cell;"), 15000, "renamed");
         await clean(model);
-      } finally {
-        await api.provider.setLayout("packages");
       }
     })],
 
@@ -674,7 +672,7 @@ export function editingTests(c: Ctx): Test[] {
         const CANDIDATES = ["a", "b", "c", "d", "gamma", "delta"];
         const label = (n: ModelNode) => String(api.provider.getTreeItem(n).label);
         const treeParts = (): string[] => {
-          const pkg = api.provider.getChildren().find((r) => label(r) === "EdE2E");
+          const pkg = elementRoots(api).find((r) => label(r) === "EdE2E");
           const sys = pkg && api.provider.getChildren(pkg).find((n) => label(n) === "Sys");
           return sys ? api.provider.getChildren(sys).map(label).filter((l) => CANDIDATES.includes(l)).sort() : [];
         };
@@ -714,7 +712,7 @@ export function editingTests(c: Ctx): Test[] {
         await agree(["a", "b", "c"], true, "add from the diagram");
         // 3. tree: rename c -> gamma
         script.input = "gamma";
-        const sys = () => api.provider.getChildren(api.provider.getChildren().find((r) => label(r) === "EdE2E")).find((n) => label(n) === "Sys");
+        const sys = () => api.provider.getChildren(elementRoots(api).find((r) => label(r) === "EdE2E")).find((n) => label(n) === "Sys");
         await vscode.commands.executeCommand("sysml.tree.rename", api.provider.getChildren(sys()).find((n) => label(n) === "c"));
         await agree(["a", "b", "gamma"], true, "rename from the tree");
         // 4. agent: add delta (placed on the diagram)

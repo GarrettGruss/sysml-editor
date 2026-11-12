@@ -9,7 +9,7 @@ type Test = [name: string, fn: () => Promise<void>];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** The Folders layout of the tree: workspace folder, folders, files, elements; empty folders; follow-cursor; folder create and delete. */
+/** The folder structure of the tree: workspace folder, folders, files, elements (Elements view) or diagram leaves (Diagrams view); empty folders; follow-cursor; folder create and delete; the filter. */
 export function foldersTests(c: Ctx): Test[] {
   const { api, folder, artifactDir } = c;
   const dir = (...p: string[]) => path.join(folder.fsPath, "tmp-tree", ...p);
@@ -38,14 +38,15 @@ export function foldersTests(c: Ctx): Test[] {
     return out;
   };
 
-  const withFolders = (fn: () => Promise<void>): (() => Promise<void>) => async () => {
-    await api.provider.setLayout("folders");
+  const withFilter = (filter: "elements" | "diagrams", fn: () => Promise<void>): (() => Promise<void>) => async () => {
+    await api.provider.setFilter(filter);
     try {
       await fn();
     } finally {
-      await api.provider.setLayout("packages");
+      await api.provider.setFilter("elements");
     }
   };
+  const withFolders = (fn: () => Promise<void>) => withFilter("elements", fn);
   const setup = () => {
     rmSync(dir(), { recursive: true, force: true });
     mkdirSync(dir("empty"), { recursive: true });
@@ -58,7 +59,7 @@ export function foldersTests(c: Ctx): Test[] {
   };
 
   return [
-    ["Folders layout: workspace folder, folders before files sorted by name, excluded folders hidden, empty folders marked", withFolders(async () => {
+    ["Elements view: workspace folder, folders before files sorted by name, excluded folders hidden, empty folders marked", withFolders(async () => {
       setup();
       try {
         await waitFor(() => indexed("Nest/deep/m.sysml") && indexed("a.sysml") && indexed("b.sysml"), 20000, "the files are indexed");
@@ -91,7 +92,7 @@ export function foldersTests(c: Ctx): Test[] {
         assert.strictEqual(api.provider.getTreeItem(nest).description, undefined);
         assert.strictEqual(api.provider.getTreeItem(nest).collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
 
-        // down to the elements, which keep the ids they have in the Packages layout
+        // down to the elements
         const file = await find(await find(nest, "deep"), "m.sysml");
         assert.strictEqual(api.provider.getTreeItem(file).contextValue, "sysmlFile");
         assert.strictEqual(api.provider.getTreeItem(file).command?.command, "vscode.open");
@@ -99,9 +100,6 @@ export function foldersTests(c: Ctx): Test[] {
         const x = await find(pkg, "X");
         assert.strictEqual(api.provider.getTreeItem(pkg).contextValue, "sysmlElement");
         assert.strictEqual(api.provider.getTreeItem(x).description, "part def");
-        await api.provider.setLayout("packages");
-        assert.ok((await kids()).some((n) => n.id === pkg.id), "the package keeps its id in the Packages layout");
-        await api.provider.setLayout("folders");
 
         // a text dump of the tree, as the artifact of this layout
         mkdirSync(artifactDir, { recursive: true });
@@ -111,7 +109,7 @@ export function foldersTests(c: Ctx): Test[] {
         rmSync(dir(), { recursive: true, force: true });
       }
     })],
-    ["Folders layout: getParent walks element, file, folders; Go to Definition and follow-cursor reveal work on element nodes", withFolders(async () => {
+    ["Elements view: getParent walks element, file, folders; Go to Definition and follow-cursor reveal work on element nodes", withFolders(async () => {
       const vehicleUri = vscode.Uri.joinPath(folder, "vehicle.sysml");
       const root = (await kids())[0]!;
       const file = await find(root, "vehicle.sysml");
@@ -146,7 +144,7 @@ export function foldersTests(c: Ctx): Test[] {
         (view as { reveal: typeof view.reveal }).reveal = orig;
       }
     })],
-    ["Folders layout: creating and deleting folders refreshes only the parent node, and a deleted folder takes its files out of the model", withFolders(async () => {
+    ["Elements view: creating and deleting folders refreshes only the parent node, and a deleted folder takes its files out of the model", withFolders(async () => {
       setup();
       const fired: unknown[] = [];
       const sub = api.provider.onDidChangeTreeData((e) => fired.push(e));
@@ -180,6 +178,76 @@ export function foldersTests(c: Ctx): Test[] {
         await waitFor(async () => !(await kids(tmp)).map(label).includes("Nest"), 5000, "Nest is gone from the listing");
       } finally {
         sub.dispose();
+        rmSync(dir(), { recursive: true, force: true });
+        await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
+      }
+    })],
+    ["Filter: Elements is the default, Diagrams is remembered in the workspace state and the context key follows it", async () => {
+      assert.strictEqual(api.provider.filter, "elements");
+      const fired: unknown[] = [];
+      const sub = api.provider.onDidChangeTreeData((e) => fired.push(e));
+      try {
+        await vscode.commands.executeCommand("sysml.tree.showDiagrams");
+        assert.strictEqual(api.provider.filter, "diagrams");
+        assert.ok(fired.includes(undefined), "the whole tree is refreshed on a switch");
+        const root = (await kids())[0]!;
+        const top = await kids(root);
+        assert.ok(top.every((n) => n.kind === "folder" || n.kind === "diagram"), "no .sysml files in the Diagrams view");
+        assert.ok(top.some((n) => label(n) === "ports-general.sysmld"), "the fixture diagrams are leaves");
+        assert.ok(top.every((n) => !n.kind || n.kind !== "file"));
+        await vscode.commands.executeCommand("sysml.tree.showElements");
+        assert.strictEqual(api.provider.filter, "elements");
+        assert.ok((await kids(root)).some((n) => n.kind === "file" && label(n) === "vehicle.sysml"));
+        assert.ok(!(await kids(root)).some((n) => n.kind === "diagram"), "no diagrams in the Elements view");
+      } finally {
+        sub.dispose();
+        await api.provider.setFilter("elements");
+      }
+    }],
+    ["Diagrams view: a diagram is a leaf with its kind, opens in the diagram editor, and folders without diagrams are marked 'no diagrams'", withFilter("diagrams", async () => {
+      setup();
+      writeFileSync(dir("Nest", "deep", "d.sysmld"), JSON.stringify({ version: 1, kind: "interconnection", root: "Deep", sources: ["m.sysml"], nodes: [{ id: "n1", ref: "Deep" }], edges: [] }, null, 2) + "\n");
+      writeFileSync(dir("Nest", "deep", "bad.sysmld"), "not json at all");
+      try {
+        const root = (await kids())[0]!;
+        await waitFor(async () => {
+          const t = (await kids(root)).find((n) => label(n) === "tmp-tree");
+          return !!t && api.provider.getTreeItem(t).description === undefined;
+        }, 20000, "the new diagrams are found");
+        const tmp = await find(root, "tmp-tree");
+        assert.deepStrictEqual((await kids(tmp)).map(label), ["docs", "empty", "Nest"], "folders only: the .sysml files are not shown");
+        for (const empty of ["docs", "empty"]) {
+          const n = await find(tmp, empty);
+          const item = api.provider.getTreeItem(n);
+          assert.strictEqual(item.description, "no diagrams");
+          assert.strictEqual(item.collapsibleState, vscode.TreeItemCollapsibleState.None);
+          assert.strictEqual(((item.iconPath as vscode.ThemeIcon).color as vscode.ThemeColor).id, "disabledForeground");
+          assert.deepStrictEqual(await kids(n), []);
+        }
+        const deep = await find(await find(tmp, "Nest"), "deep");
+        assert.strictEqual(api.provider.getTreeItem(deep).description, undefined);
+        const leaf = await find(deep, "d.sysmld");
+        const item = api.provider.getTreeItem(leaf);
+        assert.strictEqual(item.description, "Interconnection");
+        assert.strictEqual(item.collapsibleState, vscode.TreeItemCollapsibleState.None);
+        assert.strictEqual(item.contextValue, "sysmlDiagram");
+        assert.deepStrictEqual(await kids(leaf), []);
+        assert.strictEqual(api.provider.getParent(leaf)?.id, deep.id);
+        assert.strictEqual(api.provider.getTreeItem(await find(deep, "bad.sysmld")).description, undefined, "an unreadable file has no description");
+
+        // selecting it opens the diagram custom editor
+        await vscode.commands.executeCommand(item.command!.command, ...(item.command!.arguments ?? []));
+        await waitFor(() => {
+          const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+          return input instanceof vscode.TabInputCustom && input.viewType === "sysml.diagram" && input.uri.fsPath === dir("Nest", "deep", "d.sysmld");
+        }, 20000, "the diagram opens in the diagram editor");
+        await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+
+        // deleting the only diagrams marks the folders again
+        rmSync(dir("Nest", "deep", "d.sysmld"));
+        rmSync(dir("Nest", "deep", "bad.sysmld"));
+        await waitFor(async () => api.provider.getTreeItem(await find(tmp, "Nest")).description === "no diagrams", 20000, "Nest is marked once its diagrams are gone");
+      } finally {
         rmSync(dir(), { recursive: true, force: true });
         await waitFor(() => !indexed("a.sysml"), 15000, "cleanup reaches the index").catch(() => {});
       }

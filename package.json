@@ -114,16 +114,16 @@
         "category": "SysML"
       },
       {
-        "command": "sysml.tree.showPackages",
-        "title": "Show Packages Layout",
+        "command": "sysml.tree.showDiagrams",
+        "title": "Show Diagrams",
         "category": "SysML",
-        "icon": "$(symbol-package)"
+        "icon": "$(type-hierarchy)"
       },
       {
-        "command": "sysml.tree.showFolders",
-        "title": "Show Folders Layout",
+        "command": "sysml.tree.showElements",
+        "title": "Show Elements",
         "category": "SysML",
-        "icon": "$(folder)"
+        "icon": "$(symbol-class)"
       }
     ],
     "menus": {
@@ -221,13 +221,13 @@
       ],
       "view/title": [
         {
-          "command": "sysml.tree.showPackages",
-          "when": "view == sysmlModel && sysml.treeLayout == folders",
+          "command": "sysml.tree.showDiagrams",
+          "when": "view == sysmlModel && sysml.treeFilter != diagrams",
           "group": "navigation"
         },
         {
-          "command": "sysml.tree.showFolders",
-          "when": "view == sysmlModel && sysml.treeLayout == packages",
+          "command": "sysml.tree.showElements",
+          "when": "view == sysmlModel && sysml.treeFilter == diagrams",
           "group": "navigation"
         }
       ]
