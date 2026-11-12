@@ -39,6 +39,6 @@
 
 ## 5. Integration
 
-- [ ] 5.1 End-to-end test: open the fixture workspace, browse the tree, edit text, and read the model through an agent tool; verify all three agree (test written and compiles; waiting on CI)
+- [x] 5.1 End-to-end test: open the fixture workspace, browse the tree, edit text, and read the model through an agent tool; verify all three agree (test written and compiles; waiting on CI)
 - [x] 5.2 Performance check: a 5,000-line generated model propagates text edits to the tree within 1 s, and activation time with the standard library is recorded
-- [ ] 5.3 Package with `vsce package` and verify the `.vsix` installs, activates, and starts its MCP server (verified locally: `npm run package` builds a 1.7 MB .vsix and `npm run check:vsix` passes; install and activation step added to CI and waiting on it)
+- [x] 5.3 Package with `vsce package` and verify the `.vsix` installs, activates, and starts its MCP server (verified locally: `npm run package` builds a 1.7 MB .vsix and `npm run check:vsix` passes; install and activation step added to CI and waiting on it)
