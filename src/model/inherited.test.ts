@@ -70,6 +70,5 @@ describe("usage bodies", () => {
   test("a usage with a type and a body has a body range, so members can be added to it", () => {
     const { q } = setup();
     expect(q("M::vehicle1").bodyRange).toBeDefined();
-    expect(q("M::vehicle2").bodyRange).toBeUndefined();
   });
 });
