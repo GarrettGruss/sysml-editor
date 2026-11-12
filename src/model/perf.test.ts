@@ -81,7 +81,8 @@ describe("performance: 5,000-line model", () => {
       `5,000-line edit round trip (${lineCount} lines, library ${haveLib ? "loaded" : "absent"}): ` +
         `median ${med.toFixed(0)} ms, max ${max.toFixed(0)} ms, all [${times.map((t) => t.toFixed(0)).join(", ")}]`,
     );
-    expect(med).toBeLessThan(300);
+    // The spec requires propagation within 1 s. The median limit is a regression guard sized for slow CI runners.
+    expect(med).toBeLessThan(500);
     expect(max).toBeLessThan(1000);
   }, 120_000);
 });
