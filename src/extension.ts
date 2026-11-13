@@ -17,7 +17,7 @@ import { registerRequirementsCommands } from "./requirements/commands.js";
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
   model: WorkspaceModel;
-  provider: Pick<ModelTreeProvider, "getParent" | "filter" | "setFilter" | "getTreeItem" | "isHanded" | "onDidChangeTreeData" | "ioCalls" | "pendingFolderRescans" | "setExpanded"> & { getChildren: ModelTreeProvider["getChildren"]; viewGetChildren: ModelTreeProvider["getChildren"] };
+  provider: Pick<ModelTreeProvider, "getParent" | "filter" | "setFilter" | "getTreeItem" | "isHanded" | "onDidChangeTreeData" | "ioCalls" | "pendingFolderRescans" | "diagramUris" | "diagramLog" | "query" | "setExpanded"> & { getChildren: ModelTreeProvider["getChildren"]; viewGetChildren: ModelTreeProvider["getChildren"] };
   view: vscode.TreeView<ModelNode>;
   agent: AgentIntegration;
   diagram: DiagramTestApi;
@@ -133,6 +133,15 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     },
     get pendingFolderRescans() {
       return provider.pendingFolderRescans;
+    },
+    get diagramUris() {
+      return provider.diagramUris;
+    },
+    get diagramLog() {
+      return provider.diagramLog;
+    },
+    get query() {
+      return provider.query;
     },
     setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
