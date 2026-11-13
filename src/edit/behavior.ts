@@ -334,7 +334,7 @@ export function planAddMessage(index: ModelIndex, owner: Element, from: string, 
   for (const [what, name] of [["sender", from], ["receiver", to]] as const) {
     if (!known.has(name)) return fail(`'${name}' is not a participant of ${describeElement(owner)} (${[...known].join(", ") || "it has no parts"}); the ${what} of a message must be one of its parts.`);
   }
-  if (spec.name !== undefined && (spec.name === "" || /[\r\n]/.test(spec.name))) return fail("The name must be a single line of text.");
+  if (spec.name !== undefined && (spec.name === "" || /[\u0000-\u001f\u007f]/.test(spec.name))) return fail("The name must be a single line of text.");
   if (spec.name !== undefined && owner.members.some((m) => m.name === spec.name)) return fail(`${describeElement(owner)} already has a member named '${spec.name}'.`);
   let type: string | undefined;
   const needs: ImportNeed[] = [];
@@ -520,7 +520,8 @@ export function planAddConnectedNode(index: ModelIndex, owner: Element, source: 
   if (typeof a !== "string") return a;
   const named = nm.size ? namedNodes(index, nm) : undefined;
   const key = (e: Element): string => { const n = nm.get(e); return n ? `${e.owner!.qualifiedName ?? ""}::${quoteName(n.name)}` : nodeKey(e); };
-  const decls = [`${kind} ${name};`, relation === "succession" ? `first ${a} then ${name};` : transitionText(a, name, {})];
+  const qn = quoteName(name);
+  const decls = [`${kind} ${qn};`, relation === "succession" ? `first ${a} then ${qn};` : transitionText(a, qn, {})];
   let first: PlanResult | undefined;
   for (const pos of positionsAfter([isSynthetic(source) ? source : memberOf(owner, source)])) {
     const r = insertDecls(index, owner, decls, pos);
@@ -531,8 +532,8 @@ export function planAddConnectedNode(index: ModelIndex, owner: Element, source: 
     const now = after(index, owner, edits);
     const an = now ? analyze(now.index, now.owner) : undefined;
     const found = relation === "succession"
-      ? an?.successions.some((s) => !s.implied && nodeKey(s.source) === key(source) && s.target.name === name)
-      : an?.transitions.some((t) => nodeKey(t.source) === key(source) && t.target.name === name);
+      ? an?.successions.some((s) => !s.implied && nodeKey(s.source) === key(source) && (s.target.name === name || s.target.name === qn))
+      : an?.transitions.some((t) => nodeKey(t.source) === key(source) && (t.target.name === name || t.target.name === qn));
     if (found) return v;
     first ??= fail(`The new ${relation} would not be read back as written; nothing was changed.`);
   }

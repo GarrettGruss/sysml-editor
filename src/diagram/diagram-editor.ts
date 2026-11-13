@@ -16,7 +16,8 @@ import { readSettled } from "./read-settled.js";
 import { createDiagramFile, writeDiagramFile } from "./write-uri.js";
 import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
 import { addElement, addElements, rootProblem } from "./create.js";
-import { applyAutoLayout, applyBoxPatches, applyEdgeLayout, materializePins, removeItems } from "./edits.js";
+import { applyAutoLayout, applyBoxPatches, applyDiagramStyle, applyEdgeLayout, materializePins, removeItems } from "./edits.js";
+import { defaultNameFor } from "./naming.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
 import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
 import { applyUpdates, relink } from "./reconcile.js";
@@ -465,8 +466,13 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       case "typeSuggestions": {
         const t = this.targetOf(doc, m.id);
         const items = t ? typeCandidates(this.model.index, t.element, typeof m.query === "string" ? m.query : "") : [];
-        const p2 = [...(this.panels.get(doc.key) ?? [])].find((x) => x.ready);
-        if (p2) this.post(p2, { type: "typeSuggestionsResult", requestId: m.requestId, items });
+        // To the panel that asked: the same diagram can be open in two.
+        this.post(p, { type: "typeSuggestionsResult", requestId: m.requestId, items });
+        break;
+      }
+      case "nameCheck": {
+        const r = this.checkName(doc, m);
+        this.post(p, { type: "nameCheckResult", requestId: m.requestId, ...r });
         break;
       }
       case "relink":
@@ -612,6 +618,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         next = Array.isArray(edit.boxes) ? applyAutoLayout(cur, edit.boxes, Array.isArray(edit.edges) ? edit.edges : []) : undefined;
         label = "Auto-layout";
         break;
+      case "style":
+        next = applyDiagramStyle(cur, edit);
+        label = edit.descriptions ? "Show Descriptions" : "Hide Descriptions";
+        break;
       case "edgeLayout":
         next = Array.isArray(edit.edges) ? applyEdgeLayout(cur, edit.edges, doc.state.viewModel) : undefined;
         label = edit.label === "Label" ? "Edit Label" : "Edit Route";
@@ -650,6 +660,24 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     return { element };
   }
 
+  /** Whether a name can be used for a new or renamed element, and the default name of the kind (what the inline input asks before it writes). */
+  private checkName(doc: SysmlDiagramDocument, m: Extract<WebviewToHost, { type: "nameCheck" }>): { problem?: string; suggested?: string } {
+    const d = doc.state.doc;
+    const index = this.model.index;
+    if (!d || typeof m.name !== "string") return {};
+    let owner: Element | undefined;
+    let renaming: Element | undefined;
+    if (typeof m.siblingOf === "string") {
+      const el = this.targetOf(doc, m.siblingOf)?.element;
+      owner = el?.owner;
+      if (m.rename === true) renaming = el;
+    } else if (typeof m.ownerId === "string") owner = this.targetOf(doc, m.ownerId)?.element;
+    else owner = resolveReference({ ref: d.root }, d, index, this.opts(doc));
+    if (!owner) return {};
+    const problem = nameProblem(m.name, owner, renaming, index);
+    return { ...(problem ? { problem } : {}), ...(typeof m.kind === "string" ? { suggested: defaultNameFor(index, owner, m.kind) } : {}) };
+  }
+
   private notice(doc: SysmlDiagramDocument, message: string): void {
     for (const p of this.panels.get(doc.key) ?? []) if (p.ready) this.post(p, { type: "notice", message });
   }
@@ -681,7 +709,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         }
         const owner = ownerT?.element ?? (intent.ownerId === undefined ? resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc)) : undefined);
         if (!owner) return this.notice(doc, "The element to add to could not be found; it may be unresolved.");
-        const r = await actions.addChild(owner, { kind: intent.paletteKind, origin, placement: { diagram: origin.diagram, ...(intent.ownerId !== undefined ? { parentNode: intent.ownerId } : {}), x: intent.x, y: intent.y } });
+        // The name was confirmed in the inline input (no quick input); a name missing from an older caller is the default one.
+        const name = typeof intent.name === "string" ? intent.name : defaultNameFor(this.model.index, owner, intent.paletteKind);
+        const problem = nameProblem(name, owner, undefined, this.model.index);
+        if (problem) return this.notice(doc, problem);
+        const r = await actions.addChild(owner, { kind: intent.paletteKind, name, origin, placement: { diagram: origin.diagram, ...(intent.ownerId !== undefined ? { parentNode: intent.ownerId } : {}), x: intent.x, y: intent.y } });
         if (r && !r.ok) this.notice(doc, r.reason);
         else if (r?.ok && r.element?.qualifiedName) {
           const id = doc.state.doc?.nodes.find((n) => n.ref === r.element!.qualifiedName)?.id;
@@ -738,7 +770,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         const root = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
         const parent = d.nodes.find((n) => n.id === intent.sourceId)?.parent;
         const known = new Set(d.edges.map((e) => e.id));
-        const r = await actions.service.addConnectedNode(a.element, intent.paletteKind, intent.relation, { ...origin, ...(root ? { context: root } : {}), placement: { diagram: origin.diagram, ...(parent !== undefined ? { parentNode: parent } : {}), x: intent.x, y: intent.y } });
+        if (typeof intent.name === "string" && a.element.owner) {
+          const problem = nameProblem(intent.name, a.element.owner, undefined, this.model.index);
+          if (problem) return this.notice(doc, problem);
+        }
+        const r = await actions.service.addConnectedNode(a.element, intent.paletteKind, intent.relation, { ...origin, ...(typeof intent.name === "string" ? { name: intent.name } : {}), ...(root ? { context: root } : {}), placement: { diagram: origin.diagram, ...(parent !== undefined ? { parentNode: parent } : {}), x: intent.x, y: intent.y } });
         const shown = await actions.report(r, `Added ${intent.paletteKind} and ${intent.relation}`);
         if (!shown.ok) return this.notice(doc, shown.reason);
         const fresh = (doc.state.doc?.edges ?? []).filter((e) => !known.has(e.id)).map((e) => e.id);

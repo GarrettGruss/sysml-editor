@@ -31,6 +31,8 @@ export interface MetricsNode extends NodeBox {
   text?: string;
   /** Drawn as an inherited feature (dashed border, muted fill). */
   inherited?: boolean;
+  /** The hover tooltip of the node (an inherited element's reason, the full description). */
+  tooltip?: string;
 }
 
 /** What the user changed on a line: its whole route, and/or its label layout (`null`: back to the default placement). */
@@ -50,6 +52,8 @@ export type DiagramEdit =
   /** `routes` and `drop`: the stored routes of lines at the moved or resized nodes, adjusted by the webview (or to be removed), in the same edit. */
   | { kind: "layout"; label: "Move" | "Resize" | "Nudge"; boxes: BoxPatch[]; routes?: EdgePoints[]; drop?: string[] }
   | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
+  /** The per-diagram style (D35): show or hide the descriptions (first `doc`) on the nodes. Layout only; the `.sysml` text is untouched. */
+  | { kind: "style"; descriptions: boolean }
   /** A hand-edited route or label layout of lines. */
   | { kind: "edgeLayout"; label: "Route" | "Label"; edges: EdgePatch[] }
   | { kind: "remove"; ids: string[] };
@@ -66,11 +70,11 @@ export interface PropertyChanges {
 /** Model edits requested from the webview. The host asks for names, runs the operation and answers with a new render. */
 export type ModelIntent =
   /** Create an element of `kind` in the element of node `ownerId` (the diagram's root when absent), placed at (x, y) relative to that node. */
-  | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number }
+  | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number; /** The name confirmed in the inline input (the next free one when absent). */ name?: string }
   /** `relation`: a relationship tool of the palette (satisfy, verify, derivation, succession, transition, message); absent: a connection. */
   | { kind: "connect"; sourceId: string; targetId: string; relation?: ConnectRelation }
   /** A node of `paletteKind` and the `relation` line from `sourceId` to it, as one edit; the node at (x, y) relative to the source's container. */
-  | { kind: "connectNew"; sourceId: string; relation: "succession" | "transition"; paletteKind: string; x: number; y: number }
+  | { kind: "connectNew"; sourceId: string; relation: "succession" | "transition"; paletteKind: string; x: number; y: number; /** The name confirmed in the inline input (the next free one when absent). */ name?: string }
   /** Rewrite one end of the line `id` to end at `nodeId`. */
   | { kind: "reconnect"; id: string; end: "source" | "target"; nodeId: string }
   /** Trigger, guard and effect of the transition edge `id`, as text (a missing field is left as it is). */
@@ -93,12 +97,20 @@ export type TestGesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" }
   /** Open the context menu on a node, as a right click does. */
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[]; x?: number; y?: number }
   /** Choose a palette item, then click a node (or the canvas, with `id` absent) at a point relative to that node. */
-  | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
+  | { kind: "palette"; item: string; id?: string; x?: number; y?: number; /** Type this name into the inline input and press Enter. Absent: Enter with the default name. */ name?: string; /** Leave the inline input open with the default name (or `name`) typed. */ hold?: boolean }
+  /** The pointer moves over the canvas with a palette tool chosen (the ghost follows it). */
+  | { kind: "ghostMove"; x: number; y: number }
+  /** Operate the open inline input: type `text` (replacing its value), then end it with `end` (default: leave it open). */
+  | { kind: "inline"; text?: string; end?: "enter" | "shiftEnter" | "escape" | "blur" }
+  /** Double-click a node on its name or, with `area: "doc"`, on its description (opens the inline input). */
+  | { kind: "dblclick"; id: string; area?: "name" | "doc" }
+  /** Turn the per-diagram description toggle on or off. */
+  | { kind: "descriptions"; show: boolean }
   /** Connection tool: click the source, then the target. */
   | { kind: "connect"; source: string; target: string; relation?: ConnectRelation }
   /**
@@ -154,6 +166,8 @@ export type HostToWebview =
   | { type: "select"; ids: string[] }
   | { type: "testGesture"; requestId: number; gesture: TestGesture }
   | { type: "typeSuggestionsResult"; requestId: number; items: { name: string; qualifiedName: string; library: boolean }[] }
+  /** The answer to `nameCheck`: why the name cannot be used (absent: fine), and the default name of the kind. */
+  | { type: "nameCheckResult"; requestId: number; problem?: string; suggested?: string }
   /** A model edit was refused or failed; shown in the properties panel as well as in a notification. */
   | { type: "notice"; message: string }
   /** The host did not apply the last diagram edit (stale or refused): the webview draws the committed state again. */
@@ -228,6 +242,12 @@ export interface DiagramMetrics {
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
   /** An inline name editor is open. */
   inlineEditor: boolean;
+  /** With an inline input open: its text, the error shown under it, and what it edits (`rename`, `add`, `quick` or `doc`). */
+  inline?: { value: string; error?: string; purpose: string };
+  /** The palette ghost: the kind, the name it shows, and whether it is placed (waiting for the name). */
+  paletteGhost?: { kind: string; name: string; placed: boolean };
+  /** The per-diagram description toggle. */
+  descriptions: boolean;
   /** `light`, `dark` or `hc`, from the editor theme. */
   theme: string;
   focusable: boolean;
@@ -262,6 +282,11 @@ export type WebviewToHost =
   | { type: "hover"; id?: string }
   | { type: "relink"; id: string }
   | { type: "model"; intent: ModelIntent; generation?: number }
+  /**
+   * Is `name` free? For a new element of `kind` in the element of node `ownerId` (the diagram's root when absent), or, with `siblingOf`,
+   * in the owner of that node's element (`rename`: that element itself is renamed). The answer also carries the default name of `kind`.
+   */
+  | { type: "nameCheck"; requestId: number; name: string; kind?: string; ownerId?: string; siblingOf?: string; rename?: boolean }
   /** Completion for the type field of the properties panel. */
   | { type: "typeSuggestions"; requestId: number; id: string; query: string }
   /** Qualified names dropped from the tree onto the diagram. */

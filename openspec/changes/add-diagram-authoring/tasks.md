@@ -9,9 +9,9 @@
 
 ## 2. Naming and documentation
 
-- [ ] 2.1 Implement the shared inline input, the palette ghost, and remove the quick input; verify the three palette scenarios
-- [ ] 2.2 Implement double-click rename; verify the "Click outside saves" scenario and the read-only tooltip
-- [ ] 2.3 Implement inline documentation, "Add Description", and the toggle in diagram style; verify the three scenarios
+- [x] 2.1 Implement the shared inline input, the palette ghost, and remove the quick input; verify the three palette scenarios
+- [x] 2.2 Implement double-click rename; verify the "Click outside saves" scenario and the read-only tooltip
+- [x] 2.3 Implement inline documentation, "Add Description", and the toggle in diagram style; verify the three scenarios
 
 ## 3. Nesting and pins
 

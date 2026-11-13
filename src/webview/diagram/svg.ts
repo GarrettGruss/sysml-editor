@@ -77,6 +77,14 @@ export function nodeName(n: VmNode): string {
   return `${kind} ${n.label}`.trim();
 }
 
+/** The hover tooltip of a node: why an inherited element cannot be edited here, and the full description. */
+export function nodeTooltip(n: VmNode): string | undefined {
+  const parts: string[] = [];
+  if (n.inherited) parts.push(`Inherited from ${n.inherited.from}: it cannot be renamed or changed here. Change it in the definition, which changes every usage.`);
+  if (n.doc) parts.push(n.doc);
+  return parts.length ? parts.join("\n\n") : undefined;
+}
+
 function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: boolean): string {
   const c = describeBox(n, measure);
   const warn = n.shape === "unresolved";
@@ -92,6 +100,8 @@ function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: 
     if (n.pin) g += `<path d="M${f(b.w * 0.25)} ${f(b.h * 0.2)} L${f(b.w * 0.8)} ${f(b.h / 2)} L${f(b.w * 0.25)} ${f(b.h * 0.8)} Z"${paint(o, stroke, stroke)}/>`;
     return g + "</g>";
   }
+  const tip = nodeTooltip(n);
+  if (tip) g += `<title>${esc(tip)}</title>`;
   const shapeG = drawSpecial(n, b, c, o, fill, stroke, dash);
   if (shapeG !== undefined) return g + shapeG + "</g>";
   const rx = n.shape === "usage" || n.shape === "action" ? ' rx="10"' : n.shape === "state" ? ' rx="16"' : n.shape === "requirement" ? ' rx="3"' : "";

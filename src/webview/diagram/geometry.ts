@@ -30,6 +30,21 @@ export interface BoxContent {
   rows: Row[];
   /** Divider line y positions (before each compartment, below a requirement label). */
   dividers: number[];
+  /** The description area (top and height within the node), when the node shows one. */
+  docArea?: { y: number; h: number };
+}
+
+/** Lines of a description shown on a node; more are clipped with an ellipsis (the tooltip has the full text). */
+export const MAX_DOC_LINES = 3;
+
+/** `lines` cut to `max` lines, the last one ending in an ellipsis when something was cut. */
+export function clipLines(lines: readonly string[], max: number, measure: Measure, width: number): string[] {
+  if (lines.length <= max) return [...lines];
+  const out = lines.slice(0, max);
+  let last = out[max - 1]!;
+  while (last.length > 0 && measure(last + "\u2026", "normal") > width) last = last.slice(0, -1);
+  out[max - 1] = last.trimEnd() + "\u2026";
+  return out;
 }
 
 /** Break text into lines no wider than `max`, at spaces; a single long word is split by characters. */
@@ -80,11 +95,14 @@ export function describeBox(n: VmNode, measure: Measure): BoxContent {
     for (const l of wrapText(n.unresolvedRef ?? "", WRAP_W, measure, "small")) push("warn", l, "small", 14);
   }
   let headerH = y + 4;
+  let docArea: { y: number; h: number } | undefined;
   if (n.doc) {
     y += 4;
     dividers.push(y);
     y += 2;
-    for (const l of wrapText(n.doc, WRAP_W, measure)) push("doc", l, "normal");
+    const top = y;
+    for (const l of clipLines(wrapText(n.doc, WRAP_W, measure), MAX_DOC_LINES, measure, WRAP_W)) push("doc", l, "normal");
+    docArea = { y: top, h: y - top };
     headerH = y + 4;
   }
   for (const c of n.compartments ?? []) {
@@ -99,10 +117,10 @@ export function describeBox(n: VmNode, measure: Measure): BoxContent {
     const ow = Math.max(120, Math.ceil(w * 1.35) + 2 * PAD);
     const oh = Math.max(64, y + 24);
     const shift = (oh - (y + 8)) / 2;
-    return { w: ow, h: oh, headerH: oh, bodyTop: oh, rows: rows.map((r) => ({ ...r, y: r.y + shift })), dividers };
+    return { w: ow, h: oh, headerH: oh, bodyTop: oh, rows: rows.map((r) => ({ ...r, y: r.y + shift })), dividers, ...(docArea ? { docArea: { y: docArea.y + shift, h: docArea.h } } : {}) };
   }
   if (n.shape === "lifeline") return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH: y + 8, bodyTop: y + 8, rows, dividers };
-  return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH, bodyTop: Math.max(headerH, y), rows, dividers };
+  return { w: Math.max(MIN_NODE_W, Math.ceil(w) + 2 * PAD), h: y + 8, headerH, bodyTop: Math.max(headerH, y), rows, dividers, ...(docArea ? { docArea } : {}) };
 }
 
 /** Where on the box border the line from the centre towards `to` leaves it. */

@@ -782,7 +782,7 @@ export class ModelService {
    * A new node of `kind` and the succession or transition from `source` to it, as one edit (one undo step). The node gets the
    * next free name of its kind in the source's owner; on a diagram it is placed at the placement, with the line.
    */
-  addConnectedNode(source: Element, kind: string, relation: "succession" | "transition", opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+  addConnectedNode(source: Element, kind: string, relation: "succession" | "transition", opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string }; /** The name of the new node (the next free one when absent). */ name?: string } = {}): Promise<OpResult> {
     return this.serial(async () => {
       if (opts.context) {
         const refusal = this.inheritedRefusal({ element: source, context: opts.context }, `connected by a ${relation}`);
@@ -810,7 +810,7 @@ export class ModelService {
           if (typeof src === "string") return fail(src);
           pre.clear();
           for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
-          name = freeNodeName(this.index, o, kind);
+          name = opts.name ?? freeNodeName(this.index, o, kind);
           const p = planAddConnectedNode(this.index, o, src, kind, relation, name);
           named = p.ok ? p.namedNodes ?? [] : [];
           return p;

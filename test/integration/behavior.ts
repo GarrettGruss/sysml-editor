@@ -21,7 +21,8 @@ export function behaviorTests(c: Ctx): Test[] {
   const mem = (name: string) => api.diagram.state(uriOf(name)).doc as unknown as Omit<DiagramDoc, "edges"> & { edges: { id: string; ref?: string; locator?: { kind: string; ends: string[] } }[] };
   const metrics = (name: string) => api.diagram.metrics(uriOf(name));
   const nodeOf = (m: Metrics, id: string): MNode => m.nodes.find((n) => n.id === id)!;
-  const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g);
+  /** A palette gesture types the scripted name into the inline input (the quick input is gone). */
+  const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g.kind === "palette" && g.name === undefined && g.hold !== true && script.input !== undefined ? { ...g, name: script.input } : g);
   const dirty = (name: string) => api.diagram.state(uriOf(name)).dirty;
   const textDoc = (name: string) => vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uriOf(name).fsPath);
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string, diagnose?: () => string) => {
@@ -314,14 +315,14 @@ export function behaviorTests(c: Ctx): Test[] {
       await waitFor(() => onDisk(model) === original, 15000, "undo removes the action");
     })],
 
-    ["Add a control node and draw succession from start: decide/merge/fork/join need names, `first start then pack2;` is accepted", scenario("BhCtl", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id }) => {
+    ["Add a control node and draw succession from start: decide/merge/fork/join are placed without an input (named fork1), `first start then pack2;` is accepted", scenario("BhCtl", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id }) => {
       const root = id("deliverOrder");
-      script.input = "split";
       await gesture(diagram, { kind: "palette", item: "fork", id: root, x: 30, y: 60 });
-      await waitFor(() => onDisk(model).includes("fork split;"), 15000, "the fork is on disk");
+      assert.strictEqual((await metrics(diagram)).inlineEditor, false, "a control node is placed without the inline input");
+      await waitFor(() => onDisk(model).includes("fork fork1;"), 15000, "the fork is on disk");
       await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.shape === "fork")), "the fork bar is drawn");
-      await gesture(diagram, { kind: "connect", source: id("deliverOrder::retry"), target: id("deliverOrder::split"), relation: "succession" });
-      await waitFor(() => onDisk(model).includes("first retry then split;"), 15000, "the succession to the fork is on disk");
+      await gesture(diagram, { kind: "connect", source: id("deliverOrder::retry"), target: id("deliverOrder::fork1"), relation: "succession" });
+      await waitFor(() => onDisk(model).includes("first retry then fork1;"), 15000, "the succession to the fork is on disk");
       await clearly(diagram, "after adding a fork");
     })],
 
@@ -699,7 +700,28 @@ export function behaviorTests(c: Ctx): Test[] {
       await gesture(diagram, { kind: "connectDrag", source: id("lamp::off"), side: "R", x: right + 80, y: off.y + off.h / 2 });
       await c.eventually(async () => assert.deepStrictEqual((await metrics(diagram)).quickBar, ["state"]), "the quick bar offers State");
       await gesture(diagram, { kind: "quickBar", item: "state" });
+      await c.eventually(async () => { const m = await metrics(diagram); assert.strictEqual(m.inline?.purpose, "quick", "the name is asked in the inline input"); assert.strictEqual(m.inline?.value, "state1"); }, "the quick bar's State opens the inline input with the default name");
+      assert.ok(!onDisk(model).includes("state1"), "nothing is written before the name is confirmed");
+      await gesture(diagram, { kind: "inline", end: "enter" });
       await waitFor(() => onDisk(model).includes("state state1;") && onDisk(model).includes("transition first off then state1;"), 15000, "the state and the transition are on disk");
+      await savedAndClean(model);
+    })],
+    ["Quick bar State then Escape in the inline input: nothing is written and the ghost line and node are gone; a typed name is the one written", scenario("AuQuickEsc2", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
+      const m0 = await metrics(diagram);
+      const right = Math.max(...m0.nodes.map((n) => n.x + n.w));
+      const off = nodeOf(m0, id("lamp::off"));
+      await gesture(diagram, { kind: "connectDrag", source: id("lamp::off"), side: "R", x: right + 80, y: off.y + off.h / 2 });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(diagram)).quickBar, ["state"]), "the quick bar offers State");
+      await gesture(diagram, { kind: "quickBar", item: "state" });
+      await gesture(diagram, { kind: "inline", end: "escape" });
+      await c.eventually(async () => { const m = await metrics(diagram); assert.strictEqual(m.inlineEditor, false); assert.strictEqual(m.ghost, undefined); assert.strictEqual(m.paletteGhost, undefined); }, "the input, the ghost line and the ghost node are gone");
+      await sleep(300);
+      assert.strictEqual(onDisk(model), original, "Escape wrote nothing");
+      await gesture(diagram, { kind: "connectDrag", source: id("lamp::off"), side: "R", x: right + 80, y: off.y + off.h / 2 });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(diagram)).quickBar, ["state"]), "the quick bar shows again");
+      await gesture(diagram, { kind: "quickBar", item: "state" });
+      await gesture(diagram, { kind: "inline", text: "blinking", end: "enter" });
+      await waitFor(() => onDisk(model).includes("state blinking;") && onDisk(model).includes("transition first off then blinking;"), 15000, "the typed name is written with the transition");
       await savedAndClean(model);
     })],
     ["Retarget a succession: dragging the target end onto a fork rewrites the then target and keeps the rest", scenario("AuRetarget", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, edge }) => {
@@ -880,7 +902,7 @@ export function behaviorTests(c: Ctx): Test[] {
         assert.strictEqual(path.basename(made.fsPath), f);
         await c.eventually(async () => assert.ok((await metrics(f)).nodes.length > 0), "it renders");
         const root = mem(f).nodes.find((n) => n.ref === "AuMach")!;
-        await gesture(f, { kind: "palette", item: "state", id: root.id, x: 30, y: 40 });
+        await gesture(f, { kind: "palette", item: "state", id: root.id, x: 30, y: 40, name: "running" });
         await waitFor(() => onDisk("tmp-au-new2.sysml").includes("state running;"), 20000, "the state is written to the .sysml at once");
         assert.ok(!existsSync(uriOf(f).fsPath), "the diagram file still does not exist");
         // the text is saved first and the diagram change follows it, so wait for the change

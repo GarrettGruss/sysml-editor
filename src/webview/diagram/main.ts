@@ -47,7 +47,15 @@ const renderer = new SvgRenderer(document.body, measure, {
     suggestions.set(requestId, resolve);
     post({ type: "typeSuggestions", requestId, id, query });
   }),
+  checkName: (req) => new Promise((resolve) => {
+    const requestId = ++suggestId;
+    nameChecks.set(requestId, resolve);
+    // No answer (the host is busy or the panel was reloaded): the input goes on without a verdict; the host checks again when it writes.
+    setTimeout(() => { if (nameChecks.delete(requestId)) resolve({}); }, 2000);
+    post({ type: "nameCheck", requestId, ...req });
+  }),
 });
+const nameChecks = new Map<number, (r: { problem?: string; suggested?: string }) => void>();
 let suggestId = 0;
 /** Hover reports are throttled (leading edge, then at most one per 100 ms); the last state always goes out. */
 const HOVER_MS = 100;
@@ -154,7 +162,10 @@ function styledCopy(src: Element): Element {
   let css = "";
   for (let i = 0; i < cs.length; i++) css += `${cs[i]!}:${cs.getPropertyValue(cs[i]!)};`;
   dst.setAttribute("style", css);
-  if (src instanceof HTMLInputElement) dst.setAttribute("value", src.value);
+  if (src instanceof HTMLInputElement) {
+    dst.setAttribute("value", src.value);
+    if (src.checked) dst.setAttribute("checked", "");
+  }
   if (src instanceof HTMLTextAreaElement) dst.textContent = src.value;
   else for (const c of Array.from(src.childNodes)) dst.append(c.nodeType === 1 ? styledCopy(c as Element) : c.cloneNode(true));
   return dst;
@@ -174,14 +185,21 @@ function windowSvg(theme: PngTheme): { svg: string; width: number; height: numbe
   const k = Math.min(1, (W - left - right - 20) / dw, (H - top - 10) / dh);
   const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="${top}" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
   let panels = "";
-  for (const sel of [".toolbar", ".palette", ".props", ".quick-bar"]) {
+  for (const sel of [".toolbar", ".palette", ".props", ".quick-bar", ".inline-wrap"]) {
     const e = document.querySelector(sel);
     if (!e) continue;
     const r = e.getBoundingClientRect();
+    let px = r.left, py = r.top;
+    // An inline input sits at a canvas point: it goes where that point is in the exported drawing.
+    const vb = /viewBox="(-?[\d.]+) (-?[\d.]+) /.exec(inner);
+    if (e instanceof HTMLElement && e.dataset.ax !== undefined && vb) {
+      px = left + 10 + (Number(e.dataset.ax) - Number(vb[1])) * k;
+      py = top + (Number(e.dataset.ay) - Number(vb[2])) * k;
+    }
     const copy = styledCopy(e);
     copy.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
     copy.setAttribute("style", (copy.getAttribute("style") ?? "") + ";position:static;margin:0;top:auto;left:auto;right:auto;");
-    panels += `<foreignObject x="${r.left}" y="${r.top}" width="${Math.ceil(r.width)}" height="${Math.ceil(r.height)}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
+    panels += `<foreignObject x="${px}" y="${py}" width="${Math.ceil(r.width)}" height="${Math.ceil(r.height)}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
   }
   const bg = exportBackground(theme);
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${bg}"/>${nested}${panels}</svg>`, width: W, height: H };
@@ -245,6 +263,10 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
     case "typeSuggestionsResult":
       suggestions.get(m.requestId)?.(m.items);
       suggestions.delete(m.requestId);
+      break;
+    case "nameCheckResult":
+      nameChecks.get(m.requestId)?.({ ...(m.problem !== undefined ? { problem: m.problem } : {}), ...(m.suggested !== undefined ? { suggested: m.suggested } : {}) });
+      nameChecks.delete(m.requestId);
       break;
     case "editApplied":
     case "editRejected":

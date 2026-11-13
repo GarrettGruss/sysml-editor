@@ -86,7 +86,7 @@ export function buildDeclaration(
   let out = (spec.visibility ? spec.visibility + " " : "") + words.join(" ");
   if (spec.shortName !== undefined) out += ` <${shortNameText(words, spec.shortName)}>`;
   if (spec.name !== undefined) {
-    if (spec.name === "" || /[\r\n]/.test(spec.name)) return fail("The name must be a single line of text.");
+    if (spec.name === "" || /[\u0000-\u001f\u007f]/.test(spec.name)) return fail("The name must be a single line of text.");
     out += " " + quoteName(spec.name);
   }
   if (spec.type !== undefined) {

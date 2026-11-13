@@ -23,6 +23,7 @@
  */
 import { isCode, tokenize, type Tok } from "../edit/text.js";
 import type { ModelIndex } from "./index.js";
+import { unquoteName } from "./names.js";
 import type { Element } from "./types.js";
 
 const ACTION_NODE_KINDS = new Set(["action", "perform", "send", "accept", "assign", "terminate", "if", "while", "loop", "for", "fork", "join", "decide", "merge", "perform action", "ref action"]);
@@ -114,8 +115,26 @@ function sections(text: string, toks: Tok[], keywords: ReadonlySet<string>): { h
 }
 
 const lastSegment = (s: string): string => s.replace(/\s+/g, "").split(/::|\./).pop() ?? s;
-const firstSegment = (s: string): string => s.replace(/\s+/g, "").split(/::|\./)[0] ?? s;
-const unq = (s: string): string => (s.startsWith("'") && s.endsWith("'") ? s.slice(1, -1) : s);
+/** The segments of a dotted or qualified name as written; quoted names keep their spaces and dots. */
+const splitSegs = (s: string): string[] => {
+  const out: string[] = [];
+  let cur = "";
+  let quoted = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (quoted) {
+      cur += c;
+      if (c === "\\" && i + 1 < s.length) cur += s[++i]!;
+      else if (c === "'") quoted = false;
+    } else if (c === "'") { quoted = true; cur += c; }
+    else if (c === "." || (c === ":" && s[i + 1] === ":")) { if (c === ":") i++; out.push(cur); cur = ""; }
+    else if (!/\s/.test(c)) cur += c;
+  }
+  out.push(cur);
+  return out;
+};
+const firstSegment = (s: string): string => splitSegs(s)[0] ?? s;
+const unq = unquoteName;
 
 /** Whether the keyword `then` ends right before the declaration (comments and blanks between are skipped). */
 function precededByThen(text: string, el: Element): boolean {
@@ -206,7 +225,7 @@ export function analyze(index: ModelIndex, owner: Element): Analysis {
   /** `strict`: every segment of a dotted path must resolve (a succession or transition end); otherwise only the first (a flow end names a node and a feature of it). */
   const endEl = (txt: string | undefined, strict = false): Element | undefined => {
     if (!txt) return undefined;
-    const segs = txt.trim().replace(/\s+/g, "").split(".");
+    const segs = splitSegs(txt.trim());
     const seg = unq(firstSegment(txt.trim()));
     const m = byName(seg);
     if (m) {
