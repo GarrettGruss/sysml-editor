@@ -207,15 +207,20 @@ export function requirementsTests(c: Ctx): Test[] {
       await settle(scope);
       assert.strictEqual(row(await m(), "R1a").cells.name, "massLimit");
       // Add Requirement
-      await gesture(scope, { kind: "input", selector: "[data-testid=add-id]", value: "R9", event: "input" });
-      await gesture(scope, { kind: "input", selector: "[data-testid=add-name]", value: "rangeReq", event: "input" });
-      await gesture(scope, { kind: "click", selector: "[data-testid=add-req]" });
+      // (the table has no Add Requirement bar any more: the document view adds, with the inline "+ requirement")
+      await api.requirements.setView(scope, "document");
+      await eventually(async () => assert.strictEqual((await m()).view, "document"), "document view");
+      await gesture(scope, { kind: "click", selector: `section[data-qn="${qn(PR)}"] > .sec-body > .adds [data-testid=add-requirement]` });
+      await gesture(scope, { kind: "input", selector: "[data-testid=new-id]", value: "R9", event: "input" });
+      await gesture(scope, { kind: "input", selector: "[data-testid=new-name]", value: "rangeReq", event: "input" });
+      await gesture(scope, { kind: "key", selector: "[data-testid=new-name]", key: "Enter" });
       await waitFor(() => onDisk(file).includes("requirement <'R9'> rangeReq;"), 90000, "the requirement is inserted into the scope package");
       await clean(file);
       await parses(file);
+      await api.requirements.setView(scope, "table");
       await eventually(async () => assert.ok(row(await m(), "R9"), "the table shows the new row"), "new row");
       // Delete with confirmation
-      await gesture(scope, { kind: "click", selector: `tr[data-qn="${qn("rangeReq")}"]` });
+      await gesture(scope, { kind: "click", selector: `tr[data-qn="${qn(`${PR}::rangeReq`)}"]` });
       script.confirm = false;
       await gesture(scope, { kind: "click", selector: "[data-testid=delete-req]" });
       await sleep(500);
@@ -330,7 +335,7 @@ export function requirementsTests(c: Ctx): Test[] {
       const d = (await m()).document;
       assert.strictEqual(d.title, "Vehicle SRS");
       assert.strictEqual(d.version, "1.0");
-      assert.deepStrictEqual(d.toc.map((t) => `${t.number} ${t.heading}`), ["1 Performance Requirements", "1.1 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
+      assert.deepStrictEqual(d.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`), ["1 Performance Requirements", "1.1 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
       assert.deepStrictEqual(d.outline.map((o) => o.number), ["1", "1.1", "2", "3", "4", "Appendix A"]);
       assert.deepStrictEqual(d.outline.map((o) => o.level), [1, 2, 1, 1, 1, 1]);
       assert.deepStrictEqual(d.appendixLetters, ["A"]);
@@ -353,7 +358,7 @@ export function requirementsTests(c: Ctx): Test[] {
       const sec = (n: string) => `section[data-qn="${qn(n)}"]`;
       await api.requirements.setView(scope, "document");
       // add section "Reliability" after Safety
-      await gesture(scope, { kind: "click", selector: `${sec("Safety")} > .adds > [data-testid=add-section-after]` });
+      await gesture(scope, { kind: "click", selector: `${sec("Safety")} > .sec-body > .adds > [data-testid=add-section-after]` });
       await gesture(scope, { kind: "input", selector: "[data-testid=ask-section-after-input]", value: "Reliability", event: "input" });
       await gesture(scope, { kind: "click", selector: "[data-testid=ask-section-after-ok]" });
       await waitFor(() => onDisk(file).includes("package Reliability;"), 90000, "the package is inserted");
@@ -371,7 +376,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await parses(file);
       await eventually(async () => assert.ok((await m()).document.outline.some((o) => o.heading === "Functional Safety")), "the view shows the new heading", 60000);
       // paragraph with a terminator
-      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .sec-body > .para [data-testid=edit-para]` });
       await gesture(scope, { kind: "input", selector: `${sec("'Functional Safety'")} textarea.para-edit`, value: "Comments end with */ and start with /*." });
       await waitFor(() => onDisk(file).includes("Comments end with *\\/ and start with /*."), 90000, "stored as the escaped terminator");
       await clean(file);
@@ -382,7 +387,7 @@ export function requirementsTests(c: Ctx): Test[] {
         assert.strictEqual(p.text, "Comments end with */ and start with /*.", "shown with the terminator");
       }, "the document view shows */");
       // add a paragraph (a comment, since the package already has a doc)
-      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .adds > [data-testid=add-paragraph]` });
+      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .sec-body > .adds > [data-testid=add-paragraph]` });
       await gesture(scope, { kind: "input", selector: "[data-testid=ask-paragraph-input]", value: "- first\n- second", event: "input" });
       await gesture(scope, { kind: "click", selector: "[data-testid=ask-paragraph-ok]" });
       await waitFor(() => /comment \/\*\n\s+\* - first\n\s+\* - second\n\s+\*\//.test(onDisk(file)), 90000, "a multi-line comment with margins");
@@ -404,10 +409,10 @@ export function requirementsTests(c: Ctx): Test[] {
       // move: Three up (button), then drag One after Three
       await gesture(scope, { kind: "click", selector: `${sec("Three")} > .sec-head [data-testid=move-up]` });
       await waitFor(() => onDisk(file).indexOf("package Three") < onDisk(file).indexOf("package Two"), 90000, "Three now precedes Two");
-      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.map((t) => `${t.number} ${t.heading}`).slice(0, 3), ["1 One", "2 Three", "3 Two"]), "renumbered");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`).slice(0, 3), ["1 One", "2 Three", "3 Two"]), "renumbered");
       await gesture(scope, { kind: "dragToc", fromQn: qn("One"), ontoQn: qn("Two"), position: "after" });
       await waitFor(() => onDisk(file).indexOf("package Two") < onDisk(file).indexOf("package One"), 90000, "One was dragged after Two");
-      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.map((t) => t.heading).slice(0, 3), ["Three", "Two", "One"]), "the table of contents follows");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.filter((t) => t.kind === "section").map((t) => t.heading).slice(0, 3), ["Three", "Two", "One"]), "the table of contents follows");
       assert.ok(!/package\s+'?\d/.test(onDisk(file)), "no numbers in the text");
       await clean(file);
       await parses(file);
@@ -420,7 +425,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await gesture(scope, { kind: "click", selector: `${sec("Two")} > .sec-head [data-testid=delete-section]` });
       await waitFor(() => !onDisk(file).includes("package Two"), 90000, "deleted");
       assert.match(rec.confirms.at(-1)!.detail, /1 paragraph, 1 requirement/, "the confirmation names the contents");
-      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.map((t) => `${t.number} ${t.heading}`), ["1 Three", "2 One", "A Glossary"]), "following sections are renumbered");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`), ["1 Three", "2 One", "A Glossary"]), "following sections are renumbered");
       await clean(file);
       await parses(file);
     }, { text: "package ReqD3 {\n    package One {\n        doc /* first */\n    }\n    package Two {\n        doc /* second */\n        requirement <'R1'> r;\n    }\n    package Three;\n}\n", view: "document", probe: "::Three" })],
@@ -687,7 +692,7 @@ export function requirementsTests(c: Ctx): Test[] {
       const paragraphs = async () => (await m()).document.paragraphs.filter((p) => p.section === qn(PR)).map((p) => p.text);
       await api.requirements.setView(scope, "document");
       // Open the first paragraph of the section for editing and type, without committing.
-      await gesture(scope, { kind: "click", selector: `${sec} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "click", selector: `${sec} > .sec-body > .para [data-testid=edit-para]` });
       await gesture(scope, { kind: "input", selector: `${sec} textarea.para-edit`, value: "Scope, edited.", event: "input" });
       assert.ok((await m()).pendingEdits.length >= 1, "the edit is pending");
       // The file changes above the paragraph (every offset moves) through a workspace edit.
@@ -706,7 +711,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await parses(file);
       // Now the paragraph's own text changes elsewhere while a draft is open: a conflict, never another paragraph.
       await eventually(async () => assert.ok((await paragraphs()).includes("Scope, edited.")), "the view shows the new text");
-      await gesture(scope, { kind: "click", selector: `${sec} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "click", selector: `${sec} > .sec-body > .para [data-testid=edit-para]` });
       await gesture(scope, { kind: "input", selector: `${sec} textarea.para-edit`, value: "My draft.", event: "input" });
       const we2 = new vscode.WorkspaceEdit();
       const at = doc().getText().indexOf("Scope, edited.");

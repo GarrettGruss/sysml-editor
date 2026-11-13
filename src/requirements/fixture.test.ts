@@ -14,7 +14,7 @@ test("the requirements fixture parses, renders as a document and lists its requi
   const root = ix.findByQualifiedName("VehicleSpec")[0]!;
   const d = buildDocumentModel(ix, root);
   expect(d.title).toBe("Vehicle SRS");
-  expect(d.toc.map((t) => `${t.number} ${t.heading}`)).toEqual(["1 Performance Requirements", "1.1 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
+  expect(d.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`)).toEqual(["1 Performance Requirements", "1.1 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
   const rows = listRequirements(ix, root);
   expect(rows.map((r) => [r.shortName, r.satisfiedBy.length, r.verifiedBy.length, r.derivedFrom.length, r.derives.length])).toEqual([
     ["R1", 1, 1, 0, 1],

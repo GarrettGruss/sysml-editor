@@ -1,8 +1,9 @@
 /** Builds the view models of the requirements editor from the model. No `vscode`, no DOM. */
 import type { Element, ModelIndex } from "../model/index.js";
 import { isLibraryUri } from "../model/index.js";
-import { buildDocumentModel, isAppendix, type Section, type SectionBlock } from "./document-model.js";
-import type { BlockVM, DocumentVM, RelationVM, RequirementRowVM, RequirementsScope, RequirementsState, SectionVM } from "./protocol.js";
+import { buildDocumentModel, isAppendix, type RequirementItem, type Section, type SectionBlock } from "./document-model.js";
+import type { BlockVM, DocumentVM, ItemVM, RelationVM, RequirementRowVM, RequirementsScope, RequirementsState, SectionVM } from "./protocol.js";
+import { isRequirement } from "./relations.js";
 import { buildRelations, listRequirements, type RequirementInfo, type Relations } from "./queries.js";
 
 export const statementKey = (e: Element): string => `${e.uri}#${e.range.start.offset}`;
@@ -43,11 +44,9 @@ function rowOf(i: RequirementInfo, editable: Editable): RequirementRowVM {
   };
 }
 
-function blockVM(b: SectionBlock, editable: Editable, rel: Relations): BlockVM {
-  if (b.kind === "paragraph") return { kind: "paragraph", key: paragraphKey(b.element), source: b.source, text: b.text, editable: editable(b.element.uri) };
-  if (b.kind === "elements") return { kind: "elements", items: b.items.map((i) => ({ kind: i.kind, name: i.name })) };
+function itemVM(b: RequirementItem, editable: Editable, ownerQn: string, siblings: RequirementItem[]): ItemVM {
   const i = b.info;
-  void rel;
+  const at = siblings.indexOf(b);
   return {
     kind: "item",
     qn: i.qualifiedName,
@@ -57,15 +56,33 @@ function blockVM(b: SectionBlock, editable: Editable, rel: Relations): BlockVM {
     text: i.text,
     summary: b.summary,
     editable: editable(i.uri),
+    number: b.number,
+    ownerQn,
+    children: b.children.map((c) => itemVM(c, editable, i.qualifiedName, b.children)),
+    canMoveUp: at > 0,
+    canMoveDown: at >= 0 && at < siblings.length - 1,
   };
 }
+
+function blockVM(b: SectionBlock, editable: Editable, ownerQn: string, siblings: RequirementItem[]): BlockVM {
+  if (b.kind === "paragraph") return { kind: "paragraph", key: paragraphKey(b.element), source: b.source, text: b.text, editable: editable(b.element.uri) };
+  if (b.kind === "elements") return { kind: "elements", items: b.items.map((i) => ({ kind: i.kind, name: i.name })) };
+  return itemVM(b, editable, ownerQn, siblings);
+}
+const blocksVM = (blocks: SectionBlock[], editable: Editable, ownerQn: string): BlockVM[] => {
+  const items = blocks.filter((b): b is RequirementItem => b.kind === "item");
+  return blocks.map((b) => blockVM(b, editable, ownerQn, items));
+};
 
 function count(s: Section): SectionVM["contains"] {
   const c = { paragraphs: 0, requirements: 0, sections: 0, elements: 0 };
   const walk = (x: Section) => {
     for (const b of x.blocks) {
       if (b.kind === "paragraph") c.paragraphs++;
-      else if (b.kind === "item") c.requirements++;
+      else if (b.kind === "item") {
+        const n = (it: RequirementItem): number => 1 + it.children.reduce((a, x) => a + n(x), 0);
+        c.requirements += n(b);
+      }
       else c.elements += b.items.length;
     }
     for (const ch of x.children) {
@@ -87,7 +104,7 @@ function sectionVM(s: Section, parent: Element, index: ModelIndex, editable: Edi
     level: s.level,
     number: s.number,
     appendix: s.appendix,
-    blocks: s.blocks.map((b) => blockVM(b, editable, rel)),
+    blocks: blocksVM(s.blocks, editable, s.qualifiedName),
     children: s.children.map((c) => sectionVM(c, s.element, index, editable, rel)),
     canMoveUp: at > 0,
     canMoveDown: at >= 0 && at < group.length - 1,
@@ -100,10 +117,11 @@ export function documentVM(index: ModelIndex, root: Element, editable: Editable,
   const d = buildDocumentModel(index, root, rel);
   return {
     rootQn: d.qualifiedName,
+    rootKind: isPkg(root) ? "package" : "requirement",
     title: d.title,
     ...(d.version !== undefined ? { version: d.version } : {}),
     annotated: d.annotated,
-    blocks: d.blocks.map((b) => blockVM(b, editable, rel)),
+    blocks: blocksVM(d.blocks, editable, d.qualifiedName),
     sections: d.sections.map((s) => sectionVM(s, root, index, editable, rel)),
     appendices: d.appendices.map((s) => sectionVM(s, root, index, editable, rel)),
     toc: d.toc,
@@ -113,7 +131,7 @@ export function documentVM(index: ModelIndex, root: Element, editable: Editable,
 
 /** The package that is the root of the scope: the package itself, or the first package of the file. */
 export function scopeRoot(index: ModelIndex, scope: RequirementsScope): Element | undefined {
-  if (scope.kind === "package") return index.findByQualifiedName(scope.qualifiedName).find(isPkg);
+  if (scope.kind === "package") return index.findByQualifiedName(scope.qualifiedName).find((e) => isPkg(e) || isRequirement(e));
   return index.getDocument(scope.uri)?.model.roots.find(isPkg);
 }
 

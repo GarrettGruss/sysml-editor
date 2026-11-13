@@ -1,6 +1,7 @@
 /** Entry point of the requirements editor webview (`dist/webview/requirements.js`): the Table and the Document view. */
 import type { BlockVM, Gesture, HostToWebview, Intent, ItemVM, RelationVM, RequirementRowVM, RequirementsMetrics, RequirementsScope, RequirementsState, SectionVM, ViewMode, WebviewToHost } from "../../requirements/protocol.js";
 import { layoutFor, parseTestWidth } from "../../requirements/layout.js";
+import { allowedForMove, allowedForNew, gapsOf, subtreeOf, type Gap, type GhostMode } from "../../requirements/gaps.js";
 import { parseMarkdown, type Inline, type MdBlock } from "../../requirements/markdown.js";
 
 interface VsCodeApi {
@@ -12,6 +13,7 @@ interface SavedState {
   scope?: RequirementsScope;
   view?: ViewMode;
   selected?: string;
+  collapsed?: string[];
 }
 declare function acquireVsCodeApi(): VsCodeApi;
 
@@ -28,13 +30,14 @@ window.addEventListener("unhandledrejection", (e) => fail(e.reason));
 post({ type: "ready" });
 
 const saved = vscode.getState() ?? {};
-let view: ViewMode = saved.view ?? "table";
+let view: ViewMode = saved.view ?? "document";
 let selected: string | undefined = saved.selected;
 let scope: RequirementsScope | undefined = saved.scope;
 let state: RequirementsState | undefined;
 let generation = 0;
 let notice: { level: "info" | "error"; message: string } | undefined;
-const persist = () => vscode.setState({ ...(scope ? { scope } : {}), view, ...(selected ? { selected } : {}) });
+const collapsed = new Set<string>(saved.collapsed ?? []);
+const persist = () => vscode.setState({ ...(scope ? { scope } : {}), view, ...(selected ? { selected } : {}), collapsed: [...collapsed] });
 
 // ------------------------------------------------------------------ DOM helpers (text only, never innerHTML)
 
@@ -238,23 +241,8 @@ function ownerParts(qn: string): Child[] {
 
 function tableView(s: RequirementsState): HTMLElement {
   const wrap = h("div", { class: "table-view" });
-  const kind = h("select", { "aria-label": "Kind", "data-testid": "add-kind" }, h("option", { value: "requirement" }, "requirement"), h("option", { value: "requirement def" }, "requirement def"));
-  const id = h("input", { type: "text", placeholder: "id (e.g. R2)", "aria-label": "Requirement id", "data-testid": "add-id" });
-  const name = h("input", { type: "text", placeholder: "name", "aria-label": "Requirement name", "data-testid": "add-name" });
-  const add = () => {
-    if (!name.value.trim()) {
-      name.focus();
-      return;
-    }
-    intent({ type: "addRequirement", kind: kind.value as "requirement" | "requirement def", id: id.value, name: name.value });
-    id.value = "";
-    name.value = "";
-  };
-  name.addEventListener("keydown", (ev) => ev.key === "Enter" && add());
-  const hasRoot = !!s.scopeQn;
-  wrap.append(h("div", { class: "toolbar add-form" }, h("strong", {}, "Add Requirement"), kind, id, name, button("Add Requirement", "add-req", add, { disabled: !hasRoot, title: hasRoot ? "Add Requirement" : "This file has no package to add to" })));
   const rows = s.table.rows;
-  if (!rows.length) wrap.append(h("p", { class: "empty" }, "No requirements in this scope yet. Add one above."));
+  if (!rows.length) wrap.append(h("p", { class: "empty" }, "No requirements in this scope yet. Use the Document view to add one."));
   const table = h("table", { class: "req-table", "data-testid": "table" });
   table.append(h("colgroup", {}, ...["id", "name", "text", "owner", "satisfy", "verify"].map((c) => h("col", { class: "col-" + c }))));
   table.append(h("thead", {}, h("tr", {}, ...["ID", "Name", "Text", "Owner", "Satisfy", "Verify"].map((t) => h("th", { scope: "col" }, t)))));
@@ -289,17 +277,285 @@ function select(qn: string): void {
 
 // ------------------------------------------------------------------ document view
 
+// ---- authoring state: the palette, the ghost, the gaps, naming and dragging (nothing is written until confirmed)
+
+type Auth =
+  | { mode: "none" }
+  | { mode: "palette"; x: number; y: number }
+  | { mode: "add"; what: GhostMode; x: number; y: number; active?: string }
+  | { mode: "drag"; qn: string; label: string; startX: number; startY: number; started: boolean; x: number; y: number; active?: string; nest?: string }
+  | { mode: "naming"; what: GhostMode; gap: string; id: string; name: string };
+let auth: Auth = { mode: "none" };
+let gapMap = new Map<string, Gap>();
+let ghostEl: HTMLElement | undefined;
+let paletteEl: HTMLElement | undefined;
+let refusal: string | undefined;
+
+const GHOST_LABEL: Record<GhostMode, string> = { requirement: "+ Requirement", child: "+ Child Requirement", package: "+ Package" };
+
+function gapEl(target: Gap["target"], ownerQn: string, beforeQn: string | undefined): HTMLElement[] {
+  const g = gapMap.get(`${target}|${ownerQn}|${beforeQn ?? "end"}`);
+  if (!g) return [];
+  const el = h("div", { class: "gap", "data-testid": "gap", "data-gap": g.key, "data-target": g.target, "data-level": String(g.level), "data-owner": g.ownerQn }, h("span", { class: "gap-label" }));
+  if (auth.mode === "naming" && auth.gap === g.key) {
+    el.classList.add("open", "naming");
+    el.replaceChildren(namingForm(g, auth));
+  }
+  return [el];
+}
+
+function namingForm(g: Gap, a: Extract<Auth, { mode: "naming" }>): HTMLElement {
+  const isPkg = g.target === "section";
+  const idIn = isPkg ? undefined : h("input", { type: "text", placeholder: "id (e.g. MFRQ02)", "aria-label": "New requirement id", "data-testid": "new-id", class: "id", value: a.id });
+  const nameIn = h("input", { type: "text", placeholder: isPkg ? "section heading" : "name", "aria-label": isPkg ? "New section heading" : "New requirement name", "data-testid": "new-name", class: "name", value: a.name });
+  const submit = () => {
+    const name = nameIn.value.trim();
+    if (!name) {
+      nameIn.focus();
+      return;
+    }
+    const id = idIn?.value ?? "";
+    setAuth({ mode: "none" });
+    if (isPkg) intent({ type: "addSection", parentQn: g.ownerQn, name, ...(g.beforeQn ? { beforeQn: g.beforeQn } : {}) });
+    else intent({ type: "addRequirement", kind: "requirement", id, name, ownerQn: g.ownerQn, ...(g.beforeQn ? { beforeQn: g.beforeQn } : {}) });
+  };
+  for (const [inp, which] of [[idIn, "id"], [nameIn, "name"]] as const) {
+    if (!inp) continue;
+    inp.addEventListener("input", () => {
+      if (auth.mode === "naming") auth[which] = inp.value;
+    });
+    inp.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        submit();
+      }
+    });
+  }
+  queueMicrotask(() => (idIn ?? nameIn).focus());
+  return h("div", { class: "naming-form", "data-testid": "naming" }, h("span", { class: "gap-what" }, isPkg ? "New section" : "New requirement"), ...(idIn ? [idIn] : []), nameIn, button("Add", "new-ok", submit), button("Cancel", "new-cancel", () => setAuth({ mode: "none" })));
+}
+
+function allowedGaps(): Gap[] {
+  const d = state?.document;
+  if (!d) return [];
+  const all = [...gapMap.values()];
+  if (auth.mode === "add") return allowedForNew(all, auth.what);
+  if (auth.mode === "drag" && auth.started) return allowedForMove(d, all, auth.qn);
+  return [];
+}
+
+function setAuth(next: Auth): void {
+  auth = next;
+  if (next.mode === "none") {
+    refusal = undefined;
+  }
+  removePalette();
+  if (next.mode === "palette") showPalette(next);
+  if (next.mode !== "add" && !(next.mode === "drag" && next.started)) removeGhost();
+  draw();
+}
+
+function removeGhost(): void {
+  ghostEl?.remove();
+  ghostEl = undefined;
+}
+function removePalette(): void {
+  paletteEl?.remove();
+  paletteEl = undefined;
+}
+
+function showPalette(a: Extract<Auth, { mode: "palette" }>): void {
+  const choose = (what: GhostMode) => setAuth({ mode: "add", what, x: a.x, y: a.y });
+  paletteEl = h("div", { class: "palette", role: "menu", "data-testid": "palette", "aria-label": "Add" },
+    button("Requirement", "palette-requirement", () => choose("requirement"), { title: "Add a requirement" }),
+    button("Child Requirement", "palette-child", () => choose("child"), { title: "Add a requirement inside another requirement" }),
+    button("Package", "palette-package", () => choose("package"), { title: "Add a package (section)" }),
+  );
+  paletteEl.style.left = Math.max(4, Math.min(a.x, window.innerWidth - 190)) + "px";
+  paletteEl.style.top = Math.max(4, Math.min(a.y, window.innerHeight - 110)) + "px";
+  document.body.append(paletteEl);
+  paletteEl.querySelector("button")?.focus();
+}
+
+function moveGhost(x: number, y: number, label: string): void {
+  if (!ghostEl) {
+    ghostEl = h("div", { class: "ghost", "data-testid": "ghost" }, label);
+    document.body.append(ghostEl);
+  }
+  ghostEl.textContent = label;
+  ghostEl.style.left = x + 12 + "px";
+  ghostEl.style.top = y + 8 + "px";
+}
+
+/** Which gap (or, when dragging, which requirement to nest into) the pointer is on. */
+function pick(px: number, py: number, target: Element | null): { gap?: string; nest?: string } {
+  const d = state?.document;
+  if (!d) return {};
+  if (auth.mode === "drag") {
+    const head = target?.closest(".item-head");
+    const qn = head?.closest<HTMLElement>(".item")?.dataset.qn;
+    if (qn && !subtreeOf(d, auth.qn).has(qn)) return { nest: qn };
+  }
+  const over = target?.closest(".item");
+  if (auth.mode === "add" && auth.what === "package" && over) return {};
+  const allowed = new Set(allowedGaps().map((g) => g.key));
+  const current = auth.mode === "add" || auth.mode === "drag" ? auth.active : undefined;
+  const cands: { key: string; dy: number; left: number }[] = [];
+  for (const el of document.querySelectorAll<HTMLElement>(".gap")) {
+    const key = el.dataset.gap ?? "";
+    if (!allowed.has(key) || el.getClientRects().length === 0) continue;
+    const r = el.getBoundingClientRect();
+    if (key === current && py >= r.top - 4 && py <= r.bottom + 4) return { gap: key };
+    const dy = Math.abs(py - (r.top + r.height / 2));
+    if (dy <= 56) cands.push({ key, dy, left: r.left });
+  }
+  if (!cands.length) return {};
+  // The nearest row wins; among gaps on the same row (the end of a requirement and of its parent), the pointer's x chooses the nesting level:
+  // the deepest gap whose indent the pointer has reached, else the shallowest.
+  const near = Math.min(...cands.map((x) => x.dy));
+  const row = cands.filter((x) => x.dy <= near + 6);
+  const reached = row.filter((x) => x.left <= px + 4);
+  const best = reached.length ? reached.reduce((a, x) => (x.left > a.left ? x : a)) : row.reduce((a, x) => (x.left < a.left ? x : a));
+  return best ? { gap: best.key } : {};
+}
+
+function applyAuth(): void {
+  const allowed = new Set(allowedGaps().map((g) => g.key));
+  const active = auth.mode === "add" || auth.mode === "drag" ? auth.active : undefined;
+  const nest = auth.mode === "drag" ? auth.nest : undefined;
+  document.body.classList.toggle("authoring", auth.mode === "add" || (auth.mode === "drag" && auth.started));
+  for (const el of document.querySelectorAll<HTMLElement>(".gap")) {
+    const key = el.dataset.gap ?? "";
+    const isNaming = el.classList.contains("naming");
+    el.classList.toggle("allowed", allowed.has(key));
+    el.classList.toggle("open", isNaming || key === active);
+    const label = el.querySelector(".gap-label");
+    if (label) label.textContent = key === active ? (auth.mode === "add" ? GHOST_LABEL[auth.what].replace("+ ", "New ") : auth.mode === "drag" ? `Move ${auth.label}` : "") : "";
+  }
+  for (const it of document.querySelectorAll<HTMLElement>(".item")) it.classList.toggle("nest-target", it.dataset.qn === nest);
+}
+
+function pointerUpdate(ev: PointerEvent): void {
+  if (auth.mode === "add") {
+    auth.x = ev.clientX;
+    auth.y = ev.clientY;
+    moveGhost(ev.clientX, ev.clientY, GHOST_LABEL[auth.what]);
+    const p = pick(ev.clientX, ev.clientY, ev.target as Element | null);
+    if (p.gap !== auth.active) {
+      auth.active = p.gap;
+      applyAuth();
+    }
+  } else if (auth.mode === "drag") {
+    if (!auth.started) {
+      if (Math.hypot(ev.clientX - auth.startX, ev.clientY - auth.startY) < 4) return;
+      auth.started = true;
+      document.body.classList.add("dragging");
+    }
+    auth.x = ev.clientX;
+    auth.y = ev.clientY;
+    moveGhost(ev.clientX, ev.clientY, auth.label);
+    applyAuth();
+    const p = pick(ev.clientX, ev.clientY, ev.target as Element | null);
+    if (p.gap !== auth.active || p.nest !== auth.nest) {
+      auth.active = p.gap;
+      if (p.nest !== undefined) auth.nest = p.nest;
+      else delete auth.nest;
+      applyAuth();
+    }
+  }
+}
+
+document.addEventListener("pointermove", pointerUpdate);
+document.addEventListener("pointerup", () => {
+  if (auth.mode !== "drag") return;
+  const a = auth;
+  document.body.classList.remove("dragging");
+  setAuth({ mode: "none" });
+  if (!a.started) return;
+  if (a.nest) intent({ type: "moveRequirement", qn: a.qn, how: { ownerQn: a.nest } });
+  else if (a.active) {
+    const g = gapMap.get(a.active);
+    if (g) intent({ type: "moveRequirement", qn: a.qn, how: { ownerQn: g.ownerQn, ...(g.beforeQn ? { beforeQn: g.beforeQn } : {}) } });
+  }
+});
+document.addEventListener("contextmenu", (ev) => {
+  const t = ev.target as Element | null;
+  if (!state?.document || view !== "document" || t?.closest("input, textarea, button, .palette, .toc, .conflict")) return;
+  ev.preventDefault();
+  setAuth({ mode: "palette", x: ev.clientX, y: ev.clientY });
+});
+document.addEventListener("click", (ev) => {
+  const t = ev.target as Element | null;
+  if (auth.mode === "palette" && !t?.closest(".palette")) setAuth({ mode: "none" });
+  else if (auth.mode === "add" && !t?.closest(".palette")) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (auth.active) setAuth({ mode: "naming", what: auth.what, gap: auth.active, id: "", name: "" });
+  }
+}, true);
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && auth.mode !== "none") {
+    document.body.classList.remove("dragging");
+    setAuth({ mode: "none" });
+  }
+});
+
 function itemView(i: ItemVM): HTMLElement {
   const sum = (label: string, names: string[]) => (names.length ? h("span", { class: "chip" }, `${label}: ${names.join(", ")}`) : undefined);
-  return h("div", { class: "item", "data-qn": i.qn, "data-testid": "item" },
-    h("div", { class: "item-head" },
-      field(i.qn + "|id", i.id, { label: "Requirement id", editable: i.editable, className: "id" }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "id", value: v, expected })),
-      field(i.qn + "|name", i.name, { label: "Requirement name", editable: i.editable, className: "name" }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "name", value: v, expected })),
-      h("span", { class: "kind" }, i.defKind),
+  const isCollapsed = collapsed.has(i.qn);
+  const toggle = i.children.length ? collapseButton(i.qn, isCollapsed, `${i.number} ${i.name}`) : h("span", { class: "collapse-spacer" });
+  const handle = h("span", { class: "drag-handle", "data-testid": "drag-handle", role: "button", "aria-label": `Drag ${i.name} to move it`, title: "Drag to move or nest" }, "\u22EE\u22EE");
+  handle.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0 || !i.editable) return;
+    ev.preventDefault();
+    setAuthQuiet({ mode: "drag", qn: i.qn, label: [i.id, i.name].filter(Boolean).join(" : ") || i.qn, startX: ev.clientX, startY: ev.clientY, started: false, x: ev.clientX, y: ev.clientY });
+  });
+  const head = h("div", { class: "item-head", role: "heading", "aria-level": "3" },
+    toggle,
+    h("span", { class: "req-num", "data-testid": "item-number" }, i.number),
+    i.editable ? handle : undefined,
+    field(i.qn + "|id", i.id, { label: "Requirement id", editable: i.editable, className: "id" }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "id", value: v, expected })),
+    h("span", { class: "sep" }, ":"),
+    field(i.qn + "|name", i.name, { label: "Requirement name", editable: i.editable, className: "name" }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "name", value: v, expected })),
+    h("span", { class: "kind" }, i.defKind),
+    h("span", { class: "item-actions" },
+      button("\u2191", "req-move-up", () => intent({ type: "moveRequirement", qn: i.qn, how: "up" }), { disabled: !i.canMoveUp || !i.editable, title: `Move ${i.name} up (Alt+Up)`, className: "icon" }),
+      button("\u2193", "req-move-down", () => intent({ type: "moveRequirement", qn: i.qn, how: "down" }), { disabled: !i.canMoveDown || !i.editable, title: `Move ${i.name} down (Alt+Down)`, className: "icon" }),
+      button("Delete", "delete-requirement", () => intent({ type: "deleteRequirement", qn: i.qn }), { className: "danger icon", disabled: !i.editable, title: `Delete requirement ${i.name}` }),
     ),
-    field(i.qn + "|text", i.text, { label: "Requirement text", multiline: true, editable: i.editable }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "text", value: v, expected })),
-    h("div", { class: "chips" }, sum("Satisfied by", i.summary.satisfiedBy), sum("Verified by", i.summary.verifiedBy), sum("Derived from", i.summary.derivedFrom), sum("Derives", i.summary.derives)),
   );
+  head.addEventListener("keydown", (ev) => {
+    if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
+    ev.preventDefault();
+    intent({ type: "moveRequirement", qn: i.qn, how: ev.key === "ArrowUp" ? "up" : "down" });
+  });
+  const badges = h("span", { class: "badges" },
+    i.summary.satisfiedBy.length === 0 ? h("span", { class: "badge", "data-testid": "badge-unsatisfied" }, "not satisfied") : undefined,
+    i.summary.verifiedBy.length === 0 ? h("span", { class: "badge", "data-testid": "badge-unverified" }, "not verified") : undefined,
+  );
+  const kids = h("div", { class: "children", hidden: isCollapsed }, ...i.children.flatMap((c) => [...gapEl("requirement", i.qn, c.qn), itemView(c)]), ...gapEl("requirement", i.qn, undefined));
+  return h("div", { class: "item" + (isCollapsed ? " collapsed" : ""), id: cssId(i.qn), "data-qn": i.qn, "data-number": i.number, "data-owner": i.ownerQn, "data-testid": "item" },
+    head,
+    field(i.qn + "|text", i.text, { label: "Requirement text", multiline: true, editable: i.editable }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "text", value: v, expected })),
+    h("div", { class: "chips" }, badges, sum("Satisfied by", i.summary.satisfiedBy), sum("Verified by", i.summary.verifiedBy), sum("Derived from", i.summary.derivedFrom), sum("Derives", i.summary.derives)),
+    kids,
+  );
+}
+
+/** A drag starts without a redraw (the handle must stay in the DOM while the pointer is down). */
+function setAuthQuiet(a: Auth): void {
+  auth = a;
+}
+
+function collapseButton(qn: string, isCollapsed: boolean, what: string): HTMLButtonElement {
+  const b = button(isCollapsed ? "\u25B8" : "\u25BE", "collapse", () => {
+    if (collapsed.has(qn)) collapsed.delete(qn);
+    else collapsed.add(qn);
+    persist();
+    draw();
+  }, { title: `${isCollapsed ? "Expand" : "Collapse"} ${what}`, className: "icon collapse" });
+  b.setAttribute("aria-expanded", String(!isCollapsed));
+  return b;
 }
 
 function paragraphView(p: Extract<BlockVM, { kind: "paragraph" }>): HTMLElement {
@@ -322,16 +578,27 @@ function paragraphView(p: Extract<BlockVM, { kind: "paragraph" }>): HTMLElement 
   return box;
 }
 
-function blocksView(blocks: BlockVM[]): HTMLElement[] {
-  return blocks.map((b) => {
-    if (b.kind === "paragraph") return paragraphView(b);
-    if (b.kind === "item") return itemView(b);
-    return h("div", { class: "elements", "data-testid": "elements" }, h("span", { class: "label" }, "Model elements: "), ...b.items.flatMap((it, i) => [i ? ", " : "", h("code", {}, `${it.kind} ${it.name}`)]));
-  });
+function blocksView(blocks: BlockVM[], ownerQn: string): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const b of blocks) {
+    if (b.kind === "paragraph") out.push(paragraphView(b));
+    else if (b.kind === "item") out.push(...gapEl("requirement", ownerQn, b.qn), itemView(b));
+    else out.push(h("div", { class: "elements", "data-testid": "elements" }, h("span", { class: "label" }, "Model elements: "), ...b.items.flatMap((it, i) => [i ? ", " : "", h("code", {}, `${it.kind} ${it.name}`)])));
+  }
+  out.push(...gapEl("requirement", ownerQn, undefined));
+  return out;
+}
+
+/** The inline "+ requirement": the id and name inputs open in the gap at the end of the owner's requirements. */
+function startNaming(what: GhostMode, ownerQn: string): void {
+  const g = gapMap.get(`requirement|${ownerQn}|end`);
+  if (g) setAuth({ mode: "naming", what, gap: g.key, id: "", name: "" });
 }
 
 function sectionView(s: SectionVM, parentQn: string, prevQn: string | undefined): HTMLElement {
+  const isCollapsed = collapsed.has(s.qn);
   const head = h("div", { class: "sec-head" },
+    s.blocks.length || s.children.length ? collapseButton(s.qn, isCollapsed, s.heading) : undefined,
     h("span", { class: "num", "data-testid": "sec-number" }, s.appendix && !s.number.includes(".") ? `Appendix ${s.number}` : s.number),
     field(s.qn + "|heading", s.heading, { label: "Heading", editable: s.editable, className: "heading" }, (v, expected) => intent({ type: "setHeading", qn: s.qn, value: v, expected })),
     h("span", { class: "sec-actions" },
@@ -342,16 +609,19 @@ function sectionView(s: SectionVM, parentQn: string, prevQn: string | undefined)
   );
   head.setAttribute("role", "heading");
   head.setAttribute("aria-level", String(Math.min(6, s.level + 1)));
-  const sec = h("section", { id: cssId(s.qn), "data-qn": s.qn, "data-testid": "section", class: "section level-" + Math.min(s.level, 4) }, head, ...blocksView(s.blocks));
+  const sec = h("section", { id: cssId(s.qn), "data-qn": s.qn, "data-testid": "section", class: "section level-" + Math.min(s.level, 4) + (isCollapsed ? " collapsed" : "") }, head);
+  const body = h("div", { class: "sec-body", hidden: isCollapsed }, ...blocksView(s.blocks, s.qn));
+  sec.append(body);
   const adds = h("div", { class: "adds" });
   adds.append(
     button("Add paragraph", "add-paragraph", () => ask(adds, "Paragraph text (Shift+Enter for a new line)", "ask-paragraph", (t) => intent({ type: "addParagraph", pkgQn: s.qn, text: t }), true), { disabled: !s.editable }),
-    button("Add requirement", "add-requirement", () => ask(adds, "Requirement name", "ask-requirement", (n) => intent({ type: "addRequirement", kind: "requirement", id: "", name: n, ownerQn: s.qn })), { disabled: !s.editable }),
+    button("+ requirement", "add-requirement", () => startNaming("requirement", s.qn), { disabled: !s.editable, title: `Add a requirement at the end of ${s.heading}` }),
     button("Add subsection", "add-subsection", () => ask(adds, "Subsection heading", "ask-subsection", (n) => intent({ type: "addSection", parentQn: s.qn, name: n })), { disabled: !s.editable }),
     button("Add section after", "add-section-after", () => ask(adds, "Section heading", "ask-section-after", (n) => intent({ type: "addSection", parentQn: parentQn, name: n, afterQn: s.qn, ...(s.appendix ? { appendix: true } : {}) })), { disabled: !s.editable }),
   );
-  sec.append(adds);
-  s.children.forEach((c, i) => sec.append(sectionView(c, s.qn, s.children[i - 1]?.qn)));
+  body.append(adds);
+  s.children.forEach((c, i) => body.append(...gapEl("section", s.qn, c.qn), sectionView(c, s.qn, s.children[i - 1]?.qn)));
+  body.append(...gapEl("section", s.qn, undefined));
   void prevQn;
   return sec;
 }
@@ -366,7 +636,8 @@ function tocView(d: NonNullable<RequirementsState["document"]>): HTMLElement {
       ev.preventDefault();
       document.getElementById(cssId(t.qualifiedName))?.scrollIntoView({ block: "start" });
     });
-    const li = h("li", { class: "toc-item level-" + t.level, "data-qn": t.qualifiedName, draggable: sectionQns.has(t.qualifiedName) ? "true" : undefined, "data-testid": "toc-entry" }, a);
+    const li = h("li", { class: "toc-item level-" + t.level + (t.kind === "requirement" ? " kind-requirement" : ""), "data-kind": t.kind, "data-qn": t.qualifiedName, draggable: sectionQns.has(t.qualifiedName) ? "true" : undefined, "data-testid": "toc-entry" }, a);
+    ul.append(li);
     li.addEventListener("dragstart", (ev) => {
       ev.dataTransfer?.setData("text/plain", t.qualifiedName);
       if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "move";
@@ -386,7 +657,6 @@ function tocView(d: NonNullable<RequirementsState["document"]>): HTMLElement {
       li.classList.remove("drop-before", "drop-after");
       if (from && from !== t.qualifiedName) intent({ type: "moveSection", qn: from, how: before ? { beforeQn: t.qualifiedName } : { afterQn: t.qualifiedName } });
     });
-    ul.append(li);
   }
   nav.append(ul);
   return nav;
@@ -395,19 +665,27 @@ function tocView(d: NonNullable<RequirementsState["document"]>): HTMLElement {
 function documentView(s: RequirementsState): HTMLElement {
   const d = s.document;
   if (!d) return h("p", { class: "empty" }, "The document view needs a package. This file declares none.");
+  gapMap = new Map(gapsOf(d).map((g) => [g.key, g]));
   const wrap = h("div", { class: "document", "data-testid": "document" });
-  wrap.append(h("header", { class: "titleblock" }, h("h1", { "data-testid": "doc-title" }, d.title), d.version ? h("p", { class: "version", "data-testid": "doc-version" }, "Version " + d.version) : undefined, d.annotated ? undefined : h("p", { class: "hint" }, "Title defaults to the package name; add @DocumentRoot { title = \"...\"; } to set it.")));
+  const heading = d.annotated || !d.editable
+    ? h("h1", { "data-testid": "doc-title" }, d.title)
+    : h("h1", { "data-testid": "doc-title" }, field(d.rootQn + "|heading", d.title, { label: "Document heading", editable: d.editable, className: "heading doc-heading" }, (v, expected) => intent({ type: "setHeading", qn: d.rootQn, value: v, expected })));
+  wrap.append(h("header", { class: "titleblock" }, heading, d.version ? h("p", { class: "version", "data-testid": "doc-version" }, "Version " + d.version) : undefined, d.annotated ? undefined : h("p", { class: "hint" }, "Right-click to add a requirement or a package.")));
   wrap.append(tocView(d));
-  wrap.append(...blocksView(d.blocks));
+  wrap.append(...blocksView(d.blocks, d.rootQn));
   const top = h("div", { class: "adds top" });
-  d.sections.forEach((sec, i) => wrap.append(sectionView(sec, d.rootQn, d.sections[i - 1]?.qn)));
+  top.append(button("+ requirement", "add-root-requirement", () => startNaming("requirement", d.rootQn), { disabled: !d.editable, title: "Add a requirement at the end" }));
+  d.sections.forEach((sec, i) => wrap.append(...gapEl("section", d.rootQn, sec.qn), sectionView(sec, d.rootQn, d.sections[i - 1]?.qn)));
+  wrap.append(...gapEl("section", d.rootQn, undefined));
   if (d.appendices.length) wrap.append(h("h2", { class: "appendix-title" }, "Appendices"));
   d.appendices.forEach((sec, i) => wrap.append(sectionView(sec, d.rootQn, d.appendices[i - 1]?.qn)));
-  top.append(
-    button("Add section", "add-section", () => ask(top, "Section heading", "ask-section", (n) => intent({ type: "addSection", parentQn: d.rootQn, name: n })), { disabled: !d.editable }),
-    button("Add appendix", "add-appendix", () => ask(top, "Appendix heading", "ask-appendix", (n) => intent({ type: "addSection", parentQn: d.rootQn, name: n, appendix: true })), { disabled: !d.editable }),
-    button("Add paragraph", "add-root-paragraph", () => ask(top, "Paragraph text (Shift+Enter for a new line)", "ask-root-paragraph", (t) => intent({ type: "addParagraph", pkgQn: d.rootQn, text: t }), true), { disabled: !d.editable }),
-  );
+  if (d.rootKind === "package") {
+    top.append(
+      button("Add section", "add-section", () => ask(top, "Section heading", "ask-section", (n) => intent({ type: "addSection", parentQn: d.rootQn, name: n })), { disabled: !d.editable }),
+      button("Add appendix", "add-appendix", () => ask(top, "Appendix heading", "ask-appendix", (n) => intent({ type: "addSection", parentQn: d.rootQn, name: n, appendix: true })), { disabled: !d.editable }),
+    );
+  }
+  top.append(button("Add paragraph", "add-root-paragraph", () => ask(top, "Paragraph text (Shift+Enter for a new line)", "ask-root-paragraph", (t) => intent({ type: "addParagraph", pkgQn: d.rootQn, text: t }), true), { disabled: !d.editable }));
   wrap.append(top);
   return wrap;
 }
@@ -437,6 +715,8 @@ function draw(): void {
   else if (s.problem) root.append(h("p", { class: "empty error" }, s.problem));
   else root.append(view === "table" ? tableView(s) : documentView(s));
   applyLayout();
+  if ((auth.mode === "naming" || auth.mode === "add" || auth.mode === "drag") && view === "document" && !(auth.mode === "naming" ? gapMap.has(auth.gap) : true)) auth = { mode: "none" };
+  applyAuth();
   window.scrollTo(0, scrollY);
   // A pending edit or conflict whose field no longer exists (its element is gone) cannot be shown; tell the user.
   if (s && !s.problem) {
@@ -518,7 +798,7 @@ function metrics(): RequirementsMetrics {
     };
   });
   const paragraphs = [...document.querySelectorAll<HTMLElement>("[data-testid=paragraph]")].map((p) => ({ section: p.closest("section")?.getAttribute("data-qn") ?? "", text: p.querySelector("textarea") ? val(p.querySelector("textarea")) : text(p.querySelector(".md")), lists: p.querySelectorAll("ul,ol").length, links: p.querySelectorAll("a").length }));
-  const items = [...document.querySelectorAll<HTMLElement>("[data-testid=item]")].map((i) => ({ section: i.closest("section")?.getAttribute("data-qn") ?? "", id: val(i.querySelector("input.id")), name: val(i.querySelector("input.name")), text: val(i.querySelector("textarea")) }));
+  const items = [...document.querySelectorAll<HTMLElement>("[data-testid=item]")].map((i) => ({ number: i.dataset.number ?? "", owner: i.dataset.owner ?? "", collapsed: i.classList.contains("collapsed"), visible: i.getClientRects().length > 0 && !i.closest("[hidden]"), section: i.closest("section")?.getAttribute("data-qn") ?? "", id: val(i.querySelector("input.id")), name: val(i.querySelector("input.name")), text: val(i.querySelector("textarea")) }));
   const over: string[] = [];
   for (const e of document.querySelectorAll<HTMLElement>("body *")) {
     if (e instanceof HTMLTextAreaElement || e instanceof HTMLInputElement || e.closest(".table-scroll") === e) continue;
@@ -547,13 +827,24 @@ function metrics(): RequirementsMetrics {
       ...(detailEl && selected ? { detail: { qn: selected, satisfiedBy: listOf("rel-satisfy"), verifiedBy: listOf("rel-verify"), derivedFrom: listOf("rel-derived-from"), derives: listOf("rel-derives") } } : {}),
     },
     document: {
-      title: text(document.querySelector("[data-testid=doc-title]")),
+      title: text(document.querySelector("[data-testid=doc-title]")) || val(document.querySelector("[data-testid=doc-title] input")),
+      heading: val(document.querySelector("[data-testid=doc-title] input")) || text(document.querySelector("[data-testid=doc-title]")),
+      gapCount: document.querySelectorAll(".gap").length,
+      authoring: {
+        mode: auth.mode,
+        ...(auth.mode === "add" ? { what: auth.what } : auth.mode === "naming" ? { what: auth.what } : auth.mode === "drag" ? { what: auth.qn } : {}),
+        ghost: !!ghostEl,
+        ...(((auth.mode === "add" || auth.mode === "drag") && auth.active && gapMap.get(auth.active)) ? { activeGap: { owner: gapMap.get(auth.active)!.ownerQn, ...(gapMap.get(auth.active)!.beforeQn ? { before: gapMap.get(auth.active)!.beforeQn! } : {}), level: gapMap.get(auth.active)!.level, target: gapMap.get(auth.active)!.target } } : {}),
+        visibleGaps: [...document.querySelectorAll<HTMLElement>(".gap.allowed")].filter((e) => e.getClientRects().length > 0).length,
+        inputs: !!document.querySelector("[data-testid=naming]"),
+        ...(auth.mode === "drag" && auth.nest ? { nestTarget: auth.nest } : {}),
+      },
       ...(document.querySelector("[data-testid=doc-version]") ? { version: text(document.querySelector("[data-testid=doc-version]")).replace(/^Version /, "") } : {}),
       outline,
       toc: [...document.querySelectorAll("[data-testid=toc-entry]")].map((li) => {
         const t = text(li);
         const m = /^(?:Appendix )?(\S+) (.*)$/.exec(t);
-        return { number: m?.[1] ?? "", heading: m?.[2] ?? t, level: Number(/level-(\d)/.exec(li.className)?.[1] ?? 1) };
+        return { number: m?.[1] ?? "", heading: m?.[2] ?? t, level: Number(/level-(\d)/.exec(li.className)?.[1] ?? 1), kind: (li as HTMLElement).dataset.kind ?? "", qn: (li as HTMLElement).dataset.qn ?? "" };
       }),
       appendixLetters: outline.filter((o) => o.appendix).map((o) => o.number.replace(/^Appendix /, "")),
       paragraphs,
@@ -621,7 +912,18 @@ async function gesture(g: Gesture): Promise<void> {
       if ((g.event ?? "change") === "change") e.dispatchEvent(new Event("change", { bubbles: true }));
       break;
     }
-    case "key": find(g.selector).dispatchEvent(new KeyboardEvent("keydown", { key: g.key, bubbles: true })); break;
+    case "key": find(g.selector).dispatchEvent(new KeyboardEvent("keydown", { key: g.key, altKey: g.alt === true, bubbles: true })); break;
+    case "mouse": {
+      const e = find(g.selector);
+      e.scrollIntoView({ block: "center" });
+      const r = e.getBoundingClientRect();
+      const x = g.at === "left" ? r.left + 2 : r.left + r.width / 2;
+      const y = (g.at === "top" ? r.top + 1 : g.at === "bottom" ? r.bottom - 1 : r.top + r.height / 2) + (g.dy ?? 0);
+      const init = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 };
+      if (g.type === "contextmenu" || g.type === "click") e.dispatchEvent(new MouseEvent(g.type, init));
+      else e.dispatchEvent(new PointerEvent(g.type, { ...init, pointerId: 1, isPrimary: true }));
+      break;
+    }
     case "dragToc": {
       const quoted = (q: string) => q.replace(/["\\]/g, "\\$&");
       const from = find(`[data-testid=toc-entry][data-qn="${quoted(g.fromQn)}"]`);
