@@ -59,7 +59,7 @@ export interface DiagramWriteResult {
 
 /** What the user is looking at, as the diagram editors report it. Ids are diagram node and edge ids. */
 export interface EditorState {
-  active?: { path: string; hover?: string; selection: string[] };
+  active?: { path: string; /** The diagram is in the active tab; false when it is only the last active, still visible, diagram (the user is elsewhere, e.g. in the chat). */ focused: boolean; hover?: string; selection: string[] };
   /** Workspace-relative paths of the other open diagrams. */
   open: string[];
 }

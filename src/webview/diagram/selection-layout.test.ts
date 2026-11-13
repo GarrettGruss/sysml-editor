@@ -7,7 +7,7 @@ import { resolveDiagram } from "../../diagram/resolve.js";
 import { buildViewModel } from "../../diagram/view-model.js";
 import { absoluteBoxes, type Box, type Measure } from "./geometry.js";
 import { layoutDiagram, type ElkLike } from "./layout.js";
-import { layoutSelection, placeGroup } from "./selection-layout.js";
+import { layoutSelection, placeGroup, routeHitsBox } from "./selection-layout.js";
 
 const measure: Measure = (t, s) => t.length * (s === "small" ? 5.5 : 6.5);
 const elk = new ELK() as unknown as ElkLike;
@@ -28,6 +28,11 @@ describe("placeGroup", () => {
     const s = placeGroup([b(0, 0, 60, 60)], { x: 10, y: 10 }, obs, 16);
     const placed = { x: s.x, y: s.y, w: 60, h: 60 };
     for (const o of obs) expect(placed.x >= o.x + o.w + 16 || placed.x + placed.w + 16 <= o.x).toBe(true);
+  });
+  it("goes below instead of past maxRight", () => {
+    const s = placeGroup([b(0, 0, 60, 60)], { x: 10, y: 10 }, [b(0, 0, 100, 100)], 16, 150);
+    expect(s.x).toBe(10);
+    expect(s.y).toBe(10 + (100 + 16 - 10));
   });
   it("is a no-op for an empty group", () => {
     expect(placeGroup([], { x: 5, y: 5 }, [])).toEqual({ x: 0, y: 0 });
@@ -79,5 +84,68 @@ describe("layoutSelection", () => {
       if (touching.has(e.id)) expect(kept).toBe(false);
       else expect(kept).toBe(true);
     }
+  });
+});
+
+describe("routeHitsBox", () => {
+  it("detects a segment through a box and not one beside it", () => {
+    const box = { x: 10, y: 10, w: 20, h: 20 };
+    expect(routeHitsBox([{ x: 0, y: 20 }, { x: 50, y: 20 }], box)).toBe(true);
+    expect(routeHitsBox([{ x: 0, y: 5 }, { x: 50, y: 5 }], box)).toBe(false);
+  });
+});
+
+describe("layoutSelection across containers", () => {
+  async function drivetrain() {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///ws/ports.sysml", readFileSync(new URL("ports.sysml", dir), "utf8"));
+    const r = parseDiagram(readFileSync(new URL("drivetrain-interconnection.sysmld", dir), "utf8"));
+    if (!r.ok) throw new Error("fixture does not parse");
+    const vm = buildViewModel(r.doc, resolveDiagram(r.doc, ix), ix);
+    return { vm, rel: (await layoutDiagram(vm, elk, measure)).boxes };
+  }
+  const inside = (a: Box, o: Box) => a.x >= o.x && a.y >= o.y && a.x + a.w <= o.x + o.w && a.y + a.h <= o.y + o.h;
+  it("keeps a child selected without its parent inside the parent, with its ports", async () => {
+    const { vm, rel } = await drivetrain();
+    const out = await layoutSelection(vm, ["n1"], rel, elk, measure);
+    expect(out).toBeDefined();
+    const next = new Map(rel);
+    for (const b of out!.boxes) next.set(b.id, { x: b.x, y: b.y, w: b.w, h: b.h });
+    const abs = absoluteBoxes(vm, next);
+    expect(inside(abs.get("n1")!, abs.get("n0")!)).toBe(true);
+    const ids = out!.boxes.map((b) => b.id);
+    expect(ids).toContain("n1");
+    expect(ids).toContain("n3"); // its port
+    expect(ids).not.toContain("n2");
+    expect(vm.nodes.find((n) => n.id === "n1")!.parent).toBe("n0");
+    const o2 = abs.get("n2")!, o1 = abs.get("n1")!;
+    expect(o1.x < o2.x + o2.w && o2.x < o1.x + o1.w && o1.y < o2.y + o2.h && o2.y < o1.y + o1.h).toBe(false);
+  });
+  it("lays out children of different containers each in its own container, and the lines that cross the selection are recomputed", async () => {
+    const { vm, rel } = await drivetrain();
+    const withPts = { ...vm, edges: vm.edges.map((e) => ({ ...e, points: [{ x: 0, y: 0 }, { x: 5, y: 5 }] })) };
+    const out = await layoutSelection(withPts, ["n1", "n2"], rel, elk, measure);
+    const next = new Map(rel);
+    for (const b of out!.boxes) next.set(b.id, { x: b.x, y: b.y, w: b.w, h: b.h });
+    const abs = absoluteBoxes(vm, next);
+    for (const id of ["n1", "n2"]) expect(inside(abs.get(id)!, abs.get("n0")!), id).toBe(true);
+    expect(out!.edges.some((e) => e.id === "e1")).toBe(true); // both ends inside the group: laid out again
+  });
+  it("drops a kept route that the moved group now lies on", async () => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///ws/ports.sysml", readFileSync(new URL("ports.sysml", dir), "utf8"));
+    const r = parseDiagram(readFileSync(new URL("ports-general.sysmld", dir), "utf8"));
+    if (!r.ok) throw new Error("x");
+    const vm0 = buildViewModel(r.doc, resolveDiagram(r.doc, ix), ix);
+    const rel = (await layoutDiagram(vm0, elk, measure)).boxes;
+    const abs = absoluteBoxes(vm0, rel);
+    const a = abs.get("n1")!;
+    // a stored line between n4 and n5 that runs straight through where n1 is
+    const through = [{ x: a.x - 50, y: a.y + a.h / 2 }, { x: a.x + a.w + 50, y: a.y + a.h / 2 }];
+    const vm = { ...vm0, edges: [...vm0.edges, { id: "x1", source: "n4", target: "n5", points: through } as (typeof vm0.edges)[number]] };
+    const out = await layoutSelection(vm, ["n1"], rel, elk, measure);
+    expect(out!.edges.some((e) => e.id === "x1")).toBe(false);
+    const far = { ...vm, edges: [...vm0.edges, { id: "x2", source: "n4", target: "n5", points: [{ x: -900, y: -900 }, { x: -800, y: -900 }] } as (typeof vm0.edges)[number]] };
+    expect((await layoutSelection(far, ["n1"], rel, elk, measure))!.edges.some((e) => e.id === "x2")).toBe(true);
   });
 });

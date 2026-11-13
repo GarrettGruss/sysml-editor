@@ -56,6 +56,7 @@ export interface TestApi {
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
     setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void> } | undefined): void;
     activeUri(): string | undefined;
+    hoverOf(uri: vscode.Uri): string | undefined;
   };
   dnd: { handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void };
   requirements: {

@@ -417,11 +417,25 @@ export class SvgRenderer implements DiagramRenderer {
     return { x: (sx - this.view.x) / this.view.k, y: (sy - this.view.y) / this.view.k, sx, sy, button, shift: e.shiftKey, mod: e.ctrlKey || e.metaKey, space: this.space };
   }
 
+  /** What was last reported to the host, and what is under the pointer now. */
   private hovered?: string;
+  private under?: string;
   private setHover(id: string | undefined): void {
+    this.under = id;
     if (id === this.hovered) return;
     this.hovered = id;
     this.cb.onHover(id);
+  }
+
+  /** The host cleared its hover: the next report goes out even when unchanged. */
+  resetHover(): void {
+    this.hovered = undefined;
+  }
+
+  /** Report what is under the pointer again (after the window or tab became active or visible). */
+  resendHover(): void {
+    this.hovered = undefined;
+    if (this.under !== undefined) this.setHover(this.under);
   }
 
   /** The line or node under the point (lines first, as a press picks them). */
@@ -463,7 +477,11 @@ export class SvgRenderer implements DiagramRenderer {
       this.setHover(e.buttons === 0 ? this.hoverAt(this.toInput(e)) : undefined);
     });
     svg.addEventListener("pointerleave", () => this.setHover(undefined));
-    document.addEventListener("visibilitychange", () => { if (document.hidden) this.setHover(undefined); });
+    document.addEventListener("visibilitychange", () => { if (document.hidden) this.setHover(undefined); else this.resendHover(); });
+    document.addEventListener("pointerleave", () => this.setHover(undefined));
+    document.addEventListener("mouseout", (e) => { if (e.relatedTarget === null) this.setHover(undefined); });
+    window.addEventListener("blur", () => this.setHover(undefined));
+    window.addEventListener("focus", () => this.resendHover());
     const end = (e: PointerEvent) => { if (this.rg) this.endLineGesture(); else this.ia.pointerUp(this.toInput(e)); };
     svg.addEventListener("pointerup", end);
     svg.addEventListener("pointercancel", () => { if (!this.cancelLineGesture()) this.ia.cancel(); });

@@ -207,9 +207,9 @@ describe("sysml_get_editor_context", () => {
     const d = diagram("ports-general.sysmld");
     const [a, b] = d.nodes;
     diagrams.open.add("ports-general.sysmld");
-    diagrams.editor = { active: { path: "ports-general.sysmld", hover: a!.id, selection: [b!.id, "gone"] }, open: ["z.sysmld", "y.sysmld"] };
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: a!.id, selection: [b!.id, "gone"] }, open: ["z.sysmld", "y.sysmld"] };
     const r = await ok(ctx, "sysml_get_editor_context");
-    expect(r.activeDiagram).toEqual({ path: "ports-general.sysmld", kind: d.kind, root: d.root });
+    expect(r.activeDiagram).toEqual({ path: "ports-general.sysmld", kind: d.kind, root: d.root, focused: true });
     expect(r.hovered).toMatchObject({ id: a!.id, type: "node", resolved: true });
     expect(r.hovered.element.qualifiedName).toBeTruthy();
     expect(r.selected.map((x: any) => x.id)).toEqual([b!.id, "gone"]);
@@ -220,7 +220,7 @@ describe("sysml_get_editor_context", () => {
     const { ctx, diagrams } = setup();
     const e = diagram("ports-general.sysmld").edges[0];
     if (!e) return;
-    diagrams.editor = { active: { path: "ports-general.sysmld", hover: e.id, selection: [] }, open: [] };
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: e.id, selection: [] }, open: [] };
     expect((await ok(ctx, "sysml_get_editor_context")).hovered).toMatchObject({ id: e.id, type: "edge" });
   });
 });
@@ -228,7 +228,22 @@ describe("sysml_get_editor_context", () => {
 describe("sysml_get_editor_context, derived lines", () => {
   it("describes a derived line by its relationship and ends", async () => {
     const { ctx, diagrams } = setup();
-    diagrams.editor = { active: { path: "ports-general.sysmld", hover: "d:composition:n4:n5", selection: [] }, open: [] };
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: "d:composition:n4:n5", selection: [] }, open: [] };
     expect((await ok(ctx, "sysml_get_editor_context")).hovered).toEqual({ id: "d:composition:n4:n5", type: "edge", derived: true, relationship: "composition", source: "n4", target: "n5", resolved: true });
+  });
+});
+
+describe("sysml_get_editor_context, focus and unknown ids", () => {
+  it("reports focused false for a visible diagram that is not in the active tab", async () => {
+    const { ctx, diagrams } = setup();
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: false, selection: [] }, open: [] };
+    expect((await ok(ctx, "sysml_get_editor_context")).activeDiagram).toMatchObject({ path: "ports-general.sysmld", focused: false });
+  });
+  it("answers resolved false for ids that are not in the view", async () => {
+    const { ctx, diagrams } = setup();
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: "d:composition:n9:n8", selection: ["nope"] }, open: [] };
+    const r = await ok(ctx, "sysml_get_editor_context");
+    expect(r.hovered).toEqual({ id: "d:composition:n9:n8", resolved: false });
+    expect(r.selected).toEqual([{ id: "nope", resolved: false }]);
   });
 });

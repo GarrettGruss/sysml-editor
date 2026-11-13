@@ -102,11 +102,11 @@ async function render(vm: ViewModel, gen: number): Promise<void> {
 }
 
 /** Auto-layout: the selected nodes, or everything when none is selected, are laid out again and sent as one edit. */
-async function autoLayout(): Promise<void> {
+async function autoLayout(whole = false): Promise<void> {
   const vm = current;
   if (!vm) return;
   const gen = generation;
-  const part = await layoutSelection(vm, renderer.ia.selection, lastBoxes, elk, measure);
+  const part = whole ? undefined : await layoutSelection(vm, renderer.ia.selection, lastBoxes, elk, measure);
   if (part) {
     post({ type: "edit", edit: { kind: "autoLayout", boxes: part.boxes, edges: part.edges }, ...(gen !== undefined ? { generation: gen } : {}) });
     return;
@@ -228,9 +228,12 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
+    case "resetHover":
+      renderer.resetHover();
+      break;
     case "command":
       queue = queue.then(async () => {
-        if (m.name === "autoLayout") await autoLayout();
+        if (m.name === "autoLayout") await autoLayout(m.whole === true);
         else if (m.name === "fit") renderer.fit();
         else if (m.name === "zoomIn") renderer.zoomBy(1.25);
         else if (m.name === "zoomOut") renderer.zoomBy(0.8);

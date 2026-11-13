@@ -253,7 +253,14 @@ export function interactionTests(c: Ctx): Test[] {
       }
       assert.ok(picked.some((id) => JSON.stringify(node(f, id)) !== prior.get(id)), "a selected node was laid out again");
       await settled(f);
-      assert.strictEqual((await metrics(f)).overlaps, 0, "no overlaps");
+      const m = await metrics(f);
+      assert.strictEqual(m.overlaps, 0, "no overlaps");
+      assert.strictEqual(m.diagonalSegments, 0, "lines are still orthogonal");
+      assert.strictEqual(m.edgesThroughEndNodes, 0, "no line runs through the node it ends at");
+      for (const e of m.edges) {
+        const through = m.nodes.filter((n) => n.id !== e.source && n.id !== e.target && !n.parent && e.points.some((p, i) => i > 0 && Math.min(e.points[i - 1]!.x, p.x) < n.x + n.w && Math.max(e.points[i - 1]!.x, p.x) > n.x && Math.min(e.points[i - 1]!.y, p.y) < n.y + n.h && Math.max(e.points[i - 1]!.y, p.y) > n.y));
+        assert.deepStrictEqual(through.map((n) => n.id), [], `line ${e.id} crosses no unrelated node`);
+      }
       await isUndone(f, before);
     })],
 
@@ -262,30 +269,70 @@ export function interactionTests(c: Ctx): Test[] {
       const ctxOf = async (via: "lm" | "mcp") => {
         const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
         assert.strictEqual(r.isError, false, r.text);
-        return JSON.parse(r.text) as { activeDiagram: { path: string; kind: string; root: string } | null; hovered: { id: string; type: string; element?: { qualifiedName?: string; locator?: unknown } } | null; selected: { id: string }[]; openDiagrams: string[] };
+        return JSON.parse(r.text) as { activeDiagram: { path: string; kind: string; root: string; focused: boolean } | null; hovered: { id: string; type: string; element?: { qualifiedName?: string; locator?: unknown } } | null; selected: { id: string }[]; openDiagrams: string[] };
       };
-      const both = async (check: (r: Awaited<ReturnType<typeof ctxOf>>) => void, what: string, again?: Gesture) => {
-        for (const via of ["lm", "mcp"] as const) await c.eventually(async () => { if (again) await gesture(f, again); const r = await ctxOf(via); try { check(r); } catch (e) { throw new Error(JSON.stringify(r) + " " + String(e)); } }, `${what} (${via})`, 5000);
+      const both = async (check: (r: Awaited<ReturnType<typeof ctxOf>>) => void, what: string) => {
+        for (const via of ["lm", "mcp"] as const) await c.eventually(async () => { const r = await ctxOf(via); try { check(r); } catch (e) { throw new Error(JSON.stringify(r) + " " + String(e)); } }, `${what} (${via})`, 5000);
       };
       await both((r) => {
-        assert.deepStrictEqual(r.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain" });
+        assert.deepStrictEqual(r.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain", focused: true });
         assert.strictEqual(r.hovered, null);
         assert.deepStrictEqual(r.selected, []);
       }, "the active diagram with nothing under the pointer");
+      await gesture(f, { kind: "hover", id: "n1" });
       await both((r) => {
         assert.strictEqual(r.hovered?.id, "n1");
         assert.strictEqual(r.hovered?.type, "node");
         assert.strictEqual(r.hovered?.element?.qualifiedName, "Ports::Drivetrain::battery");
-      }, "a hovered node", { kind: "hover", id: "n1" });
+      }, "a hovered node");
+      await gesture(f, { kind: "hover", id: "e1" });
       await both((r) => {
         assert.strictEqual(r.hovered?.id, "e1");
         assert.strictEqual(r.hovered?.type, "edge");
         assert.ok(r.hovered?.element?.locator, "an unnamed statement carries a locator");
-      }, "a hovered line", { kind: "hover", id: "e1" });
+      }, "a hovered line");
       await gesture(f, { kind: "select", id: "n2" });
       await both((r) => assert.deepStrictEqual(r.selected.map((s) => s.id), ["n2"]), "the selection");
       await gesture(f, { kind: "hover" });
       await both((r) => assert.strictEqual(r.hovered, null), "hover cleared when the pointer leaves");
+    })],
+
+    ["an agent layout lays out the whole diagram even when the user has a selection", withCopy("ports-general.sysmld", "tmp-agent-whole.sysmld", async () => {
+      const f = "tmp-agent-whole.sysmld";
+      const prior = new Map(doc(f).nodes.map((n) => [n.id, JSON.stringify(n)] as const));
+      await gesture(f, { kind: "select", id: "n1" });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).selected, ["n1"]), "n1 is selected");
+      const r = await viaLm("sysml_layout_diagram", { path: f });
+      assert.strictEqual(r.isError, false, r.text);
+      await waitFor(() => dirty(f), 10000, "the layout dirties the diagram");
+      assert.ok(doc(f).nodes.some((n) => n.id !== "n1" && JSON.stringify(n) !== prior.get(n.id)), "unselected nodes were laid out too");
+    })],
+
+    ["the pointer's hover is cleared on the host when the panel is hidden", withCopy("drivetrain-interconnection.sysmld", "tmp-hide.sysmld", async () => {
+      const f = "tmp-hide.sysmld";
+      await gesture(f, { kind: "hover", id: "n1" });
+      await waitFor(() => api.diagram.hoverOf(uriOf(f)) === "n1", 5000, "the hover reaches the host");
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uriOf("ports.sysml")), { viewColumn: vscode.ViewColumn.Active, preview: false });
+      await waitFor(() => api.diagram.hoverOf(uriOf(f)) === undefined, 5000, "the hover is cleared when the panel is hidden");
+      assert.strictEqual(JSON.parse((await viaMcp(api, "sysml_get_editor_context", {})).text).activeDiagram, null, "no diagram is visible");
+    })],
+
+    ["the editor context keeps the last active diagram, unfocused, while the user is in another editor group", withCopy("drivetrain-interconnection.sysmld", "tmp-chat.sysmld", async () => {
+      const f = "tmp-chat.sysmld";
+      await gesture(f, { kind: "select", id: "n2" });
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uriOf("ports.sysml")), { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      try {
+        for (const via of ["lm", "mcp"] as const) {
+          await c.eventually(async () => {
+            const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
+            const j = JSON.parse(r.text) as { activeDiagram: { path: string; focused: boolean } | null; selected: { id: string }[] };
+            assert.deepStrictEqual(j.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain", focused: false });
+            assert.deepStrictEqual(j.selected.map((x) => x.id), ["n2"]);
+          }, `the unfocused diagram (${via})`, 5000);
+        }
+      } finally {
+        await close();
+      }
     })],
 
     ["the editor context has no active diagram when another editor is active", async () => {

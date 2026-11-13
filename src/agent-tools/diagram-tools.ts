@@ -273,10 +273,10 @@ const getEditorContext: ToolDefinition = {
   name: "sysml_get_editor_context",
   description:
     "Read what the user is looking at in the diagram editor right now: the active diagram, the node or line under the pointer, the selected elements and the other open diagrams. " +
-    "Use it to resolve \"this\", \"here\" or \"the selected part\" in the user's request. Returns JSON { activeDiagram: { path, kind, root } | null, hovered: item | null, selected: item[], openDiagrams: string[] }. " +
-    "`activeDiagram` is null when no diagram editor is the active tab (then `hovered` is null and `selected` is empty). Each item is { id, type: node | edge, element?, resolved } as in sysml_read_diagram (a line the view derives from the model, such as typing or composition, has `derived: true` with its relationship and end node ids instead of an element): " +
+    "`focused` says whether that diagram is in the active tab; when the user is elsewhere (for example in the chat) it is the diagram they last used that is still visible. Use it to resolve \"this\", \"here\" or \"the selected part\" in the user's request. Returns JSON { activeDiagram: { path, kind, root, focused } | null, hovered: item | null, selected: item[], openDiagrams: string[] }. " +
+    "`activeDiagram` is null when no diagram is visible (then `hovered` is null and `selected` is empty). Each item is { id, type: node | edge, element?, resolved } as in sysml_read_diagram (a line the view derives from the model, such as typing or composition, has `derived: true` with its relationship and end node ids instead of an element): " +
     "`id` is the diagram node or edge id; `element` has the qualified name (or, for an unnamed statement such as a succession, a locator) to use with the other tools. " +
-    "`hovered` is cleared when the pointer leaves the diagram or the tab is hidden or inactive. `openDiagrams` lists the other diagrams open in editors. Read-only.",
+    "`hovered` is cleared when the pointer leaves the diagram or the diagram is hidden. `openDiagrams` lists the other diagrams open in editors. Read-only.",
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   readOnly: true,
   async handler(_input, ctx) {
@@ -289,15 +289,15 @@ const getEditorContext: ToolDefinition = {
     const items = new Map<string, Record<string, unknown>>();
     for (const n of d.nodes) items.set(n.id, { id: n.id, type: "node", element: n.element, resolved: n.resolved });
     for (const e of d.edges) items.set(e.id, { id: e.id, type: "edge", element: e.element, resolved: e.resolved });
-    const item = (id: string) => {
-      const known = items.get(id);
-      if (known) return known;
-      // A line the view derives from the model (typing, composition, ...) is not stored in the diagram: `d:<relationship>:<source>:<target>`.
-      const m = /^d:([^:]+):(.+):([^:]+)$/.exec(id);
-      return m ? { id, type: "edge", derived: true, relationship: m[1], source: m[2], target: m[3], resolved: true } : { id, resolved: false };
-    };
+    // Lines the view derives from the model (typing, composition, ...) are not stored in the diagram; only ids of the current view count.
+    const derived = new Map<string, Record<string, unknown>>();
+    try {
+      const vm = buildViewModel(c.doc, resolveDiagram(c.doc, ctx.index, { sourceOf: c.sourceOf }), ctx.index);
+      for (const e of vm.edges) if (e.derived && !items.has(e.id)) derived.set(e.id, { id: e.id, type: "edge", derived: true, ...(e.style !== undefined ? { relationship: e.style } : {}), source: e.source, target: e.target, resolved: true });
+    } catch { /* the stored items alone are reported */ }
+    const item = (id: string) => items.get(id) ?? derived.get(id) ?? { id, resolved: false };
     return json({
-      activeDiagram: { path: c.path, kind: c.doc.kind, root: c.doc.root },
+      activeDiagram: { path: c.path, kind: c.doc.kind, root: c.doc.root, focused: st.active.focused },
       hovered: st.active.hover !== undefined ? item(st.active.hover) : null,
       selected: st.active.selection.map(item),
       openDiagrams,

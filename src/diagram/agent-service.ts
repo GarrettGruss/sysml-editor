@@ -66,7 +66,7 @@ export class VsCodeDiagramService implements DiagramService {
     const s = this.provider.editorState();
     const a = s.active && this.toPath(vscode.Uri.parse(s.active.uri));
     const open = s.open.flatMap((u) => this.toPath(vscode.Uri.parse(u)) ?? []).sort();
-    return a !== undefined && s.active ? { active: { path: a, ...(s.active.hover !== undefined ? { hover: s.active.hover } : {}), selection: s.active.selection }, open } : { open };
+    return a !== undefined && s.active ? { active: { path: a, focused: s.active.focused, ...(s.active.hover !== undefined ? { hover: s.active.hover } : {}), selection: s.active.selection }, open } : { open };
   }
 
   async list(): Promise<DiagramFileInfo[]> {

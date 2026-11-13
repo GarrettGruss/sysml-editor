@@ -123,7 +123,10 @@ export type HostToWebview =
   | { type: "render"; viewModel: ViewModel; generation: number }
   | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number; /** Test artifact: the editor window with the palette and properties panel drawn from the live DOM, in the editor's own theme. */ panels?: boolean }
   | { type: "getMetrics"; requestId: number }
-  | { type: "command"; name: DiagramCommand }
+  /** `whole`: Auto-layout lays out the whole diagram even when nodes are selected (the agent tool). */
+  | { type: "command"; name: DiagramCommand; whole?: boolean }
+  /** The host cleared its hover state: the webview reports its next hover even when it is unchanged. */
+  | { type: "resetHover" }
   | { type: "select"; ids: string[] }
   | { type: "testGesture"; requestId: number; gesture: TestGesture }
   | { type: "typeSuggestionsResult"; requestId: number; items: { name: string; qualifiedName: string; library: boolean }[] }
