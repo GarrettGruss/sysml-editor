@@ -90,7 +90,7 @@ export type TestGesture =
   | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
   /** Open the context menu on a node, as a right click does. */
   | { kind: "contextmenu"; id: string }
-  | { kind: "drop"; names: string[] }
+  | { kind: "drop"; names: string[]; x?: number; y?: number }
   /** Choose a palette item, then click a node (or the canvas, with `id` absent) at a point relative to that node. */
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
   /** Connection tool: click the source, then the target. */
@@ -239,9 +239,8 @@ export type WebviewToHost =
   | { type: "model"; intent: ModelIntent; generation?: number }
   /** Completion for the type field of the properties panel. */
   | { type: "typeSuggestions"; requestId: number; id: string; query: string }
-  | { type: "showElement" }
   /** Qualified names dropped from the tree onto the diagram. */
-  | { type: "dropElements"; names: string[] }
+  | { type: "dropElements"; names: string[]; x?: number; y?: number }
   | { type: "pngResult"; requestId: number; base64: string; error?: string }
   | ({ type: "metricsResult"; requestId: number } & DiagramMetrics)
   | { type: "gestureResult"; requestId: number; error?: string }

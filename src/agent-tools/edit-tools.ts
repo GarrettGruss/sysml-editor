@@ -315,7 +315,10 @@ const createRelationship: ToolDefinition = {
       const endOf = (key: string): Element => {
         const text = need(key);
         if (text === "start" || text === "done") return virtualNode(owner.element, text);
-        const own = owner.element.members.find((m) => m.name === text);
+        // A name of a member of the owner, or a dotted path to a node nested below it (`operating.high`).
+        let own: Element | undefined = owner.element;
+        for (const seg of text.includes("::") ? [] : text.split(".")) own = own?.members.find((m) => m.name === seg);
+        if (own === owner.element) own = undefined;
         return own ?? locate(ctx, ed, text, key).element;
       };
       const a = endOf("source"), b = endOf("target");

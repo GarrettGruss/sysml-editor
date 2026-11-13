@@ -20,7 +20,7 @@ The SysML activity bar icon opens the **SysML Model** view: a native tree of the
 - Command **Go to Definition** (tree item click or context menu) opens the file with the element's name selected.
 - In a workspace without `.sysml` files the view offers **New SysML File** (`sysml.newFile`).
 - Setting `sysml.tree.followCursor` (default `true`) reveals and selects the tree node for the declaration under the text cursor while the view is visible. It also makes the tree follow the node selected in a diagram (see below).
-- Context menu on an element: **New Diagram…**, **Show in Diagram** and **Add to Active Diagram** (see below), and the editing commands in the next section.
+- Context menu on an element: **New Diagram…**, **Show in Diagram** and **Add to Diagram** (see below), and the editing commands in the next section.
 
 ### Editing from the tree
 
@@ -49,8 +49,7 @@ A `.sysmld` file opens in a graphical editor: a General View, an Interconnection
 | --- | --- |
 | `SysML: New Diagram…` (`sysml.newDiagram`) | Tree context menu or palette. Pick a view (the behaviour views are offered only for an element that fits: an action for the Action Flow View, a state for the State Transition View, an occurrence, part or interaction that owns messages for the Sequence View), then a file name (default `<element>.sysmld` next to the element's source file; an existing file is never overwritten, `Name 2.sysmld` is suggested instead). The file is created from the element and its direct members and opened. |
 | `Show in Diagram` (`sysml.showInDiagram`) | Tree context menu. Lists the `.sysmld` files in the workspace that show the element, opens the chosen one and selects the node. |
-| `Add to Active Diagram` (`sysml.addToActiveDiagram`) | Tree context menu, enabled while a diagram editor is active. Adds the element as a node (inside the node of its owner in an Interconnection View when that is shown, otherwise at top level), with relationship edges to elements already shown. |
-| `SysML: Show Element on Diagram…` (`sysml.diagram.showElement`, toolbar **Show Element…**) | Quick pick of the model's named elements; the chosen one is added like above. |
+| `Add to Diagram` (`sysml.addToActiveDiagram`) | Tree context menu, enabled while a diagram editor is active. Adds the element as a node (inside the node of its owner in an Interconnection View when that is shown, otherwise at top level), with relationship edges to elements already shown. |
 | `SysML: Auto-layout Diagram` (`sysml.diagram.autoLayout`, toolbar **Auto-layout**) | Lays out the selected nodes again (and the lines among them), keeping them near where they were and clear of the other nodes; with nothing selected, every node. Other nodes keep their positions. |
 
 **Mouse**: click selects, Shift-click toggles, Shift-drag on the background selects with a rubber band, drag moves (children move with their container and cannot leave it; ports slide along their owner's border), drag a handle of a selected node to resize (not below its content, nor under its nested nodes). Drag the background, use the middle button or hold Space and drag to pan. Ctrl/Cmd + wheel zooms, the wheel pans; the toolbar has **Fit**, zoom in and out. Right-click a node for **Remove from Diagram**; on an unresolved item also **Re-link…**.
@@ -62,7 +61,7 @@ Positions and sizes snap to an 8 px grid. A drag or resize is one edit when you 
 
 **Edges** are routed orthogonally: automatically laid-out diagrams use the routes ELK computes, manually placed nodes get a route with one or two bends from the sides that face each other; a stored route is kept while neither end moved. Labels sit beside the edge. A Requirements View draws satisfy and verify edges (dashed, labelled) from the satisfying or verifying element to the requirement, and `#derivation connection` statements as dashed `«derive»` edges from the derived to the original requirement (a connection with several derived ends draws only the first).
 
-**Dragging from the tree**: dragging elements from the SysML Model view carries their qualified names on the data transfer (MIME type `application/vnd.sysml-editor.elements`, also as plain text), and the diagram accepts a drop of that type. Whether VS Code delivers a tree drag into a custom editor's webview depends on the VS Code version and was not confirmed in automated tests (they exercise the drop handler and the tree's side separately); **Add to Active Diagram** and **Show Element…** do the same without dragging and are always available.
+**Dragging from the tree**: dragging elements from the SysML Model view carries their qualified names on the data transfer (MIME type `application/vnd.sysml-editor.elements`, also as plain text), and the diagram accepts a drop of that type. Whether VS Code delivers a tree drag into a custom editor's webview depends on the VS Code version and was not confirmed in automated tests (they exercise the drop handler and the tree's side separately); **Add to Diagram** and **Show Element…** do the same without dragging and are always available.
 
 **Theme**: colours come from VS Code theme variables, so light, dark and high-contrast themes work; in high contrast, borders use the contrast border colour. The PNG export used for tests and agents keeps a fixed light theme.
 

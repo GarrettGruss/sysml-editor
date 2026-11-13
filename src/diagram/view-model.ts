@@ -154,6 +154,11 @@ function labelOf(e: Element, shape: ShapeKind): string {
   return name;
 }
 
+/** `in `, `out ` or `inout ` before a directed feature's name. */
+function directed(e: Element): string {
+  return e.direction ? `${e.direction} ` : "";
+}
+
 /** Direct members that are not shown as their own nodes, grouped by kind. */
 function compartmentsOf(e: Element, shown: Set<Element>, index: ModelIndex, withOwn: boolean, inheritedOwner?: string): Compartment[] {
   const groups = new Map<string, { lines: string[]; inherited: Record<number, string> }>();
@@ -161,18 +166,18 @@ function compartmentsOf(e: Element, shown: Set<Element>, index: ModelIndex, with
   if (withOwn) {
     for (const m of e.members) {
       if (shown.has(m) || m.name === undefined || !m.isUsage || m.ends.length >= 2) continue;
-      const g = group(m.kind);
+      const g = group(m.direction ? "parameter" : m.kind);
       // Lines of a node that is itself inherited (or lies beneath an inherited feature) are inherited too.
       if (inheritedOwner !== undefined) g.inherited[g.lines.length] = inheritedOwner;
-      g.lines.push(m.name + typed(m));
+      g.lines.push(directed(m) + m.name + typed(m));
     }
   }
   // Features inherited through typing and specialization, after the own ones.
   for (const { member, declaredIn } of inheritedMembers(index, e)) {
     if (shown.has(member)) continue;
-    const g = group(member.kind);
+    const g = group(member.direction ? "parameter" : member.kind);
     g.inherited[g.lines.length] = declaredIn.qualifiedName ?? declaredIn.name ?? "";
-    g.lines.push(member.name + typed(member));
+    g.lines.push(directed(member) + member.name + typed(member));
   }
   return [...groups].map(([kind, g]) => ({ title: kind.endsWith("s") ? kind : kind + "s", lines: g.lines, ...(Object.keys(g.inherited).length ? { inherited: g.inherited } : {}) }));
 }

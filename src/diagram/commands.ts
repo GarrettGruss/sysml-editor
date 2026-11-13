@@ -186,11 +186,11 @@ export async function showInDiagram(deps: DiagramCommandDeps, node?: ModelNode):
   await deps.diagrams.openAndSelect(vscode.Uri.parse(chosen.hit.uri), [chosen.hit.itemId]);
 }
 
-/** "Add to Active Diagram": the elements become nodes of the diagram in the active editor. */
+/** "Add to Diagram": the elements become nodes of the diagram in the active editor. */
 export function addToActiveDiagram(deps: DiagramCommandDeps, clicked?: ModelNode, selected?: readonly ModelNode[]): void {
   const doc = deps.diagrams.activeDocument();
   if (!doc) {
-    void vscode.window.showInformationMessage("Open a diagram first: Add to Active Diagram needs a diagram editor to be active.");
+    void vscode.window.showInformationMessage("Open a diagram first: Add to Diagram needs a diagram editor to be active.");
     return;
   }
   const els = elementsOf(deps, clicked, selected);
@@ -205,14 +205,6 @@ export function registerDiagramCommands(deps: DiagramCommandDeps): vscode.Dispos
     vscode.commands.registerCommand("sysml.addToActiveDiagram", (node?: ModelNode, selected?: ModelNode[]) => addToActiveDiagram(deps, node, selected)),
     vscode.commands.registerCommand("sysml.diagram.autoLayout", () => {
       if (!deps.diagrams.runCommand(active(), "autoLayout")) void vscode.window.showInformationMessage("Open a diagram first: Auto-layout needs a diagram editor to be active.");
-    }),
-    vscode.commands.registerCommand("sysml.diagram.showElement", async () => {
-      const doc = active();
-      if (!doc) {
-        void vscode.window.showInformationMessage("Open a diagram first: Show Element needs a diagram editor to be active.");
-        return;
-      }
-      await deps.diagrams.showElementInteractive(doc);
     }),
   ];
 }

@@ -40,7 +40,7 @@ const renderer = new SvgRenderer(document.body, measure, {
   onSelection: (ids) => post({ type: "selection", ids }),
   onHover: (id) => hoverReport(id),
   onRelink: (id) => post({ type: "relink", id }),
-  onDrop: (names) => post({ type: "dropElements", names }),
+  onDrop: (names, at) => post({ type: "dropElements", names, ...(at ? { x: at.x, y: at.y } : {}) }),
   onModel: (intent) => post({ type: "model", intent, ...(generation !== undefined ? { generation } : {}) }),
   suggest: (id, query) => new Promise((resolve) => {
     const requestId = ++suggestId;
@@ -140,7 +140,6 @@ function toolbar(): void {
   add("+", "Zoom in", () => renderer.zoomBy(1.25));
   add("\u2212", "Zoom out", () => renderer.zoomBy(0.8));
   add("Auto-layout", "Auto-layout: arrange the selected elements again (all of them when none is selected)", () => void autoLayout().catch(fail));
-  add("Show Element\u2026", "Show an existing model element on this diagram", () => post({ type: "showElement" }));
   document.body.append(bar);
 }
 toolbar();

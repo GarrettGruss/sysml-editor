@@ -77,18 +77,13 @@
       },
       {
         "command": "sysml.addToActiveDiagram",
-        "title": "Add to Active Diagram",
+        "title": "Add to Diagram",
         "category": "SysML",
         "enablement": "sysml.diagramActive"
       },
       {
         "command": "sysml.diagram.autoLayout",
         "title": "Auto-layout Diagram",
-        "category": "SysML"
-      },
-      {
-        "command": "sysml.diagram.showElement",
-        "title": "Show Element on Diagram…",
         "category": "SysML"
       },
       {
@@ -208,10 +203,6 @@
         },
         {
           "command": "sysml.diagram.autoLayout",
-          "when": "sysml.diagramActive"
-        },
-        {
-          "command": "sysml.diagram.showElement",
           "when": "sysml.diagramActive"
         },
         {
@@ -351,7 +342,7 @@
       {
         "name": "sysml_get_element",
         "displayName": "SysML: Get Element",
-        "modelDescription": "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, specializes/subsets/redefines, multiplicity, documentation, visibility, owner, owned members (name, kind, type), relationship statements it owns (connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",
+        "modelDescription": "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, specializes/subsets/redefines, multiplicity, direction (in, out, inout), documentation, visibility, owner, owned members (name, kind, direction, type), relationship statements it owns (connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",
         "toolReferenceName": "sysmlGetElement",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
