@@ -324,6 +324,8 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix) || fresh(u) || !before.has(u)));
     for (const u of visibleDiagrams(this.env, found.map(uriKey))) if (!fresh(u) || this.diagrams.has(u)) next.add(u);
     if (next.size === this.diagrams.size && [...next].every((u) => this.diagrams.has(u))) return;
+    // A full scan still running may have read the disk before these files existed and would overwrite them when it ends: it replays them.
+    if (this.scanning > 0) for (const u of next) if (!this.diagrams.has(u)) this.scanEvents.set(u, true);
     this.applyDiagrams(next);
   }
 
