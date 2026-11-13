@@ -135,7 +135,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     this.subs.push(
       watcher,
       watcher.onDidCreate((u) => this.onDiagramFile(uriKey(u), true)),
-      watcher.onDidDelete((u) => this.onDiagramFile(uriKey(u), false)),
+      watcher.onDidDelete((u) => void this.onDiagramDeleted(u)),
       watcher.onDidChange((u) => this.onDiagramChanged(uriKey(u))),
       index.onDidChange((e) => this.onModelChange(e.uris)),
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.rescanAll()),
@@ -267,6 +267,24 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     if (nodes.length) this.fireTargeted(nodes);
   }
 
+  /** Whether the path is gone from the disk now (watcher events can arrive late, after a same-named path was created again). */
+  private async isGone(uri: vscode.Uri): Promise<boolean> {
+    try {
+      await vscode.workspace.fs.stat(uri);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
+  /** A delete event for a `.sysmld`: applied only if the file is still gone and no newer event touched it meanwhile. */
+  private async onDiagramDeleted(uri: vscode.Uri): Promise<void> {
+    const key = uriKey(uri);
+    const seq = this.eventSeq;
+    if (!(await this.isGone(uri)) || (this.lastEvent.get(key) ?? 0) > seq) return;
+    this.onDiagramFile(key, false);
+  }
+
   /** A single `.sysmld` was created or deleted: apply it to the diagram set without scanning the workspace. */
   private onDiagramFile(uri: string, created: boolean): void {
     if (this.filterValue === "elements") {
@@ -341,6 +359,11 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     return this.io;
   }
 
+  /** Test hook: the diagram set, for failure diagnostics. */
+  get diagramUris(): string[] {
+    return [...this.diagrams].sort();
+  }
+
   get pendingFolderRescans(): number {
     return this.rescans.pending;
   }
@@ -376,8 +399,14 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       for (const id of [...this.expandedIds]) if (id === path || id.startsWith(prefix)) this.expandedIds.delete(id);
     }
     if (this.filterValue !== "elements") {
-      if (deleted) this.dropDiagramsBelow(path);
-      else void this.rescanCreatedFolder(path, (uri as vscode.Uri | undefined) ?? vscode.Uri.parse(path));
+      if (deleted) {
+        const gone = uri as vscode.Uri | undefined;
+        // A late delete event may belong to a folder created again since: only a folder still gone drops its diagrams.
+        void (gone ? this.isGone(gone) : Promise.resolve(true)).then((g) => {
+          if (g) this.dropDiagramsBelow(path);
+          else if (!g) void this.rescanCreatedFolder(path, gone!);
+        });
+      } else void this.rescanCreatedFolder(path, (uri as vscode.Uri | undefined) ?? vscode.Uri.parse(path));
     } else this.diagramsDirty = true;
     this.leafFolders.delete(parent);
     if (!this.handed.has(parent)) return;

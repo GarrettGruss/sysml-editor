@@ -463,11 +463,16 @@ export function foldersTests(c: Ctx): Test[] {
           return !!deep && (await kids(deep)).some((n) => label(n) === "state-one.sysmld");
         }, 20000, "the new diagram is found under Nest/deep");
         api.search.post({ type: "query", text: "STATE-ONE" });
-        assert.deepStrictEqual((await kids(root)).map(label), ["tmp-tree"]);
-        const tmp = await find(root, "tmp-tree");
-        assert.strictEqual(api.provider.getTreeItem(tmp).collapsibleState, vscode.TreeItemCollapsibleState.Expanded);
-        const deep = await find(await find(tmp, "Nest"), "deep");
-        assert.deepStrictEqual((await kids(deep)).map(label), ["state-one.sysmld"]);
+        try {
+          assert.deepStrictEqual((await kids(root)).map(label), ["tmp-tree"]);
+          const tmp = await find(root, "tmp-tree");
+          assert.strictEqual(api.provider.getTreeItem(tmp).collapsibleState, vscode.TreeItemCollapsibleState.Expanded);
+          const deep = await find(await find(tmp, "Nest"), "deep");
+          assert.deepStrictEqual((await kids(deep)).map(label), ["state-one.sysmld"]);
+        } catch (e) {
+          const tree = (await dump(undefined, 5)).join("\n");
+          throw new Error(`${String(e)}\ndiagram set: ${JSON.stringify(api.provider.diagramUris.filter((u) => u.includes("/tmp-tree/")))}\nquery: ${api.provider.query}\ntree:\n${tree}`);
+        }
         api.search.post({ type: "query", text: "qqqzzz" });
         assert.deepStrictEqual((await kids()).map(label), ["No matches"]);
         api.search.post({ type: "query", text: "" });
