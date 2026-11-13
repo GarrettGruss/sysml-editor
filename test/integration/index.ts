@@ -13,7 +13,7 @@ import { requirementsTests } from "./requirements.js";
 import { elementRoots } from "./tree-util.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
-export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" | "diagram" | "message" }
+export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" | "diagram" | "message" | "placeholder" }
 export interface TestApi {
   model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[]; pendingDetails(): string[] } };
   provider: {
@@ -39,6 +39,14 @@ export interface TestApi {
   };
   /** The search box above the tree; `post` delivers a message as its webview would. */
   search: { post(message: unknown): void; query(): string };
+  /** The input box of New File and New Folder. */
+  newEntry: {
+    active(): { kind: "file" | "folder"; value: string; validation: { severity: "error" | "info"; message: string } | undefined; label: string | undefined } | undefined;
+    type(text: string): void;
+    accept(): Promise<void>;
+    cancel(): Promise<void>;
+    setTrusted(trusted: boolean | undefined): void;
+  };
   view: vscode.TreeView<ModelNode>;
   agent: {
     apply(): Promise<void>;

@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
-import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { NewEntryFlow, type NewEntryTestApi } from "./tree/new-entry-flow.js";
+import { newEntryTarget } from "./tree/new-entry.js";
 import { SEARCH_VIEW_ID, SearchViewProvider } from "./tree/search-view.js";
-import { nodeForElement, type ModelNode } from "./tree/tree-model.js";
+import { isFolderNode, nodeForElement, type ModelNode } from "./tree/tree-model.js";
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { VsCodeDiagramService } from "./diagram/agent-service.js";
 import { AgentIntegration } from "./agent-integration.js";
@@ -28,6 +30,8 @@ export interface TestApi {
   requirements: RequirementsTestApi;
   /** The search box: `post` delivers a message as the webview would. */
   search: { post(message: unknown): void; query(): string };
+  /** The input box of New File and New Folder. */
+  newEntry: NewEntryTestApi;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -35,7 +39,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   const model = new WorkspaceModel(context.extensionPath, (m) => log.warn(m));
   const provider = new ModelTreeProvider(model.index, undefined, context.workspaceState, model.onDidChangeFolders);
   const dnd = new ModelTreeDragAndDrop(model.index);
-  const view = vscode.window.createTreeView<ModelNode>(VIEW_ID, { treeDataProvider: provider, dragAndDropController: dnd, canSelectMany: true });
+  const view = vscode.window.createTreeView<ModelNode>(VIEW_ID, { treeDataProvider: provider, dragAndDropController: dnd, canSelectMany: true, showCollapseAll: true });
 
   const diagrams = new DiagramEditorProvider(context.extensionUri, model, (m) => log.warn(m));
   const files = new DiagramFiles();
@@ -71,6 +75,10 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     .finally(() => {
       view.message = undefined;
     });
+  const newEntry = new NewEntryFlow(provider, view, (m) => log.warn(m), () => {
+    provider.setQuery("");
+    search.setText("");
+  }, (uri) => model.indexFile(uri));
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
   context.subscriptions.push(
@@ -94,7 +102,6 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       supportsMultipleEditorsPerDocument: true,
     }),
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
-    vscode.commands.registerCommand("sysml.newFile", createNewFile),
     vscode.commands.registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
       let filter: TreeFilter | undefined = arg === "elements" || arg === "diagrams" || arg === "all" ? arg : undefined;
       if (filter === undefined) {
@@ -111,6 +118,13 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     vscode.commands.registerCommand("sysml.tree.clearSearch", () => {
       provider.setQuery("");
       search.setText("");
+    }),
+    { dispose: () => newEntry.dispose() },
+    vscode.commands.registerCommand("sysml.tree.newFile", (node?: ModelNode) => newEntry.start("file", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
+    vscode.commands.registerCommand("sysml.tree.newFolder", (node?: ModelNode) => newEntry.start("folder", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
+    vscode.commands.registerCommand("sysml.tree.refresh", async () => {
+      await model.rescan();
+      await provider.refreshAll();
     }),
     provider.onDidChangeQuery((q) => {
       view.description = q ? `Filter: ${q}` : undefined;
@@ -145,7 +159,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     },
     setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
-  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query } };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi };
 }
 
 export function deactivate(): void {}

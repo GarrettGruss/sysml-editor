@@ -60,12 +60,6 @@
         "category": "SysML"
       },
       {
-        "command": "sysml.newFile",
-        "title": "New SysML File",
-        "category": "SysML",
-        "icon": "$(new-file)"
-      },
-      {
         "command": "sysml.newDiagram",
         "title": "New Diagram…",
         "category": "SysML"
@@ -133,6 +127,24 @@
         "title": "Change View",
         "category": "SysML",
         "icon": "$(list-filter)"
+      },
+      {
+        "command": "sysml.tree.newFile",
+        "title": "New File",
+        "category": "SysML",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "sysml.tree.newFolder",
+        "title": "New Folder",
+        "category": "SysML",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "sysml.tree.refresh",
+        "title": "Refresh",
+        "category": "SysML",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -188,9 +200,14 @@
           "group": "requirements@1"
         },
         {
-          "command": "sysml.newFile",
-          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/",
+          "command": "sysml.tree.newFile",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/ && sysml.treeFilter != diagrams",
           "group": "edit@1"
+        },
+        {
+          "command": "sysml.tree.newFolder",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/ && sysml.treeFilter != diagrams",
+          "group": "edit@2"
         }
       ],
       "commandPalette": [
@@ -229,6 +246,14 @@
         {
           "command": "sysml.diagram.deleteFromModel",
           "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.tree.newFile",
+          "when": "sysml.treeFilter != diagrams"
+        },
+        {
+          "command": "sysml.tree.newFolder",
+          "when": "sysml.treeFilter != diagrams"
         }
       ],
       "explorer/context": [
@@ -245,19 +270,29 @@
       ],
       "view/title": [
         {
-          "command": "sysml.newFile",
+          "command": "sysml.tree.newFile",
           "when": "view == sysmlModel && sysml.treeFilter != diagrams",
           "group": "navigation@1"
         },
         {
-          "command": "sysml.tree.clearSearch",
-          "when": "view == sysmlModel && sysml.searchActive",
-          "group": "navigation@0"
+          "command": "sysml.tree.newFolder",
+          "when": "view == sysmlModel && sysml.treeFilter != diagrams",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sysml.tree.refresh",
+          "when": "view == sysmlModel",
+          "group": "navigation@3"
         },
         {
           "command": "sysml.tree.changeView",
           "when": "view == sysmlModel",
-          "group": "navigation"
+          "group": "navigation@101"
+        },
+        {
+          "command": "sysml.tree.clearSearch",
+          "when": "view == sysmlModel && sysml.searchActive",
+          "group": "navigation@102"
         }
       ]
     },
