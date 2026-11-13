@@ -406,3 +406,53 @@ export function nestChange(oldQn: string, newQn: string, ownerQn: string, endsCh
     },
   };
 }
+
+/** A node and the line to it, placed on one diagram together: the node first, so the line finds both of its ends. Reverts in the opposite order. */
+export function placeNodeAndLineChange(node: DiagramChange, line: DiagramChange, label: string): DiagramChange {
+  const same = (c: DiagramChange, uri: string) => c.target === "all" || c.target.uri === uri;
+  return {
+    target: node.target,
+    label,
+    apply: (doc, ctx) => (same(line, ctx.uri) ? line.apply(same(node, ctx.uri) ? node.apply(doc, ctx) : doc, ctx) : doc),
+    revert: (doc, ctx) => (same(node, ctx.uri) ? node.revert(same(line, ctx.uri) ? line.revert(doc, ctx) : doc, ctx) : doc),
+    createdKeys: () => [...(node.createdKeys?.() ?? []), ...(line.createdKeys?.() ?? [])],
+    createdIn: () => new Map([...(node.createdIn?.() ?? []), ...(line.createdIn?.() ?? [])]),
+  };
+}
+
+/**
+ * A line whose end was rewritten: its entry follows the rewritten statement (a new locator) and, when the new end node is
+ * on the diagram, points at it; the stored route no longer fits the new end and is dropped. Applies to every diagram file.
+ */
+export function reconnectChange(oldKey: string | undefined, next: () => ElementReference | undefined, end: "source" | "target", endKey: () => string | undefined, label: string): DiagramChange {
+  const was = new Map<string, DiagramEdge>();
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      const to = next();
+      if (!oldKey || !to) return doc;
+      let changed = false;
+      const edges = doc.edges.map((e) => {
+        if (referenceKey(e) !== oldKey) return e;
+        changed = true;
+        was.set(ctx.uri + "\0" + e.id, e);
+        const { ref: _r, locator: _l, points: _p, ...rest } = e;
+        const k = endKey();
+        const node = k !== undefined ? doc.nodes.find((n) => referenceKey(n) === k) : undefined;
+        return { ...rest, ...to, ...(node ? { [end]: node.id } : {}) } as DiagramEdge;
+      });
+      return changed ? { ...doc, edges } : doc;
+    },
+    revert(doc, ctx) {
+      let changed = false;
+      const edges = doc.edges.map((e) => {
+        const old = was.get(ctx.uri + "\0" + e.id);
+        if (!old) return e;
+        changed = true;
+        return old;
+      });
+      return changed ? { ...doc, edges } : doc;
+    },
+  };
+}

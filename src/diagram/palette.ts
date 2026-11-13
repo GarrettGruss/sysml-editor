@@ -39,3 +39,10 @@ export function paletteFor(kind: DiagramKind): PaletteItem[] {
     default: return REQUIREMENTS;
   }
 }
+
+/** The node kinds the quick bar offers at the end of a line released over empty canvas, for the diagram kind and the line drawn; none when no node can end that line. */
+export function quickBarItems(kind: DiagramKind, relation: string | undefined): PaletteItem[] {
+  if (kind === "actionFlow" && relation === "succession") return ACTION_FLOW.filter((i) => !CONNECT_TOOLS.has(i.kind));
+  if (kind === "stateTransition" && relation === "transition") return STATE_TRANSITION.filter((i) => !CONNECT_TOOLS.has(i.kind));
+  return [];
+}

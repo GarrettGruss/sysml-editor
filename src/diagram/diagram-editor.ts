@@ -2,6 +2,7 @@
  * The `.sysmld` custom editor: the VS Code adapter around `DiagramState`. Layout and drawing
  * happen in the webview (design D7); this file only owns documents, messages and files.
  */
+import { badConnectIntent } from "./intent-check.js";
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { isInheritedIn, isLibraryUri, isSynthetic, participantName, type Element } from "../model/index.js";
@@ -722,6 +723,42 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         const r = await actions.service.connect(owner, endA, endB, { ...origin, placement: { diagram: origin.diagram } });
         const shown = await actions.report(r, "Added connection");
         if (!shown.ok) this.notice(doc, shown.reason);
+        return;
+      }
+      case "connectNew": {
+        const bad = badConnectIntent(intent);
+        if (bad) return this.notice(doc, bad);
+        const a = this.targetOf(doc, intent.sourceId);
+        if (!a) return this.notice(doc, "The source of the line must be a resolved element.");
+        const refusal = actions.service.refuseIfInherited(a, "connected");
+        if (refusal) {
+          void actions.report(refusal, "");
+          return this.notice(doc, refusal.reason);
+        }
+        const root = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
+        const parent = d.nodes.find((n) => n.id === intent.sourceId)?.parent;
+        const known = new Set(d.edges.map((e) => e.id));
+        const r = await actions.service.addConnectedNode(a.element, intent.paletteKind, intent.relation, { ...origin, ...(root ? { context: root } : {}), placement: { diagram: origin.diagram, ...(parent !== undefined ? { parentNode: parent } : {}), x: intent.x, y: intent.y } });
+        const shown = await actions.report(r, `Added ${intent.paletteKind} and ${intent.relation}`);
+        if (!shown.ok) return this.notice(doc, shown.reason);
+        const fresh = (doc.state.doc?.edges ?? []).filter((e) => !known.has(e.id)).map((e) => e.id);
+        if (fresh.length) this.selectIds(doc, [fresh[fresh.length - 1]!]);
+        return;
+      }
+      case "reconnect": {
+        const bad = badConnectIntent(intent);
+        if (bad) return this.notice(doc, bad);
+        const e = d.edges.find((x) => x.id === intent.id);
+        const stmt = e ? resolveReference(e, d, this.model.index, this.opts(doc)) : undefined;
+        const b = this.targetOf(doc, intent.nodeId);
+        if (!e || !stmt || !b) return this.notice(doc, "The line or the element could not be found; it may be unresolved.");
+        const root = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
+        // Without the root the inherited check cannot be made (D18): refuse.
+        if (!root) return this.notice(doc, "The diagram's root element could not be found, so it cannot be checked whether this end is inherited; the line was not changed.");
+        const r = await actions.service.reconnect(stmt, intent.end, b.element, { ...origin, context: root });
+        const shown = await actions.report(r, "Moved the end of the line");
+        if (!shown.ok) return this.notice(doc, shown.reason);
+        this.selectIds(doc, [intent.id]);
         return;
       }
       case "deleteFromModel": {

@@ -2,10 +2,10 @@
 
 ## 1. Connecting
 
-- [ ] 1.1 Implement the shared ghost line for all connection tools; verify both scenarios
-- [ ] 1.2 Implement quick-connect handles on states and Action Flow nodes; verify the "Handle to another state" scenario
-- [ ] 1.3 Implement the quick bar and the atomic node-plus-line edit; verify both scenarios
-- [ ] 1.4 Implement reconnect handles and end rewrite; verify both scenarios
+- [x] 1.1 Implement the shared ghost line for all connection tools; verify both scenarios
+- [x] 1.2 Implement quick-connect handles on states and Action Flow nodes; verify the "Handle to another state" scenario
+- [x] 1.3 Implement the quick bar and the atomic node-plus-line edit; verify both scenarios
+- [x] 1.4 Implement reconnect handles and end rewrite; verify both scenarios
 
 ## 2. Naming and documentation
 
