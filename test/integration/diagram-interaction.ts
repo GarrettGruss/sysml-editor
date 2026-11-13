@@ -320,13 +320,23 @@ export function interactionTests(c: Ctx): Test[] {
     ["the editor context keeps the last active diagram, unfocused, while the user is in another editor group", withCopy("drivetrain-interconnection.sysmld", "tmp-chat.sysmld", async () => {
       const f = "tmp-chat.sysmld";
       await gesture(f, { kind: "select", id: "n2" });
-      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uriOf("ports.sysml")), { viewColumn: vscode.ViewColumn.Beside, preview: false });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).selected, ["n2"]), "n2 is selected");
+      const text = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uriOf("ports.sysml")), { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false, preview: false });
       try {
+        // Focus must really be in the other group before the tool is asked.
+        await waitFor(() => {
+          const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+          return vscode.window.activeTextEditor === text && tab?.input instanceof vscode.TabInputText && tab.group.viewColumn === text.viewColumn;
+        }, 10000, "the text editor in the other group is the active tab");
+        assert.strictEqual(vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputCustom && t.group !== vscode.window.tabGroups.activeTabGroup)), true, "the diagram stays open in its own group");
         for (const via of ["lm", "mcp"] as const) {
           await c.eventually(async () => {
+            // A webview that gains focus (late focus handling after the select gesture) makes its own group active again; keep the user in the text editor.
+            if (!(vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputText)) await vscode.window.showTextDocument(text.document, { viewColumn: text.viewColumn, preserveFocus: false, preview: false });
             const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
             const j = JSON.parse(r.text) as { activeDiagram: { path: string; focused: boolean } | null; selected: { id: string }[] };
-            assert.deepStrictEqual(j.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain", focused: false });
+            const at = vscode.window.tabGroups.activeTabGroup.activeTab;
+            assert.deepStrictEqual(j.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain", focused: false }, `active tab: ${at?.label} ${at?.input?.constructor?.name} group ${at?.group.viewColumn}; groups ${vscode.window.tabGroups.all.map((g) => `${g.viewColumn}:${g.isActive}:${g.tabs.map((t) => t.label + (t.isActive ? "*" : "")).join(",")}`).join(" | ")}`);
             assert.deepStrictEqual(j.selected.map((x) => x.id), ["n2"]);
           }, `the unfocused diagram (${via})`, 5000);
         }
