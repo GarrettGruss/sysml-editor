@@ -559,7 +559,11 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   }
 
   /** Select a node; VS Code resolves it through getParent/getChildren. Failures are logged. */
-  async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void): Promise<void> {
+  /** When an explicit reveal (Show in Tree, navigation) last ran; editor activation that follows it must not override it. */
+  lastExplicitReveal = 0;
+
+  async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void, follow = false): Promise<void> {
+    if (!follow) this.lastExplicitReveal = Date.now();
     const say = log ?? ((m: string) => console.warn(m));
     if (!this.isShown(node)) return;
     try {
@@ -718,8 +722,9 @@ export async function goToDefinition(index: ModelIndex, node: ModelNode | undefi
 export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<ModelNode>, provider: ModelTreeProvider, log?: (m: string) => void): vscode.Disposable {
   // The selection lags a reveal still in flight, so equality with it alone must not suppress the next reveal.
   let requested: string | undefined;
-  const follow = (editor: vscode.TextEditor | undefined): void => {
+  const follow = (editor: vscode.TextEditor | undefined, activation = false): void => {
     if (!editor) return;
+    if (activation && Date.now() - provider.lastExplicitReveal < 1500) return;
     if (!vscode.workspace.getConfiguration("sysml").get<boolean>("tree.followCursor", true)) return;
     if (!view.visible) return;
     const doc = editor.document;
@@ -729,12 +734,12 @@ export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<Mode
     const node = nodeAtOffset(index, key, doc.offsetAt(editor.selections[0]!.active));
     if (!node || (requested === node.id && view.selection[0]?.id === node.id)) return;
     requested = node.id;
-    void provider.revealNode(view, node, log);
+    void provider.revealNode(view, node, log, true);
   };
   // Switching to an editor (opening a file from the Explorer restores its cursor without a selection event) follows too.
   return vscode.Disposable.from(
     vscode.window.onDidChangeTextEditorSelection((e) => follow(e.textEditor)),
-    vscode.window.onDidChangeActiveTextEditor((e) => follow(e)),
+    vscode.window.onDidChangeActiveTextEditor((e) => follow(e, true)),
   );
 }
 
