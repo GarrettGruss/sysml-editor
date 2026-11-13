@@ -13,6 +13,7 @@ import { insertDecls } from "./body.js";
 import { deleteEdit, referencesAfterDelete } from "./delete.js";
 import { checkElement, describeElement } from "./guard.js";
 import { referenceText, type ImportNeed } from "./refs.js";
+import { referenceFor, referenceKey } from "../diagram/resolve.js";
 import { insertWithImports } from "./insert.js";
 import { applyEdits, tokenize, isCode } from "./text.js";
 import { fail, type PlanFailure, type PlanOk, type PlanResult, type TextEdit } from "./types.js";
@@ -53,12 +54,16 @@ function chainBelow(owner: Element, el: Element): Element[] | undefined {
  * The end as written in a statement of `owner`: `start`/`done`, a member's name, or a dotted path to a node nested below
  * (`operating.high`). A failure says why the end cannot be written there.
  */
-const nodeName = (e: Element, what: string, owner?: Element): string | PlanFailure => {
+const nodeName = (e: Element, what: string, owner?: Element, newName?: string): string | PlanFailure => {
   if (isSynthetic(e) && (e.kind === "start" || e.kind === "done")) return e.kind;
   const chain = owner ? chainBelow(owner, e) : [e];
   if (!chain) return fail(`The ${what} ${describeElement(e)} is not inside ${describeElement(owner!)}, so it cannot be reached from there.`);
   const names: string[] = [];
   for (const [i, x] of chain.entries()) {
+    if (x.name === undefined && x === e && newName !== undefined) {
+      names.push(newName);
+      continue;
+    }
     if (x.name === undefined) {
       return fail(i === chain.length - 1
         ? `The ${what} is an unnamed ${e.kind}; give it a name before connecting it (a statement can only refer to a node by name).`
@@ -68,6 +73,40 @@ const nodeName = (e: Element, what: string, owner?: Element): string | PlanFailu
   }
   return names.join(".");
 };
+
+interface Naming { name: string; edit: TextEdit }
+
+/**
+ * An unnamed fork, join, decide or merge cannot be referred to, so a statement that ends at one first gives it the next
+ * free name of its kind in its owner (`fork;` becomes `fork fork1;`). The naming edit joins the statement's edits.
+ */
+function nameEnds(index: ModelIndex, ends: readonly Element[]): Map<Element, Naming> | PlanFailure {
+  const out = new Map<Element, Naming>();
+  const used = new Map<Element, Set<string>>();
+  for (const e of ends) {
+    if (isSynthetic(e) || !isControlNode(e) || e.name !== undefined || out.has(e)) continue;
+    if (!e.owner) return fail(`The unnamed ${e.kind} has no owner, so it cannot be named; give it a name by hand.`);
+    const taken = used.get(e.owner) ?? new Set(e.owner.members.flatMap((m) => [m.name, m.shortName].filter((x): x is string => x !== undefined)));
+    let n = 1;
+    while (taken.has(`${e.kind}${n}`)) n++;
+    const name = `${e.kind}${n}`;
+    taken.add(name);
+    used.set(e.owner, taken);
+    const text = index.getDocument(e.uri)?.text;
+    const tok = text === undefined ? undefined : tokenize(text).find((t) => isCode(t) && t.text === e.kind && t.start >= e.range.start.offset && t.end <= e.range.end.offset);
+    if (!tok) return fail(`The unnamed ${e.kind} could not be named automatically (its declaration was not recognised); give it a name by hand.`);
+    out.set(e, { name, edit: { uri: e.uri, range: { start: tok.end, end: tok.end }, newText: ` ${name}` } });
+  }
+  return out;
+}
+
+/** What the diagram needs to know of the naming: the old reference key of each node and its new reference. */
+function namedNodes(index: ModelIndex, naming: Map<Element, Naming>): PlanOk["namedNodes"] {
+  return [...naming].map(([el, n]) => {
+    const old = referenceFor(el, index);
+    return { oldKey: old ? referenceKey(old) : undefined, ref: `${el.owner!.qualifiedName ?? ""}::${quoteName(n.name)}` };
+  });
+}
 
 /** Whether `el` is a node a statement of `owner` can name: its start or done node, or an action, state or control node below it. */
 const flowOwner = (index: ModelIndex, owner: Element, el: Element): boolean => isSynthetic(el) ? el.owner === owner : chainBelow(owner, el) !== undefined && (isActionNode(el) || isStateNode(el) || isControlNode(el));
@@ -136,10 +175,14 @@ export function planAddSuccession(index: ModelIndex, owner: Element, source: Ele
   const tp = endProblem(index, owner, target, "target", "succession");
   if (tp) return fail(tp);
   if (source === target) return fail("A succession needs two different nodes.");
-  const a = nodeName(source, "source", owner);
+  const nm = nameEnds(index, [source, target]);
+  if (!(nm instanceof Map)) return nm;
+  const a = nodeName(source, "source", owner, nm.get(source)?.name);
   if (typeof a !== "string") return a;
-  const b = nodeName(target, "target", owner);
+  const b = nodeName(target, "target", owner, nm.get(target)?.name);
   if (typeof b !== "string") return b;
+  const named = nm.size ? namedNodes(index, nm) : undefined;
+  const key = (e: Element): string => { const n = nm.get(e); return n ? `${e.owner!.qualifiedName ?? ""}::${quoteName(n.name)}` : nodeKey(e); };
   if (source.kind === "done") return fail("Nothing can follow the done node.");
   if (target.kind === "start") return fail("Nothing can lead to the start node.");
   const g = guard?.trim() ?? "";
@@ -150,11 +193,12 @@ export function planAddSuccession(index: ModelIndex, owner: Element, source: Ele
   const dup = analyze(index, owner).successions.find((s) => s.source === source && s.target === target && same(s.guard, g));
   if (dup) return fail(`There is already a succession from ${a} to ${b}${g ? ` with the guard [${g}]` : ""} in ${describeElement(owner)}.`);
   const decl = `first ${a}${g !== "" ? ` if ${g}` : ""} then ${b};`;
-  return insertAt(index, owner, decl, positionsAfter([source, target].map((e) => (isSynthetic(e) ? e : memberOf(owner, e)))), (edits) => {
-    const v = checked(index, owner, { ok: true, edits, description: `Add succession ${a} then ${b} to ${describeElement(owner)}` });
+  return insertAt(index, owner, decl, positionsAfter([source, target].map((e) => (isSynthetic(e) ? e : memberOf(owner, e)))), (ins) => {
+    const edits = [...[...nm.values()].map((n) => n.edit), ...ins];
+    const v = checked(index, owner, { ok: true, edits, ...(named ? { namedNodes: named } : {}), description: `Add succession ${a} then ${b} to ${describeElement(owner)}` });
     if (!v.ok) return v;
     const now = after(index, owner, edits);
-    const found = now && analyze(now.index, now.owner).successions.some((s) => !s.implied && nodeKey(s.source) === nodeKey(source) && nodeKey(s.target) === nodeKey(target) && same(s.guard, g));
+    const found = now && analyze(now.index, now.owner).successions.some((s) => !s.implied && nodeKey(s.source) === key(source) && nodeKey(s.target) === key(target) && same(s.guard, g));
     return found ? v : fail("The succession would not be read back as written (it conflicts with what is already in the action); nothing was changed.");
   });
 }
@@ -201,14 +245,18 @@ export function planAddTransition(index: ModelIndex, owner: Element, source: Ele
   if (!(isStateNode(target) || target.kind === "done")) return fail(`${describeElement(target)} is not a state, so a transition cannot end there.`);
   const bad = checkParts(parts);
   if (bad) return fail(bad);
-  const a = nodeName(source, "source", owner);
+  const nm = nameEnds(index, [source, target]);
+  if (!(nm instanceof Map)) return nm;
+  const a = nodeName(source, "source", owner, nm.get(source)?.name);
   if (typeof a !== "string") return a;
-  const b = nodeName(target, "target", owner);
+  const b = nodeName(target, "target", owner, nm.get(target)?.name);
   if (typeof b !== "string") return b;
+  const named = nm.size ? namedNodes(index, nm) : undefined;
   if (analyze(index, owner).transitions.some((t) => t.source === source && t.target === target && same(t.trigger, parts.trigger) && same(t.guard, parts.guard) && same(t.effect, parts.effect)))
     return fail(`There is already a transition from ${a} to ${b} with the same trigger, guard and effect in ${describeElement(owner)}.`);
-  return insertAt(index, owner, transitionText(a, b, parts), positionsAfter([source, target].map((e) => (isSynthetic(e) ? e : memberOf(owner, e)))), (edits) => {
-    const v = checked(index, owner, { ok: true, edits, description: `Add transition ${a} to ${b} in ${describeElement(owner)}` });
+  return insertAt(index, owner, transitionText(a, b, parts), positionsAfter([source, target].map((e) => (isSynthetic(e) ? e : memberOf(owner, e)))), (ins) => {
+    const edits = [...[...nm.values()].map((n) => n.edit), ...ins];
+    const v = checked(index, owner, { ok: true, edits, ...(named ? { namedNodes: named } : {}), description: `Add transition ${a} to ${b} in ${describeElement(owner)}` });
     if (!v.ok) return v;
     const now = after(index, owner, edits);
     return now && readsBack(now.index, now.owner, source, target, parts) ? v : fail("The transition would not be read back as written (the trigger, guard or effect text is read as something else); nothing was changed.");

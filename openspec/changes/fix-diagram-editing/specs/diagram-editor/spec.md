@@ -49,6 +49,10 @@ Drawing a transition or succession SHALL work when an end is a state or action n
 - **WHEN** the user draws a transition from `idle` to `operating.high`
 - **THEN** `transition first idle then operating.high;` is written and no "out of date" message is shown
 
+#### Scenario: Unnamed control node
+- **WHEN** the user draws a succession from an action to an unnamed `fork`, `join`, `decide` or `merge`
+- **THEN** the node is named with the next free name of its kind in its owner (`fork;` becomes `fork fork1;`, keeping the statements and comments after it) and the succession is written with that name, as one edit and one undo step, and the node stays drawn in place; where naming is impossible the message says why
+
 #### Scenario: Unreachable end
 - **WHEN** an end cannot be reached from the owner
 - **THEN** the message names the end and the reason
