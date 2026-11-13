@@ -1078,6 +1078,42 @@
           ],
           "additionalProperties": false
         }
+      },
+      {
+        "name": "sysml_read_verification_matrix",
+        "displayName": "SysML: Read Verification Matrix",
+        "modelDescription": "Read the requirements verification matrix of a package, the same rows, columns and status as the requirements editor's Matrix view: one row per requirement, nested and numbered by ownership (1, 1.1, ...; packages are section rows), with satisfied by, verification method, verified by and status. The method comes from the standard VerificationMethod metadata on the verification case (@VerificationMethod { kind = VerificationMethodKind::test; }): inspect, analyze, demo or test. Status is `not satisfied` (no satisfy statement, own or counted from a parent requirement or from a usage of its definition), `no verification` (satisfied, no verification case verifies it) or `covered`. Satisfaction counted from elsewhere has `via` set. Pass/fail results are not part of the model and not shown. `package` is the qualified name of the package. `format` is `json` (default: summary and rows with qualified names, to pass to the edit tools), `markdown` or `csv` (the editor's export text). At most 1000 rows. Read-only.",
+        "toolReferenceName": "sysmlReadVerificationMatrix",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "package": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Qualified name of the package, e.g. VehicleSpec."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "markdown",
+                "csv"
+              ],
+              "description": "Result format; default json."
+            }
+          },
+          "required": [
+            "package"
+          ],
+          "additionalProperties": false
+        }
       }
     ],
     "customEditors": [

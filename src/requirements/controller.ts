@@ -278,6 +278,8 @@ export class RequirementsController {
         if (!to) return { ok: false, message: "The section cannot move further." };
         return this.run(this.service.moveMember(el, to), `Moved ${intent.qn}`);
       }
+      case "exportMatrix":
+        return { ok: false, message: "Exporting the matrix is handled by the editor." };
       case "deleteSection": {
         const p = this.pkg(intent.qn);
         if (!p) return gone("The section");

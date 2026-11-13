@@ -96,7 +96,7 @@ of the requirements of a package or file (id, name, text, owner, satisfy and ver
 navigation) and a **Document** view that renders the package as a numbered specification with a table of contents, paragraphs and appendices. SysML text
 stays the only stored form. See [docs/requirements-document.md](docs/requirements-document.md) for the mapping, the `DocumentAnnotations` metadata library
 (`SysML: Copy Document Annotations Library to Workspace`), the `*\/` comment-terminator convention and the Markdown subset. The Requirements View palette
-offers Satisfy, Verify and Derivation tools, and agents get `sysml_read_requirements_document` and `sysml_create_requirement`.
+offers Satisfy, Verify and Derivation tools, and agents get `sysml_read_requirements_document`, `sysml_read_verification_matrix` and `sysml_create_requirement`.
 
 ## AI agents
 
