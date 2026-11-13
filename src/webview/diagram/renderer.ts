@@ -39,7 +39,7 @@ export interface RendererCallbacks {
   /** The node or edge id under the pointer; undefined when it left the diagram. Called only on a change. */
   onHover(id: string | undefined): void;
   onRelink(id: string): void;
-  onDrop(names: string[]): void;
+  onDrop(names: string[], at?: { x: number; y: number }): void;
   onModel(intent: ModelIntent): void;
   suggest(id: string, query: string): Promise<Suggestion[]>;
 }
@@ -614,12 +614,13 @@ export class SvgRenderer implements DiagramRenderer {
       const raw = dt.getData(ELEMENT_MIME) || dt.getData("text/plain");
       if (!raw) return;
       e.preventDefault();
-      this.handleDrop(raw);
+      const p = this.toInput(e);
+      this.handleDrop(raw, { x: p.x, y: p.y });
     });
   }
 
   /** The payload of a drop: a JSON array of qualified names, or a single qualified name as text. */
-  private handleDrop(raw: string): void {
+  private handleDrop(raw: string, at?: { x: number; y: number }): void {
     let names: string[] = [];
     try {
       const v: unknown = JSON.parse(raw);
@@ -627,7 +628,7 @@ export class SvgRenderer implements DiagramRenderer {
     } catch {
       names = raw.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     }
-    if (names.length) this.cb.onDrop(names);
+    if (names.length) this.cb.onDrop(names, at);
   }
 
   // ---- context menu ----------------------------------------------------------------------
@@ -857,7 +858,8 @@ export class SvgRenderer implements DiagramRenderer {
       case "drop": {
         const dt = new DataTransfer();
         dt.setData(ELEMENT_MIME, JSON.stringify(g.names));
-        this.svg.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
+        const c = g.x !== undefined && g.y !== undefined ? this.toClient({ x: g.x, y: g.y }) : {};
+        this.svg.dispatchEvent(new DragEvent("drop", { dataTransfer: dt, ...c, bubbles: true, cancelable: true }));
         break;
       }
       case "palette": {

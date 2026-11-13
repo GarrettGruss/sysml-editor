@@ -11,6 +11,7 @@ import {
 import { HANDLES, handleBoxes } from "./interaction.js";
 import { laidOutLabel, labelHandleBoxes, LABEL_LINE, type LabelLayout } from "./labels.js";
 import { edgeRoute, placeLabel, routeFits } from "./routing.js";
+import { labelSize, loopSidesFor, planSelfLoops, type SelfLoop } from "./loops.js";
 import { repairRoute, routeHandles } from "./route-edit.js";
 
 export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel" | "inherited";
@@ -212,6 +213,18 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
   };
   // Route every edge first, in document order: a later edge keeps off the lines of the earlier ones.
   const drawn: { e: VmEdge; pts: Pt[]; ends: Box[] }[] = [];
+  // Self-transitions are planned first (loops and labels together, once per node): other lines keep off them.
+  const loopEdges = new Map<string, VmEdge[]>();
+  const loopPlan = new Map<string, SelfLoop>();
+  const loopBoxes: { node: string; box: Box }[] = [];
+  for (const e of vm.edges) if (e.source === e.target && !e.fixed && abs.has(e.source)) loopEdges.set(e.source, [...(loopEdges.get(e.source) ?? []), e]);
+  for (const [id, es] of loopEdges) {
+    planSelfLoops(abs.get(id)!, es.map((x) => x.label), measure, loopSidesFor(vm.kind)).forEach((p, i) => {
+      loopPlan.set(es[i]!.id, p);
+      loopBoxes.push({ node: id, box: boundsOf(p.pts.map((q) => ({ x: q.x, y: q.y, w: 0, h: 0 })), 0) });
+      if (p.label) loopBoxes.push({ node: id, box: p.label });
+    });
+  }
   for (const e of vm.edges) {
     const s = abs.get(e.source);
     const t = abs.get(e.target);
@@ -225,10 +238,10 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     }
     if (!s || !t) continue;
     if (e.source === e.target) {
-      // A transition from a state to itself: a loop outside the right border.
-      const loop: Pt[] = [{ x: s.x + s.w, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.7 }, { x: s.x + s.w, y: s.y + s.h * 0.7 }];
-      routes.set(e.id, loop);
-      drawn.push({ e, pts: loop, ends: [s, t] });
+      // A transition from a state to itself: its own loop, planned above with the node's other loops.
+      const pts = loopPlan.get(e.id)!.pts;
+      routes.set(e.id, pts);
+      drawn.push({ e, pts, ends: [s, t] });
       continue;
     }
     const related = (id: string) => {
@@ -239,7 +252,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
       return set;
     };
     const skip = new Set([...related(e.source), ...related(e.target)]);
-    const obstacles = vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!);
+    const obstacles = [...vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!), ...loopBoxes.filter((b) => b.node !== e.source && b.node !== e.target).map((b) => b.box)];
     // A stored route that no longer fits (an end moved or was resized) keeps its interior bends where it can.
     const stored = extras.overrides?.get(e.id)?.points ?? extras.routes?.get(e.id) ?? e.points;
     const kept = stored && !routeFits(stored as Pt[], s, t) ? repairRoute(stored, s, t) : undefined;
@@ -275,9 +288,20 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
       labelLines.set(d.e.id, [d.e.label]);
       continue;
     }
+    const own = d.e.source === d.e.target ? loopEdges.get(d.e.source) : undefined;
+    if (own) {
+      // A self-transition's label sits beside its own loop, stacked with the node's other loops' labels.
+      const plan = loopPlan.get(d.e.id)!;
+      if (plan.label) {
+        labels.set(d.e.id, plan.label);
+        labelLines.set(d.e.id, plan.lines);
+        continue;
+      }
+    }
     const others = drawn.filter((x) => x !== d).map((x) => x.pts);
-    labels.set(d.e.id, placeLabel(d.pts, measure(d.e.label, "small") + 4, 13, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
-    labelLines.set(d.e.id, [d.e.label]);
+    const size = labelSize(d.e.label, measure);
+    labels.set(d.e.id, placeLabel(d.pts, size.w, size.h, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
+    labelLines.set(d.e.id, size.lines);
   }
   for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id), labelLines.get(d.e.id) ?? [], selected.has(d.e.id));
   for (const n of order) {

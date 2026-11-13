@@ -495,7 +495,7 @@ export function interactionTests(c: Ctx): Test[] {
     }],
 
     // ---- D: add existing elements --------------------------------------------------------
-    ["Add to Active Diagram, Show Element… and a drop add a node as one undoable edit and change only the diagram file", withCopy("ports-general.sysmld", "tmp-add.sysmld", async () => {
+    ["Add to Diagram and a drop add a node as one undoable edit and change only the diagram file", withCopy("ports-general.sysmld", "tmp-add.sysmld", async () => {
       const f = "tmp-add.sysmld";
       const before = JSON.stringify(doc(f));
       const vehicle = await rootOf("Vehicle");
@@ -510,14 +510,6 @@ export function interactionTests(c: Ctx): Test[] {
       const wheelId = doc(f).nodes.find((n) => n.ref === "Vehicle::Wheel")!.id;
       await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).selected, [wheelId]), "the new node is selected");
       await isUndone(f, before);
-      // (3) the Show Element… picker
-      let offered: PickItem[] = [];
-      api.diagram.setUi({ pick: async (items: PickItem[]) => { offered = items; return items.find((i) => i.description === "Vehicle::Engine"); } });
-      await vscode.commands.executeCommand("sysml.diagram.showElement");
-      await waitFor(() => doc(f).nodes.some((n) => n.ref === "Vehicle::Engine"), 10000, "Engine is on the diagram");
-      assert.ok(offered.some((i) => i.description === "Vehicle::Car::engine"), "the picker lists model elements by qualified name");
-      assert.ok(!offered.some((i) => (i.description ?? "").startsWith("ScalarValues")), "not the standard library");
-      await isUndone(f, before);
       // (1) a drop: the webview's drop handler reads the tree's MIME type
       await gesture(f, { kind: "drop", names: ["Vehicle::Car"] });
       await waitFor(() => doc(f).nodes.some((n) => n.ref === "Vehicle::Car"), 10000, "the dropped element is on the diagram");
@@ -529,6 +521,23 @@ export function interactionTests(c: Ctx): Test[] {
       assert.strictEqual(dirty(f), false);
       api.diagram.setUi(undefined);
     })],
+
+    // ---- tree drag to every diagram kind, at the pointer ---------------------------------
+    ...(["ports-general", "drivetrain-interconnection", "lamp-state-transition", "delivery-action-flow", "ordering-sequence", "mobility-use-case", "requirements"] as const).map((base) => [
+      `a tree drag onto ${base} adds the node at the drop point`,
+      withCopy(`${base}.sysmld`, `tmp-drop-${base}.sysmld`, async () => {
+        const f = `tmp-drop-${base}.sysmld`;
+        await gesture(f, { kind: "drop", names: ["Vehicle::Wheel"], x: 900, y: 700 });
+        await waitFor(() => doc(f).nodes.some((n) => n.ref === "Vehicle::Wheel"), 10000, "the dropped element is in the file");
+        const n = doc(f).nodes.find((x) => x.ref === "Vehicle::Wheel")!;
+        assert.ok(Math.abs((n.x ?? NaN) - 900) <= 1 && Math.abs((n.y ?? NaN) - 700) <= 1, `stored at the drop point, got ${String(n.x)},${String(n.y)}`);
+        await c.eventually(async () => {
+          const m = (await metrics(f)).nodes.find((x) => x.id === n.id);
+          assert.ok(m, "the node is drawn");
+          assert.ok(base === "ordering-sequence" ? Math.abs(m.x - 900) <= 2 : Math.abs(m.x - 900) <= 2 && Math.abs(m.y - 700) <= 2, `drawn at the drop point, got ${String(m.x)},${String(m.y)}`);
+        }, "drawn at the drop point");
+      }),
+    ] as [string, () => Promise<void>]),
 
     ["the tree puts the dragged elements on the data transfer under the diagram MIME type", async () => {
       const wheel = childOf(await rootOf("Vehicle"), "Wheel");

@@ -3,7 +3,8 @@
  * satisfy relationships. Transport-free. They call the same `ModelService` operations as the tree
  * and the diagram editor, so an agent and a person making the same edit produce the same text.
  */
-import { isLibraryUri, virtualNode, type Element } from "../model/index.js";
+import { isLibraryUri, unquoteName, virtualNode, type Element } from "../model/index.js";
+import { isCode, tokenize } from "../edit/text.js";
 import { resolveReference, statementFingerprint } from "../diagram/resolve.js";
 import type { OpFailure, OpOk, OpResult, Properties, Target } from "../model-service/service.js";
 import { CREATABLE_KINDS } from "../model-service/kinds.js";
@@ -12,6 +13,18 @@ import { ToolError, type EditContext, type ToolContext, type ToolDefinition } fr
 function staleCheck(ctx: ToolContext, el: Element, index: number | undefined, fingerprint: string | undefined): void {
   if (fingerprint !== undefined && fingerprint !== statementFingerprint(ctx.index, el, index ?? 0))
     throw new ToolError("That statement is no longer the one that was read (the model changed since the locator was listed). Read the diagram again with sysml_read_diagram and use the new locator and fingerprint. Nothing was changed.");
+}
+
+/** The names of a dotted path (`operating.'high speed'`), read with the lexer so a quoted name may contain dots; empty when it is not a plain path. */
+export function dottedPath(text: string): string[] {
+  const toks = tokenize(text).filter(isCode);
+  const names: string[] = [];
+  for (const [i, t] of toks.entries()) {
+    if (i % 2 === 1) {
+      if (t.text !== ".") return [];
+    } else names.push(unquoteName(t.text));
+  }
+  return toks.length % 2 === 1 ? names : [];
 }
 
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
@@ -315,7 +328,10 @@ const createRelationship: ToolDefinition = {
       const endOf = (key: string): Element => {
         const text = need(key);
         if (text === "start" || text === "done") return virtualNode(owner.element, text);
-        const own = owner.element.members.find((m) => m.name === text);
+        // A name of a member of the owner, or a dotted path to a node nested below it (`operating.high`).
+        let own: Element | undefined = owner.element;
+        for (const seg of text.includes("::") ? [] : dottedPath(text)) own = own?.members.find((m) => m.name === seg);
+        if (own === owner.element) own = undefined;
         return own ?? locate(ctx, ed, text, key).element;
       };
       const a = endOf("source"), b = endOf("target");

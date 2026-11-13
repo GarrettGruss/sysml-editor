@@ -268,3 +268,69 @@ export function retargetChange(oldKey: string | undefined, next: () => ElementRe
     },
   };
 }
+
+/**
+ * Unnamed control nodes that a statement named (`fork;` to `fork fork1;`): their diagram nodes change from a locator to the
+ * new reference, and the entries of the later unnamed twins move up by one. Applies to the saved state of every diagram file.
+ */
+export function nameNodesChange(named: readonly { oldKey: string | undefined; ref: string }[], label: string): DiagramChange {
+  const was = new Map<string, DiagramNode>();
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      // Every old key is resolved against the unchanged nodes first, so naming one node never disturbs finding the next.
+      const hits = new Map<string, { ref: string; group: string; k: number }>();
+      const renamed: { group: string; k: number }[] = [];
+      for (const n of named) {
+        if (!n.oldKey || doc.nodes.some((x) => x.ref === n.ref)) continue; // nothing to name, or already applied to this document
+        const old = doc.nodes.find((x) => referenceKey(x) === n.oldKey);
+        if (!old?.locator) continue;
+        const group = referenceKey({ locator: { ...old.locator, index: 0 } });
+        const k = old.locator.index ?? 0;
+        hits.set(old.id, { ref: n.ref, group, k });
+        renamed.push({ group, k });
+      }
+      if (!hits.size) return doc;
+      const nodes = doc.nodes.map((x) => {
+        const hit = hits.get(x.id);
+        if (hit) {
+          if (!was.has(ctx.uri + "\0" + x.id)) was.set(ctx.uri + "\0" + x.id, x);
+          const { locator: _l, ...rest } = x;
+          return { ...rest, ref: hit.ref } as DiagramNode;
+        }
+        const xl = x.locator;
+        if (!xl) return x;
+        const group = referenceKey({ locator: { ...xl, index: 0 } });
+        const at = xl.index ?? 0;
+        const shift = renamed.filter((r) => r.group === group && r.k < at).length;
+        if (!shift) return x;
+        if (!was.has(ctx.uri + "\0" + x.id)) was.set(ctx.uri + "\0" + x.id, x);
+        const { index: _i, ...restL } = xl;
+        return { ...x, locator: at - shift > 0 ? { ...restL, index: at - shift } : restL } as DiagramNode;
+      });
+      return { ...doc, nodes };
+    },
+    revert(doc, ctx) {
+      let changed = false;
+      const nodes = doc.nodes.map((x) => {
+        const old = was.get(ctx.uri + "\0" + x.id);
+        if (!old) return x;
+        changed = true;
+        return old;
+      });
+      return changed ? { ...doc, nodes } : doc;
+    },
+  };
+}
+
+/** Two changes as one: `first` is applied before `second`, and reverted after it. */
+export function composeChanges(first: DiagramChange, second: DiagramChange, label: string): DiagramChange {
+  return {
+    ...second,
+    target: "all",
+    label,
+    apply: (doc, ctx) => second.apply(first.apply(doc, ctx), ctx),
+    revert: (doc, ctx) => first.revert(second.revert(doc, ctx), ctx),
+  };
+}

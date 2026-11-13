@@ -15,7 +15,7 @@ import {
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { placeElementChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { composeChanges, nameNodesChange, placeElementChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
 import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
@@ -165,6 +165,13 @@ export function commonOwner(a: Element, b: Element): Element | undefined {
 }
 
 export { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds };
+
+/** The message for an element that is no longer in the model: said once it really changed, and naming it. */
+function gone(what: string, el?: Element | Target | string): string {
+  const e = el !== undefined && typeof el !== "string" && "element" in el ? el.element : el;
+  const name = typeof e === "string" ? e : e?.qualifiedName ?? e?.name;
+  return `${what}${name ? ` (${name})` : ""} is no longer in the model: it was renamed, moved or deleted since it was read. Refresh and try again.`;
+}
 
 export class ModelService {
   /** Operations are serialised: two edits never plan against the same text at once. */
@@ -385,7 +392,7 @@ export class ModelService {
       return this.run(
         () => {
           ownerNow = findOwner();
-          if (!ownerNow) return fail("The element to add to is out of date; refresh and try again.");
+          if (!ownerNow) return fail(gone("The element to add to", owner));
           const kindWrong = kindProblem(ownerNow, spec.kind);
           if (kindWrong) return fail(kindWrong);
           pre.clear();
@@ -434,7 +441,7 @@ export class ModelService {
       return this.run(
         () => {
           const el = this.fresh(t.element);
-          if (!el) return fail("The element is out of date; refresh and try again.");
+          if (!el) return fail(gone("The element", t.element));
           keys.length = 0;
           for (const d of [el, ...dependentStatements(this.index, el)]) {
             const ref = d.qualifiedName === undefined ? referenceFor(d, this.index) : undefined;
@@ -457,7 +464,7 @@ export class ModelService {
       return this.run(
         async () => {
           const el = this.fresh(t.element);
-          if (!el) return fail("The element is out of date; refresh and try again.");
+          if (!el) return fail(gone("The element", t.element));
           // Read inside the plan, so a re-plan sees the diagram files as they are now.
           const closed = await this.host.closedDiagrams();
           const r = planRename(this.index, el, newName, { diagrams: closed });
@@ -487,7 +494,7 @@ export class ModelService {
       return this.run(
         async () => {
           const el = this.fresh(t.element);
-          if (!el) return fail("The element is out of date; refresh and try again.");
+          if (!el) return fail(gone("The element", t.element));
           const plans: PlanResult[] = [];
           if (props.name !== undefined && props.name !== el.name) {
             const closed = await this.host.closedDiagrams();
@@ -564,13 +571,13 @@ export class ModelService {
       return this.run(
         () => {
           const o = findOwner();
-          if (!o) return fail("The element to add the connection to is out of date; refresh and try again.");
+          if (!o) return fail(gone("The element to add the connection to", owner));
           pre.clear();
           for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
           const a = typeof source === "string" ? source : this.freshEnd(source, o);
           const b = typeof target === "string" ? target : this.freshEnd(target, o);
-          if (typeof a !== "string" && !a) return fail("The source of the connection is out of date; refresh and try again.");
-          if (typeof b !== "string" && !b) return fail("The target of the connection is out of date; refresh and try again.");
+          if (typeof a !== "string" && !a) return fail(gone("The source of the connection", source));
+          if (typeof b !== "string" && !b) return fail(gone("The target of the connection", target));
           return planConnect(this.index, o, a as Element | string, b as Element | string);
         },
         () => ({
@@ -598,13 +605,16 @@ export class ModelService {
       const pre = new Map<string, number>();
       const ownerQn = owner.qualifiedName;
       const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === owner.uri && x.kind === owner.kind) ?? this.index.findByQualifiedName(ownerQn)[0] : this.fresh(owner));
+      let named: NonNullable<PlanOk["namedNodes"]> = [];
       return this.run(
         () => {
           const o = findOwner();
-          if (!o) return fail("The element to add to is out of date; refresh and try again.");
+          if (!o) return fail(gone("The element to add to", owner));
           pre.clear();
           for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
-          return plan(o);
+          const p = plan(o);
+          named = p.ok ? p.namedNodes ?? [] : [];
+          return p;
         },
         () => ({
           element: () => {
@@ -618,7 +628,11 @@ export class ModelService {
             });
             return created;
           },
-          change: () => addStatementChange(this.index, () => created, opts.placement?.diagram ? placeElementChange(this.index, () => created, { diagram: opts.placement.diagram }, label) : undefined, label),
+          change: () => {
+            const stmt = addStatementChange(this.index, () => created, opts.placement?.diagram ? placeElementChange(this.index, () => created, { diagram: opts.placement.diagram }, label) : undefined, label);
+            // Nodes the statement named follow in the same change, before the statement's edge is placed.
+            return named.length ? composeChanges(nameNodesChange(named, label), stmt, label) : stmt;
+          },
         }),
         opts.diagram ? { diagram: opts.diagram } : undefined,
         () => [owner.uri],
@@ -626,22 +640,59 @@ export class ModelService {
     });
   }
 
-  /** `first a then b;` in `owner` (the two nodes are its members, or its start and done nodes). */
-  addSuccession(owner: Element, source: Element, target: Element, opts: Origin & { guard?: string; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
-    return this.statementIn(owner, "succession", (o) => {
-      const a = this.resolveNode(o, source), b = this.resolveNode(o, target);
-      if (!a || !b) return fail("A node of the succession is out of date; refresh and try again.");
-      return planAddSuccession(this.index, o, a, b, opts.guard);
+  /**
+   * `first a then b;` in the nearest common owner of the two nodes: `owner` itself, or the action or state between
+   * them that holds both. An end nested below that owner is written as a dotted path (`first a then group.b;`).
+   */
+  addSuccession(owner: Element, source: Element, target: Element, opts: Origin & { guard?: string; context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    const o = this.commonOwner(owner, source, target, "succession", opts.context);
+    if (typeof o === "string") return Promise.resolve(fail(o));
+    return this.statementIn(o, "succession", (o2) => {
+      const a = this.resolveNode(o2, source, "source"), b = this.resolveNode(o2, target, "target");
+      if (typeof a === "string") return fail(a);
+      if (typeof b === "string") return fail(b);
+      return planAddSuccession(this.index, o2, a, b, opts.guard);
     }, opts, "Add succession");
   }
 
-  /** `transition first a [accept T] [if g] [do e] then b;` in `owner`. */
-  addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
-    return this.statementIn(owner, "transition", (o) => {
-      const a = this.resolveNode(o, source), b = this.resolveNode(o, target);
-      if (!a || !b) return fail("A state of the transition is out of date; refresh and try again.");
-      return planAddTransition(this.index, o, a, b, parts);
+  /** `transition first a [accept T] [if g] [do e] then b;` in the nearest common owner of the two states (see `addSuccession`). */
+  addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    const o = this.commonOwner(owner, source, target, "transition", opts.context);
+    if (typeof o === "string") return Promise.resolve(fail(o));
+    return this.statementIn(o, "transition", (o2) => {
+      const a = this.resolveNode(o2, source, "source"), b = this.resolveNode(o2, target, "target");
+      if (typeof a === "string") return fail(a);
+      if (typeof b === "string") return fail(b);
+      return planAddTransition(this.index, o2, a, b, parts);
     }, opts, "Add transition");
+  }
+
+  /** Where a statement between two nodes is written: the nearest element that holds both (at or below `owner`). */
+  private commonOwner(owner: Element, source: Element, target: Element, what: string, context?: Element): Element | string {
+    // Shown in a usage's diagram, an end it only inherits belongs to the definition: that is not changed from the usage (D18).
+    if (context) {
+      for (const e of [source, target]) {
+        const refusal = this.inheritedRefusal({ element: e, context }, `connected by a ${what}`);
+        if (refusal) return refusal.reason;
+      }
+    }
+    const chain = (e: Element): Element[] => {
+      const out: Element[] = [];
+      // Both a start or done node and any other node are held by the element that owns them.
+      for (let x: Element | undefined = e.owner; x; x = x.owner) out.push(x);
+      return out;
+    };
+    const ca = chain(source), cb = chain(target);
+    const shared = ca.find((x) => cb.includes(x));
+    const label = (e: Element) => e.name ?? e.kind;
+    if (!shared) return `The ${what} ends ${label(source)} and ${label(target)} are in different parts of the model (they have no common owner), so no ${what} can connect them.`;
+    if (shared !== owner && !chain(shared).includes(owner)) {
+      return `The ${what} ends ${label(source)} and ${label(target)} are not both inside ${owner.name ?? owner.kind}; their common owner is ${shared.name ?? shared.kind}.`;
+    }
+    if (context && shared !== context && !chain(shared).includes(context)) {
+      return `The common owner of the ${what} ends (${label(shared)}) is not ${label(context)} or inside it, so the ${what} would change ${label(shared)} from another element's diagram. Change it in ${label(shared)} instead.`;
+    }
+    return shared;
   }
 
   /** `message [name] [of T] from a to b;` in the interaction `owner`, after its last message. */
@@ -667,7 +718,7 @@ export class ModelService {
       return this.run(
         () => {
           const el = this.fresh(transition);
-          if (!el) return fail("The transition is out of date; refresh and try again.");
+          if (!el) return fail(gone("The transition", transition));
           const ref = referenceFor(el, this.index);
           oldKey = ref ? referenceKeyOf(ref) : undefined;
           const info = el.owner ? analyze(this.index, el.owner).transitions.find((t) => t.statement === el) : undefined;
@@ -691,10 +742,15 @@ export class ModelService {
     });
   }
 
-  /** The member of `owner` the element stands for now (or its start/done node), re-read from the current model. */
-  private resolveNode(owner: Element, el: Element): Element | undefined {
-    if (isSynthetic(el) && (el.kind === "start" || el.kind === "done")) return virtualNode(owner, el.kind);
-    return el.qualifiedName !== undefined ? owner.members.find((m) => m.qualifiedName === el.qualifiedName) : this.fresh(el);
+  /** The node `el` stands for now, re-read from the current model: a start or done node of `owner`, or a node below it. */
+  private resolveNode(owner: Element, el: Element, role: string): Element | string {
+    if (isSynthetic(el) && (el.kind === "start" || el.kind === "done")) {
+      if (el.owner?.qualifiedName !== undefined && el.owner.qualifiedName !== owner.qualifiedName) return `The ${role} ${el.kind} node belongs to ${el.owner.name ?? el.owner.kind}, not to ${owner.name ?? owner.kind}.`;
+      return virtualNode(owner, el.kind);
+    }
+    const now = el.qualifiedName !== undefined ? this.index.findByQualifiedName(el.qualifiedName).find((x) => x.uri === el.uri && x.kind === el.kind) ?? this.index.findByQualifiedName(el.qualifiedName)[0] : this.fresh(el);
+    if (!now) return `The ${role} ${el.name ?? el.kind} no longer exists in the model (it was renamed, moved or deleted since the diagram was drawn); reopen or refresh the diagram.`;
+    return now;
   }
 
   private freshEnd(t: Target, owner: Element): Element | string | undefined {
@@ -718,7 +774,7 @@ export class ModelService {
         const r = this.fresh(requirement);
         const b = this.fresh(by);
         const o = owner ? this.fresh(owner) : undefined;
-        if (!r || !b || (owner && !o)) return fail("An element is out of date; refresh and try again.");
+        if (!r || !b || (owner && !o)) return fail(gone(!r ? "The requirement" : !b ? "The element that satisfies it" : "The element to add to", !r ? requirement : !b ? by : owner));
         return planSatisfy(this.index, r, b, o);
       },
       () => [requirement.uri, ...(owner ? [owner.uri] : []), by.uri],
@@ -781,7 +837,7 @@ export class ModelService {
           for (const e of elements) {
             if (!e) continue;
             const f = this.fresh(e);
-            if (!f) return fail("An element is out of date; refresh and try again.");
+            if (!f) return fail(gone("An element", e));
             fresh.push(f);
           }
           return plan(fresh);
@@ -801,7 +857,7 @@ export class ModelService {
       () => {
         const r = this.fresh(requirement);
         const t = target ? this.fresh(target) : undefined;
-        if (!r || (target && !t)) return fail("An element is out of date; refresh and try again.");
+        if (!r || (target && !t)) return fail(gone(!r ? "The requirement" : "The target", !r ? requirement : target));
         return planVerify(this.index, r, "create" in to ? { create: to.create, ...(t ? { owner: t } : {}) } : t!);
       },
       () => [requirement.uri, ...(target ? [target.uri] : [])],
@@ -816,7 +872,7 @@ export class ModelService {
       ["connection"],
       () => {
         const f = [original, ...derived, ...(owner ? [owner] : [])].map((e) => this.fresh(e));
-        if (f.some((e) => !e)) return fail("An element is out of date; refresh and try again.");
+        if (f.some((e) => !e)) return fail(gone("An element", [original, ...derived, ...(owner ? [owner] : [])][f.findIndex((e) => !e)]));
         return planDerivation(this.index, f[0]!, f.slice(1, 1 + derived.length) as Element[], owner ? f[f.length - 1]! : undefined);
       },
       () => [derived[0]?.uri ?? original.uri, ...(owner ? [owner.uri] : [])],

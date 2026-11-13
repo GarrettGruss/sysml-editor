@@ -195,11 +195,11 @@ export interface AddedElements {
 }
 
 /**
- * Add elements the way the user does (drop, "Add to Active Diagram", "Show Element"): a node inside
+ * Add elements the way the user does (drop, "Add to Diagram"): a node inside
  * the node of its owner when that is on an Interconnection View, otherwise at top level, plus the
  * relationship statements around it whose ends are both on the diagram. Touches only the diagram.
  */
-export function addElements(doc: DiagramDocument, index: ModelIndex, elements: readonly Element[], opts: ResolveOptions = {}): AddedElements {
+export function addElements(doc: DiagramDocument, index: ModelIndex, elements: readonly Element[], opts: ResolveOptions & { at?: { x: number; y: number } } = {}): AddedElements {
   const out: AddedElements = { doc, ids: [], added: [] };
   for (const element of elements) {
     if (relationOf(element, index)) {
@@ -227,6 +227,11 @@ export function addElements(doc: DiagramDocument, index: ModelIndex, elements: r
     out.ids.push(r.id);
     if (!r.added) continue;
     out.added.push(r.id);
+    // A drop puts a top-level node at the pointer (several are staggered); the layout keeps a stored position.
+    if (opts.at && parent === undefined) {
+      const k = out.added.filter((i) => i.startsWith("n")).length - 1;
+      out.doc = { ...out.doc, nodes: out.doc.nodes.map((n) => (n.id === r.id ? { ...n, x: Math.round(opts.at!.x + 24 * k), y: Math.round(opts.at!.y + 24 * k) } : n)) };
+    }
     const rootEl = resolveReference({ ref: out.doc.root }, out.doc, index, opts);
     const parentEl = parent !== undefined ? res0.get(parent) : undefined;
     const owners = [...new Set([element, element.owner, parentEl, rootEl].filter((o): o is Element => !!o))];

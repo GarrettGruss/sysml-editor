@@ -102,7 +102,7 @@ export type Gesture =
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
   | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
   | { kind: "contextmenu"; id: string }
-  | { kind: "drop"; names: string[] }
+  | { kind: "drop"; names: string[]; x?: number; y?: number }
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
   | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" }
   | { kind: "selectEdge"; id: string }
