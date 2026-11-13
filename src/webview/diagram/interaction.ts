@@ -239,6 +239,11 @@ export class Interaction {
     return [...this.sel];
   }
 
+  /** The host refused the last edit: the drawn preview goes back to the committed scene. */
+  rejected(): void {
+    this.host.onPreview(undefined, undefined);
+  }
+
   get busy(): boolean {
     return this.g !== undefined;
   }
@@ -332,7 +337,8 @@ export class Interaction {
       this.host.onPanEnd();
       return;
     }
-    this.host.onPreview(undefined, undefined);
+    // A move or resize stays drawn where it was released until the host confirms it (D22).
+    this.host.onPreview(g.kind !== "band" && g.plan?.size ? applyPlan(this.scene, g.plan) : undefined, undefined);
     if (g.kind === "band") {
       const r = normalizeRect(g.start, e);
       this.setSelection([...g.base, ...rubberBand(this.scene, r)]);
@@ -367,8 +373,8 @@ export class Interaction {
     if (!n) return;
     this.nudge = undefined;
     this.host.clearTimer(n.timer);
-    this.host.onPreview(undefined, undefined);
     const plan = planMove(this.scene, n.ids, n.dx, n.dy, false);
+    this.host.onPreview(plan.size ? applyPlan(this.scene, plan) : undefined, undefined);
     this.commit(plan, "Nudge");
   }
 

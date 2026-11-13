@@ -14,6 +14,7 @@ import { labelHit, layoutAt, moveBox, resizeBox, toggleWrap, type LabelLayout } 
 import { addBend, adjustRoute, dragBend, dragSegment, isHorizontal, routeHandleAt, segmentAt } from "./route-edit.js";
 import { clean, routeFits } from "./routing.js";
 import { buildScene } from "./scene.js";
+import { arrowPan, wheelFactor } from "./view-input.js";
 import { Tools, type Suggestion, type Tool } from "./tools.js";
 import { DARK_PALETTE, LIGHT_PALETTE, buildSvg, edgeHandlesSvg, overlaySvg, wrapStandalone } from "./svg.js";
 
@@ -69,6 +70,11 @@ export class SvgRenderer implements DiagramRenderer {
   private editor?: HTMLInputElement;
   /** An edge (succession, transition, message) selected by a click on it; edges are not part of the node selection. */
   private selectedEdge?: string;
+  /** The view is still the automatic fit of the first open: a resize fits again, the first pan or zoom by the user ends it. */
+  private autoFit = false;
+  /** Routes released by the user and drawn until the host confirms; a drawing that differs from them counts as a stale draw (a test measure). */
+  private readonly pendingRoutes = new Map<string, Pt[]>();
+  private staleDraws = 0;
 
   constructor(host: HTMLElement, private readonly measure: Measure, private readonly cb: RendererCallbacks) {
     this.svg = document.createElementNS(SVG_NS, "svg");
@@ -91,7 +97,7 @@ export class SvgRenderer implements DiagramRenderer {
         this.view = { ...this.view, x: this.view.x + dx, y: this.view.y + dy };
         this.applyView();
       },
-      onPanEnd: () => { this.panStart = undefined; cb.onView(this.getView()); },
+      onPanEnd: () => { this.panStart = undefined; this.autoFit = false; cb.onView(this.getView()); },
       onMenu: (id) => this.openMenu(id),
       zoom: () => this.view.k,
       setTimer: (fn, ms) => setTimeout(fn, ms),
@@ -110,6 +116,8 @@ export class SvgRenderer implements DiagramRenderer {
     this.rel = new Map(layout.boxes);
     this.mins = new Map(layout.mins);
     this.layoutRoutes = new Map(layout.routes);
+    this.overrides.clear();
+    this.pendingRoutes.clear();
     this.preview = undefined;
     this.band = undefined;
     this.scene = buildScene(viewModel, this.rel, this.mins, this.measure);
@@ -131,11 +139,22 @@ export class SvgRenderer implements DiagramRenderer {
     return m;
   }
 
+  private viewMetrics(): Pick<Metrics, "view" | "canvas" | "highlights" | "staleDraws" | "focusOutline"> {
+    return {
+      view: { ...this.view }, canvas: this.canvasSize(), highlights: this.world.querySelectorAll("[data-highlight]").length, staleDraws: this.staleDraws,
+      focusOutline: document.activeElement === this.svg && getComputedStyle(this.svg).outlineStyle !== "none",
+    };
+  }
+
   private repaint(): void {
     if (!this.vm) return;
     const rel = this.currentRel();
     const r = buildSvg(this.vm, rel, this.measure, {}, { routes: this.layoutRoutes, selected: this.selectedSet(), overrides: this.overrides });
     this.drawn = { routes: r.routes, labels: r.labels, labelLines: r.labelLines, laidOut: r.laidOut };
+    for (const [id, pts] of this.pendingRoutes) {
+      const now = r.routes.get(id);
+      if (!now || now.length !== pts.length || now.some((q, i) => Math.abs(q.x - pts[i]!.x) > 0.5 || Math.abs(q.y - pts[i]!.y) > 0.5)) this.staleDraws++;
+    }
     this.world.innerHTML = r.content;
     this.applyView();
     this.repaintOverlay();
@@ -207,8 +226,11 @@ export class SvgRenderer implements DiagramRenderer {
   private labelAtPoint(p: Pt): string | undefined {
     const ids = [...(this.selectedEdge !== undefined ? [this.selectedEdge] : []), ...this.drawn.labels.keys()];
     // A label over a node only takes the press when its line is selected, so it never steals clicks, drags or connections from the node.
-    const nodeUnder = hit(this.scene, p) !== undefined;
-    return ids.find((id) => { const l = this.labelOf(id); return l !== undefined && (id === this.selectedEdge || !nodeUnder) && labelHit(l.box, p, this.view.k) !== undefined; });
+    // Labels are drawn above nodes, so the label under the press wins; only the enlarged handle area needs its line selected.
+    // Where a port or a node's resize handle is under the point, an unselected line's label does not take the press.
+    const top = hit(this.scene, p);
+    const portOrHandle = (top !== undefined && this.scene.get(top)?.owner !== undefined) || this.ia.handleAt(p) !== undefined;
+    return ids.find((id) => { const l = this.labelOf(id); return l !== undefined && (id === this.selectedEdge || !portOrHandle) && labelHit(l.box, p, this.view.k, id === this.selectedEdge) !== undefined; });
   }
 
   /** A move or resize edit also carries the stored routes of the lines at the changed nodes, adjusted (or to be dropped), so the file holds what is drawn. */
@@ -265,8 +287,9 @@ export class SvgRenderer implements DiagramRenderer {
     }
     const lab = this.labelAtPoint(p);
     if (lab !== undefined) {
+      const wasSelected = lab === sel;
       this.selectEdge(lab);
-      return begin(lab, labelHit(this.labelOf(lab)!.box, p, zoom));
+      return begin(lab, labelHit(this.labelOf(lab)!.box, p, zoom, wasSelected));
     }
     const edge = this.edgeHit(p);
     if (edge === undefined) return false;
@@ -300,11 +323,25 @@ export class SvgRenderer implements DiagramRenderer {
     const g = this.rg;
     this.rg = undefined;
     if (!g) return;
-    this.overrides.clear();
+    if (!(g.moved && g.out)) this.overrides.clear();
+    if (g.moved && !g.out && (g.kind === "seg" || g.kind === "bend")) this.tools.notice("That line cannot be drawn as a simple orthogonal route there; it keeps its computed route.");
+    // With a result, the previewed route or label stays in `overrides` until the host confirms (render) or refuses (editRejected): D22.
     if (g.moved && g.out) {
-      if (g.kind === "seg" || g.kind === "bend") this.emitEdge("Route", { id: g.id, points: g.out.map((q) => ({ x: Math.round(q.x * 100) / 100, y: Math.round(q.y * 100) / 100 })) });
+      if (g.kind === "seg" || g.kind === "bend") {
+        const points = g.out.map((q) => ({ x: Math.round(q.x * 100) / 100, y: Math.round(q.y * 100) / 100 }));
+        this.pendingRoutes.set(g.id, points);
+        this.emitEdge("Route", { id: g.id, points });
+      }
       else this.emitEdge("Label", { id: g.id, label: g.out });
     }
+    this.repaint();
+  }
+
+  /** The host refused the last edit: draw the committed state again. */
+  editRejected(): void {
+    this.overrides.clear();
+    this.pendingRoutes.clear();
+    this.ia.rejected();
     this.repaint();
   }
 
@@ -361,16 +398,30 @@ export class SvgRenderer implements DiagramRenderer {
     this.applyView();
   }
 
+  /** Size of the canvas in px, from its box (the attribute-free outer svg can report 0 for `clientWidth`). */
+  private canvasSize(): { w: number; h: number } {
+    const r = this.svg.getBoundingClientRect();
+    return { w: r.width || this.svg.clientWidth || 800, h: r.height || this.svg.clientHeight || 600 };
+  }
+
   fit(): void {
     if (!this.vm) return;
-    const abs = [...absoluteBoxes(this.vm, this.rel).values()];
-    const w = this.svg.clientWidth || 800;
-    const h = this.svg.clientHeight || 600;
+    const abs = [...absoluteBoxes(this.vm, this.rel).values(), ...this.drawn.labels.values()];
+    const { w, h } = this.canvasSize();
     if (!abs.length) return;
     const b = boundsOf(abs);
     const k = Math.min(1, (w - 40) / b.w, (h - 40) / b.h);
     this.setView({ k, x: (w - b.w * k) / 2 - b.x * k, y: (h - b.h * k) / 2 - b.y * k });
     this.cb.onView(this.getView());
+  }
+
+  /** Fit the first time the diagram is opened, and again while the canvas is still getting its size, until the user pans or zooms. */
+  fitOnOpen(): void {
+    this.autoFit = true;
+    this.fit();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => { if (this.autoFit) this.fit(); else ro.disconnect(); });
+    ro.observe(this.svg);
   }
 
   zoomBy(factor: number): void {
@@ -379,6 +430,7 @@ export class SvgRenderer implements DiagramRenderer {
   }
 
   private zoomAt(mx: number, my: number, factor: number): void {
+    this.autoFit = false;
     const k = Math.min(4, Math.max(0.1, this.view.k * factor));
     const s = k / this.view.k;
     this.view = { k, x: mx - (mx - this.view.x) * s, y: my - (my - this.view.y) * s };
@@ -446,6 +498,7 @@ export class SvgRenderer implements DiagramRenderer {
   private wire(): void {
     const svg = this.svg;
     svg.addEventListener("pointerdown", (e) => {
+      svg.setAttribute("data-pointer", "true");
       closeMenu();
       svg.focus({ preventScroll: true });
       // Gestures on the canvas must never select the SVG text labels.
@@ -467,6 +520,10 @@ export class SvgRenderer implements DiagramRenderer {
       const at = this.toInput(e, 0);
       const line = this.edgeHit(at);
       const id = hit(this.scene, at);
+      // A double-click on a line's label is not a rename of the node under it.
+      const lab = this.labelAtPoint(at);
+      if (lab !== undefined && lab !== this.selectedEdge) return;
+      if (lab !== undefined && id !== undefined) return;
       // A node under the point is renamed; a line adds a bend where no node is, or inside a container only when the line is selected.
       if (line !== undefined && (id === undefined || line === this.selectedEdge)) { this.bendAt(line, at); return; }
       if (id !== undefined) this.openEditor(id);
@@ -509,20 +566,33 @@ export class SvgRenderer implements DiagramRenderer {
       e.preventDefault();
       if (e.ctrlKey || e.metaKey) {
         const r = svg.getBoundingClientRect();
-        this.zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
+        this.zoomAt(e.clientX - r.left, e.clientY - r.top, wheelFactor(e.deltaY));
       } else {
+        this.autoFit = false;
         this.view = { ...this.view, x: this.view.x - e.deltaX, y: this.view.y - e.deltaY };
         this.applyView();
         this.cb.onView(this.getView());
       }
     }, { passive: false });
     svg.addEventListener("keydown", (e) => {
+      svg.removeAttribute("data-pointer");
       if (e.key === "Escape" && this.cancelLineGesture()) { e.preventDefault(); return; }
+      if (e.key === "Escape" && !this.tool && this.selectedEdge !== undefined) { this.selectedEdge = undefined; this.repaint(); this.tools.setSelection(this.vm, this.ia.selection); }
       if (e.key === "Escape" && this.tool) { this.setTool(undefined); e.preventDefault(); return; }
       if (this.selectedEdge !== undefined && (e.key === "Delete" || e.key === "Backspace")) {
         const id = this.selectedEdge;
         this.selectedEdge = undefined;
         this.cb.onEdit({ kind: "remove", ids: [id] });
+        e.preventDefault();
+        return;
+      }
+      // With nothing selected the arrow keys pan the view; with a selection they nudge it (below). Not while a text field has focus.
+      const pan = this.ia.selection.length === 0 && this.editor === undefined ? arrowPan(e.key, e.shiftKey) : undefined;
+      if (pan && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        this.autoFit = false;
+        this.view = { ...this.view, x: this.view.x + pan.dx, y: this.view.y + pan.dy };
+        this.applyView();
+        this.cb.onView(this.getView());
         e.preventDefault();
         return;
       }
@@ -760,6 +830,20 @@ export class SvgRenderer implements DiagramRenderer {
         this.dragFrom({ x: hb.x + hb.w / 2, y: hb.y + hb.h / 2 }, g.dx, g.dy);
         break;
       }
+      case "labelClick": {
+        const l = this.labelOf(g.id);
+        if (!l) throw new Error(`no adjustable label on ${g.id}`);
+        this.click({ x: l.box.x + l.box.w / 2, y: l.box.y + l.box.h / 2 });
+        break;
+      }
+      case "wheel":
+        this.svg.dispatchEvent(new WheelEvent("wheel", { deltaY: g.deltaY, ctrlKey: !!g.ctrl, clientX: this.svg.getBoundingClientRect().left + 100, clientY: this.svg.getBoundingClientRect().top + 100, bubbles: true, cancelable: true }));
+        break;
+      case "focusCanvas":
+        if (g.mouse) this.svg.setAttribute("data-pointer", "true"); else this.svg.removeAttribute("data-pointer");
+        this.svg.blur();
+        this.svg.focus({ preventScroll: true });
+        break;
       case "rubber": this.dragFrom({ x: g.x0, y: g.y0 }, g.x1 - g.x0, g.y1 - g.y0, 4, true); break;
       case "key":
         this.svg.dispatchEvent(new KeyboardEvent("keydown", { key: g.key, shiftKey: !!g.shift, ctrlKey: !!g.ctrl, metaKey: !!g.meta, bubbles: true, cancelable: true }));
@@ -877,7 +961,7 @@ export class SvgRenderer implements DiagramRenderer {
     const vm = this.vm;
     const empty: Metrics = {
       nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0, userLabelsOverNodes: 0, userLabelsOffCanvas: 0,
-      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, routeHandles: 0, labelHandles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
+      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, routeHandles: 0, labelHandles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(),
     };
     if (!vm) return empty;
     const abs = absoluteBoxes(vm, this.currentRel());
@@ -902,7 +986,7 @@ export class SvgRenderer implements DiagramRenderer {
       nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs), nodesOverCompartments: countOverCompartments(vm, abs, this.measure),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels, this.drawn.laidOut),
       selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, routeHandles: this.overlay.querySelectorAll("[data-route-handle]").length, labelHandles: this.overlay.querySelectorAll("[data-label-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
-      focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.tools.state(), inlineEditor: this.editor !== undefined, theme: themeOf(),
+      focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(), ...this.tools.state(), inlineEditor: this.editor !== undefined, theme: themeOf(),
     };
   }
 

@@ -150,7 +150,7 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, l
   const before = pts[pts.length - 2] ?? first;
   const dashed = DASHED.has(e.style) || !e.resolved;
   const roleLine: Role = e.resolved ? "edge" : "warn";
-  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"${e.order !== undefined ? ` data-order="${e.order}"` : ""}${e.unordered ? ' data-unordered="true"' : ""}${selected ? ' data-selected="true"' : ""}><polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
+  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"${e.order !== undefined ? ` data-order="${e.order}"` : ""}${e.unordered ? ' data-unordered="true"' : ""}${selected ? ' data-selected="true"' : ""}>${selected ? `<polyline data-highlight="true" points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="8" stroke-opacity="0.35" stroke-linecap="round" stroke-linejoin="round"${paint(o, "none", "sel")}/>` : ""}<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
   const poly = (ps: Pt[], fill: Role | "none") => `<polygon points="${ps.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${paint(o, fill, roleLine)}/>`;
   switch (e.style) {
     case "composition": g += poly(diamondPoints(first, second, 16, 5), "edge"); break;
@@ -164,8 +164,14 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, l
     default: break;
   }
   // A wide invisible line makes a thin edge easy to hit and select.
-  if (selected) g += `<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="4" stroke-opacity="0.35"${paint(o, "none", "sel")}/>`;
-  if (e.label && label) lines.forEach((l, i) => { g += text(o, label.x + label.w / 2, label.y + 10 + i * LABEL_LINE, (i === 0 && e.unordered ? "\u2248 " : "") + l, "small", e.resolved ? "subtext" : "warn", "middle"); });
+  return g + "</g>";
+}
+
+/** The text of a line's label, drawn after every node and edge so it is on top of them. */
+function drawEdgeLabel(e: VmEdge, o: SvgOptions, label: Box | undefined, lines: string[]): string {
+  if (!e.label || !label) return "";
+  let g = `<g data-edge-label="${esc(e.id)}">`;
+  lines.forEach((l, i) => { g += text(o, label.x + label.w / 2, label.y + 10 + i * LABEL_LINE, (i === 0 && e.unordered ? "\u2248 " : "") + l, "small", e.resolved ? "subtext" : "warn", "middle"); });
   return g + "</g>";
 }
 
@@ -281,6 +287,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const owner = n.attachedTo !== undefined && byId.has(n.attachedTo) ? abs.get(n.attachedTo) : undefined;
     if (owner) out += drawPortLabel(n, b, owner, o);
   }
+  for (const d of drawn) out += drawEdgeLabel(d.e, o, labels.get(d.e.id), labelLines.get(d.e.id) ?? []);
   return { content: out, bounds: boundsOf([...abs.values(), ...labels.values()], 0), routes, labels, labelLines, laidOut };
 }
 

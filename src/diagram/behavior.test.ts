@@ -97,10 +97,27 @@ describe("diagram kinds", () => {
     expect(k("Lamp::lamp")).not.toContain("sequence");
     expect(k("Lamp::LampStates")).toContain("stateTransition");
     expect(k("Lamp::logEvent")).toContain("actionFlow");
-    expect(k("Lamp")).toEqual(["general", "interconnection", "requirements"]);
+    expect(k("Lamp")).toEqual(["general", "requirements"]);
     const inter = load(WS + "interaction.sysml");
     expect(k("Ordering::OrderInteraction", inter)).toContain("sequence");
     expect(k("Ordering::OrderInteraction", inter)).not.toContain("stateTransition");
+  });
+});
+
+describe("root rules per kind (D27)", () => {
+  const ix = new ModelIndex();
+  ix.setDocument("file:///w/r.sysml", "package P { part def Car { part wheel : Wheel; port p; } part def Wheel; item def Fuel; interface def Link; connection def Conn; part car : Car; attribute def A; action def Go; }");
+  const el = (qn: string) => ix.findByQualifiedName(qn)[0]!;
+  it("offers Interconnection only for part, item, interface and connection definitions and usages", () => {
+    for (const qn of ["P::Car", "P::car", "P::Fuel", "P::Link", "P::Conn", "P::Car::wheel"]) expect(diagramKindsFor(el(qn)), qn).toContain("interconnection");
+    for (const qn of ["P", "P::A", "P::Go", "P::Car::p"]) expect(diagramKindsFor(el(qn)), qn).not.toContain("interconnection");
+    expect(diagramKindsFor(el("P"))).toEqual(["general", "requirements"]);
+  });
+  it("refuses a package as the root of an Interconnection View with a message that names what it needs", () => {
+    expect(rootProblem("interconnection", el("P"))).toMatch(/needs a part, item, interface or connection definition or usage/);
+    expect(() => createDiagram(ix, "P", "interconnection")).toThrow(/Interconnection View needs a part/);
+    expect(rootProblem("interconnection", el("P::Car"))).toBeUndefined();
+    expect(rootProblem("general", el("P"))).toBeUndefined();
   });
 });
 
