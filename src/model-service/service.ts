@@ -763,6 +763,9 @@ export class ModelService {
       const pre = new Map<string, number>();
       const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === owner.uri && x.kind === owner.kind) ?? this.index.findByQualifiedName(ownerQn)[0] : this.fresh(owner));
       const label = `Add ${kind} and ${relation}`;
+      // Looked up again on every apply, so a redo does not use elements of an older index.
+      const locateNode = () => findOwner()?.members.find((m) => m.name === name);
+      const locateStmt = () => (name === "" ? undefined : findOwner()?.members.find((m) => m.kind === relation && m.ends.some((e) => e.trim() === name)));
       return this.run(
         () => {
           const o = findOwner();
@@ -778,10 +781,9 @@ export class ModelService {
         },
         () => ({
           element: () => {
-            const o = findOwner();
-            node = o?.members.find((m) => m.name === name);
+            node = locateNode();
             const seen = new Map<string, number>();
-            stmt = o?.members.find((m) => {
+            stmt = locateStmt() ?? findOwner()?.members.find((m) => {
               if (m.kind !== relation) return false;
               const k = sig(m);
               const n = (seen.get(k) ?? 0) + 1;
@@ -794,12 +796,12 @@ export class ModelService {
             const d = opts.placement?.diagram;
             const place = d
               ? placeNodeAndLineChange(
-                  placeElementChange(this.index, () => node, { diagram: d, ...(opts.placement!.parentNode !== undefined ? { parentNode: opts.placement!.parentNode } : {}), ...(opts.placement!.x !== undefined ? { x: opts.placement!.x } : {}), ...(opts.placement!.y !== undefined ? { y: opts.placement!.y } : {}) }, label),
-                  placeElementChange(this.index, () => stmt, { diagram: d }, label),
+                  placeElementChange(this.index, locateNode, { diagram: d, ...(opts.placement!.parentNode !== undefined ? { parentNode: opts.placement!.parentNode } : {}), ...(opts.placement!.x !== undefined ? { x: opts.placement!.x } : {}), ...(opts.placement!.y !== undefined ? { y: opts.placement!.y } : {}) }, label),
+                  placeElementChange(this.index, () => locateStmt() ?? stmt, { diagram: d }, label),
                   label,
                 )
               : undefined;
-            const change = addStatementChange(this.index, () => stmt, place, label);
+            const change = addStatementChange(this.index, () => locateStmt() ?? stmt, place, label);
             return named.length ? composeChanges(nameNodesChange(named, label), change, label) : change;
           },
         }),
@@ -824,7 +826,7 @@ export class ModelService {
       let named: NonNullable<PlanOk["namedNodes"]> = [];
       let at = -1;
       const ownerQn = statement.owner?.qualifiedName;
-      const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === statement.uri) : undefined);
+      const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === statement.uri) : statement.owner ? this.fresh(statement.owner) : undefined);
       const label = `Move ${end} of line`;
       return this.run(
         () => {
@@ -847,7 +849,8 @@ export class ModelService {
             return nowStmt;
           },
           change: () => {
-            const change = reconnectChange(oldKey, () => (nowStmt ? referenceFor(nowStmt, this.index) : undefined), end, () => endKey, label);
+            // Re-resolved on every apply: a redo runs against a later index than the first apply.
+            const change = reconnectChange(oldKey, () => { const st = at >= 0 ? findOwner()?.members[at] : undefined; return st ? referenceFor(st, this.index) : undefined; }, end, () => endKey, label);
             return named.length ? composeChanges(nameNodesChange(named, label), change, label) : change;
           },
         }),

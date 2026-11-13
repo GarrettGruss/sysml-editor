@@ -544,14 +544,24 @@ function endSpan(text: string, el: Element, kw: string, stops: ReadonlySet<strin
   const from = el.range.start.offset;
   const to = el.bodyRange ? el.bodyRange.start.offset : el.range.end.offset;
   const toks = tokenize(text).filter((t) => t.start >= from && t.end <= to && isCode(t));
-  const i = toks.findIndex((t) => t.text === kw);
+  const depths: number[] = [];
+  let d = 0;
+  for (const t of toks) {
+    if (t.text === ")" || t.text === "]" || t.text === "}") d--;
+    depths.push(d);
+    if (t.text === "(" || t.text === "[" || t.text === "{") d++;
+  }
+  // The joining keywords are the last ones at depth zero: a guard or effect that contains the word is not touched.
+  const joiner = kw === "then" || kw === "to";
+  const at = (w: string) => toks.map((t, k) => (t.text === w && depths[k] === 0 ? k : -1)).filter((k) => k >= 0);
+  const hits = at(kw);
+  const i = joiner ? hits[hits.length - 1] ?? -1 : hits[0] ?? -1;
   if (i < 0) return undefined;
-  let depth = 0, last = i;
+  const lastJoin = Math.max(-1, ...at(kw === "first" ? "then" : kw === "from" ? "to" : "\0"));
+  let last = i;
   for (let j = i + 1; j < toks.length; j++) {
     const t = toks[j]!;
-    if (depth === 0 && (stops.has(t.text) || t.text === ";")) break;
-    if (t.text === "(" || t.text === "[" || t.text === "{") depth++;
-    else if (t.text === ")" || t.text === "]" || t.text === "}") depth--;
+    if (depths[j] === 0 && (t.text === ";" || (j === lastJoin) || (stops.has(t.text) && !(t.text === "then" || t.text === "to")))) break;
     last = j;
   }
   return last === i ? undefined : { start: toks[i]!.end, end: toks[last]!.end };

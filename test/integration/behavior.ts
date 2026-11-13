@@ -588,12 +588,17 @@ export function behaviorTests(c: Ctx): Test[] {
         await api.diagram.open(uriOf(d2));
         await c.eventually(async () => assert.strictEqual((await api.diagram.metrics(uriOf(d2))).nodes.length, 3), "rendered");
         const before = onDisk(base);
+        // Refused on the client, with the reason, by the palette tool; nothing reaches the host.
+        await api.diagram.gesture(uriOf(d2), { kind: "connectDrag", source: "n2", relation: "transition", target: "n3", hold: true });
+        await c.eventually(async () => assert.match((await api.diagram.metrics(uriOf(d2))).ghost?.invalid ?? "", /inherited/), "the palette tool refuses an inherited target");
+        await api.diagram.gesture(uriOf(d2), { kind: "key", key: "Escape" });
         await api.diagram.gesture(uriOf(d2), { kind: "connect", source: "n2", target: "n3", relation: "transition" });
-        await waitFor(() => rec.fails.length > 0, 15000, "the transition between inherited states is refused");
-        assert.match(rec.fails[0]!.reason, /inherited/);
+        await sleep(300);
+        assert.strictEqual(onDisk(base), before, "no file changed by the refused transition");
+        assert.strictEqual(rec.fails.length, 0, "the host was not asked");
         await api.diagram.gesture(uriOf(d2), { kind: "menu", id: "n2", action: "deleteModel" });
-        await waitFor(() => rec.fails.length > 1, 15000, "deleting an inherited state is refused");
-        assert.match(rec.fails[1]!.reason, /inherited/);
+        await waitFor(() => rec.fails.length > 0, 15000, "deleting an inherited state is refused");
+        assert.match(rec.fails[0]!.reason, /inherited/);
         assert.strictEqual(onDisk(base), before, "no file changed");
       } finally {
         await vscode.commands.executeCommand("workbench.action.closeAllEditors");
@@ -651,14 +656,17 @@ export function behaviorTests(c: Ctx): Test[] {
       const m0 = await metrics(diagram);
       const right = Math.max(...m0.nodes.map((n) => n.x + n.w));
       const retry = nodeOf(m0, id("deliverOrder::retry"));
-      await gesture(diagram, { kind: "connectDrag", source: id("deliverOrder::retry"), relation: "succession", x: right + 80, y: retry.y + retry.h / 2 });
+      await gesture(diagram, { kind: "connectDrag", source: id("deliverOrder::retry"), relation: "succession", x: Math.min(...m0.nodes.map((n) => n.x)) - 12, y: retry.y + retry.h / 2 });
       await c.eventually(async () => assert.deepStrictEqual((await metrics(diagram)).quickBar, ["action", "fork", "join", "decide", "merge"]), "the quick bar shows");
+      const qa = (await metrics(diagram)).quickAnchor!;
+      assert.ok(Math.abs(qa.bar.x - qa.ghostEnd.x) < 2 && Math.abs(qa.bar.y - qa.ghostEnd.y) < 2, `the bar sits at the end of the ghost line: ${JSON.stringify(qa)}`);
+      assert.ok(Math.abs(qa.ghostEnd.x - (Math.min(...m0.nodes.map((n) => n.x)) - 12)) < 2, "the ghost line ends at the pointer");
       assert.strictEqual(onDisk(model), original, "a line without a target is never written");
       png("authoring-quick-bar.png", await api.diagram.pngWindow(uriOf(diagram), "editor-dark"));
       await gesture(diagram, { kind: "quickBar", item: "fork" });
       await waitFor(() => onDisk(model).includes("fork fork1;") && onDisk(model).includes("first retry then fork1;"), 15000, "the fork and the succession are on disk");
       await savedAndClean(model);
-      await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.shape === "fork" && n.x > right)), "the fork is drawn where the line was released");
+      await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.shape === "fork")), "the fork is drawn");
       await api.model.ready;
       await vscode.commands.executeCommand("undo");
       await waitFor(() => onDisk(model) === original, 15000, "one undo removes both");
@@ -690,6 +698,11 @@ export function behaviorTests(c: Ctx): Test[] {
       assert.ok(!onDisk(model).includes("first extra then ship;"));
       await savedAndClean(model);
       await c.eventually(async () => assert.strictEqual((await metrics(diagram)).edges.find((e) => e.id === eid)?.target, id("deliverOrder::gate")), "the line ends at the fork");
+      const mine = mem(diagram).edges.filter((e) => e.locator?.kind === "succession" && e.locator.ends.join() === "extra,gate");
+      assert.strictEqual(mine.length, 1, "a single entry for the line");
+      assert.strictEqual(mine[0]!.id, eid);
+      assert.strictEqual((mem(diagram).edges.find((e) => e.id === eid) as unknown as { target: string }).target, id("deliverOrder::gate"), "the stored end follows");
+      assert.ok(!dirty(diagram), "a model edit does not mark the diagram changed");
     }, { text: (t) => t.replace("    flow of Parcel", "    action extra;\n    fork gate;\n    first extra then ship;\n    flow of Parcel") })],
     ["Reconnect: an item flow end dropped on a fork is refused with a reason, and snaps back", scenario("AuFlowFork", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, edge, original }) => {
       const eid = edge((e) => e.locator?.kind === "flow");

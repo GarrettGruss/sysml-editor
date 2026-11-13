@@ -108,6 +108,7 @@ export class SvgRenderer implements DiagramRenderer {
       onPreview: (boxes, band) => { this.preview = boxes; this.band = band; this.repaint(); },
       onEdit: (edit) => cb.onEdit(this.withRoutes(edit)),
       onPan: (dx, dy) => {
+        this.closeQuick();
         this.panStart ??= { ...this.view };
         this.view = { ...this.view, x: this.view.x + dx, y: this.view.y + dy };
         this.applyView();
@@ -128,7 +129,6 @@ export class SvgRenderer implements DiagramRenderer {
 
   render(viewModel: ViewModel, layout: LayoutResult): void {
     const known = new Set(this.vm?.edges.map((e) => e.id));
-    this.dropConnect();
     this.vm = viewModel;
     this.rel = new Map(layout.boxes);
     this.mins = new Map(layout.mins);
@@ -139,6 +139,10 @@ export class SvgRenderer implements DiagramRenderer {
     this.band = undefined;
     this.scene = buildScene(viewModel, this.rel, this.mins, this.measure);
     this.ia.setScene(this.scene);
+    // An open connection survives a re-render while its source (and, for a moved line end, the line) still exists.
+    const g = this.cg;
+    if (!(g && this.scene.get(g.source) && (g.kind !== "reconnect" || viewModel.edges.some((e) => e.id === g.edge)))) this.dropConnect();
+    else this.handleNode = undefined;
     this.tools.setDiagram(viewModel);
     this.closeEditor();
     const edge = this.selectedEdge !== undefined ? viewModel.edges.find((e) => e.id === this.selectedEdge) : undefined;
@@ -416,7 +420,13 @@ export class SvgRenderer implements DiagramRenderer {
 
   getView(): View { return { ...this.view }; }
 
+  /** The view moved under an open quick bar: it would no longer sit at the end of the line. */
+  private closeQuick(): void {
+    if (this.quick) this.cancelConnect();
+  }
+
   setView(v: View): void {
+    this.closeQuick();
     this.view = { ...v };
     this.applyView();
   }
@@ -574,7 +584,9 @@ export class SvgRenderer implements DiagramRenderer {
     document.addEventListener("visibilitychange", () => { if (document.hidden) this.setHover(undefined); else this.resendHover(); });
     document.addEventListener("pointerleave", () => this.setHover(undefined));
     document.addEventListener("mouseout", (e) => { if (e.relatedTarget === null) this.setHover(undefined); });
-    window.addEventListener("blur", () => this.setHover(undefined));
+    window.addEventListener("blur", () => { this.setHover(undefined); if (this.cg && !this.quick) this.cancelConnect(); });
+    window.addEventListener("resize", () => this.closeQuick());
+    svg.addEventListener("lostpointercapture", () => { if (this.cg?.down && !this.quick) this.cancelConnect(); });
     window.addEventListener("focus", () => this.resendHover());
     const end = (e: PointerEvent) => {
       if (this.cg) { this.releaseConnect(this.toInput(e)); return; }
@@ -605,6 +617,7 @@ export class SvgRenderer implements DiagramRenderer {
     });
     svg.addEventListener("wheel", (e) => {
       e.preventDefault();
+      this.closeQuick();
       if (e.ctrlKey || e.metaKey) {
         const r = svg.getBoundingClientRect();
         this.zoomAt(e.clientX - r.left, e.clientY - r.top, wheelFactor(e.deltaY));
@@ -777,8 +790,8 @@ export class SvgRenderer implements DiagramRenderer {
   private connectProblem(g: ConnGesture, id: string): string | undefined {
     const rel = g.relation;
     const role = g.kind === "reconnect" ? g.end! : "target";
-    // Handle drags and moved line ends refuse inherited ends here; a palette tool leaves it to the host, which also explains how to change the definition.
-    return endProblem(this.vm, rel, g.source, id, role) ?? (g.side !== undefined || g.kind === "reconnect" ? this.lockedProblem(id) : undefined);
+    // Inherited ends of successions, transitions and messages stay read-only (D18). A plain connection may end at an inherited port: it is written in the owner.
+    return endProblem(this.vm, rel, g.source, id, role) ?? (g.side !== undefined || g.kind === "reconnect" || g.relation === "succession" || g.relation === "transition" || g.relation === "message" ? this.lockedProblem(id) : undefined);
   }
 
   /** The pointer moved with a connection open: find the node under it, and say whether it may be the end. */
@@ -868,8 +881,8 @@ export class SvgRenderer implements DiagramRenderer {
     el.setAttribute("role", "toolbar");
     el.setAttribute("aria-label", "Add a node at the end of the line");
     const c = this.toClient(p);
-    el.style.left = `${c.clientX + 8}px`;
-    el.style.top = `${c.clientY + 8}px`;
+    el.style.left = `${c.clientX + QUICK_GAP}px`;
+    el.style.top = `${c.clientY}px`;
     for (const k of kinds) {
       const b = document.createElement("button");
       b.type = "button";
@@ -884,7 +897,7 @@ export class SvgRenderer implements DiagramRenderer {
     // Keep the bar on screen near the end of the line.
     const r = el.getBoundingClientRect();
     if (r.right > window.innerWidth - 8) el.style.left = `${Math.max(8, window.innerWidth - r.width - 8)}px`;
-    if (r.bottom > window.innerHeight - 8) el.style.top = `${Math.max(8, c.clientY - r.height - 8)}px`;
+    if (r.bottom > window.innerHeight - 8) el.style.top = `${Math.max(8, c.clientY - r.height)}px`;
     this.quick = { el, at: p, items: kinds, source: g.source, relation, ...(g.side ? { side: g.side } : {}) };
     this.svg.style.cursor = "";
     this.tip.hidden = true;
@@ -1342,10 +1355,19 @@ export class SvgRenderer implements DiagramRenderer {
     };
   }
 
+  /** Where the quick bar sits and where the ghost line ends, in canvas coordinates (a test measure: they match). */
+  private quickAnchor(): Pick<Metrics, "quickAnchor"> | Record<string, never> {
+    const q = this.quick;
+    if (!q) return {};
+    const sr = this.svg.getBoundingClientRect(), br = q.el.getBoundingClientRect();
+    const cv = (cx: number, cy: number) => ({ x: (cx - sr.left - this.view.x) / this.view.k, y: (cy - sr.top - this.view.y) / this.view.k });
+    return { quickAnchor: { bar: cv(br.left - QUICK_GAP, br.top), ghostEnd: { x: q.at.x, y: q.at.y } } };
+  }
+
   private connectMetrics(): Pick<Metrics, "ghost" | "quickBar" | "connectHandles" | "reconnectHandles"> {
     const g = this.cg;
     const ghost = g && this.overlay.querySelector("[data-ghost]") ? { points: (this.overlay.querySelector("[data-ghost]")?.getAttribute("d") ?? "").split(/[ML]/).filter(Boolean).length, ...(g.target !== undefined ? { target: g.target } : {}), ...(g.invalid !== undefined ? { invalid: g.invalid } : {}) } : undefined;
-    return { ...(ghost ? { ghost } : {}), quickBar: this.quick ? this.quick.items : [], connectHandles: this.overlay.querySelectorAll("[data-connect-handle]").length, reconnectHandles: this.overlay.querySelectorAll("[data-reconnect-handle]").length };
+    return { ...(ghost ? { ghost } : {}), quickBar: this.quick ? this.quick.items : [], ...this.quickAnchor(), connectHandles: this.overlay.querySelectorAll("[data-connect-handle]").length, reconnectHandles: this.overlay.querySelectorAll("[data-reconnect-handle]").length };
   }
 
   toSvgString(theme: PngTheme): string {
@@ -1397,6 +1419,9 @@ function themeOf(): string {
   const c = document.body.classList;
   return c.contains("vscode-high-contrast") || c.contains("vscode-high-contrast-light") ? "hc" : c.contains("vscode-light") ? "light" : "dark";
 }
+
+/** Gap between the end of the ghost line and the quick bar, in px. */
+const QUICK_GAP = 6;
 
 const closeMenu = (): void => document.querySelector(".ctx-menu")?.remove();
 

@@ -241,6 +241,8 @@ export interface DiagramMetrics {
   /** A ghost line is on screen (its target when it snaps to one, and why it cannot connect to the node under it), the quick bar's items, the quick-connect and reconnect handles drawn. */
   ghost?: { target?: string; invalid?: string; points: number };
   quickBar: string[];
+  /** With the quick bar open: where it sits and where the ghost line ends (canvas coordinates). */
+  quickAnchor?: { bar: { x: number; y: number }; ghostEnd: { x: number; y: number } };
   connectHandles: number;
   reconnectHandles: number;
   /** Whether the canvas shows a focus outline now (the computed outline style is not "none"). */

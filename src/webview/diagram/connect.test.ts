@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { quickBarItems } from "../../diagram/palette.js";
 import type { ViewModel, VmNode } from "../../diagram/view-model.js";
-import { endProblem, facingSide, ghostRoute, handleBoxesOf, handleRelation, hasHandles, sideAt, sidePoint } from "./connect.js";
+import { endProblem, freeRoute, facingSide, ghostRoute, handleBoxesOf, handleRelation, hasHandles, sideAt, sidePoint } from "./connect.js";
 import { isOrthogonal } from "./routing.js";
 
 const node = (id: string, shape: VmNode["shape"], extra: Partial<VmNode> = {}): VmNode => ({ id, shape, label: id, resolved: true, ...extra });
@@ -68,5 +68,19 @@ describe("quick-connect handles and the quick bar", () => {
     expect(quickBarItems("actionFlow", "succession").map((i) => i.kind)).toEqual(["action", "fork", "join", "decide", "merge"]);
     expect(quickBarItems("stateTransition", "transition").map((i) => i.kind)).toEqual(["state"]);
     expect(quickBarItems("general", "connection")).toEqual([]);
+  });
+});
+
+describe("free ghost route", () => {
+  test("ends exactly at the pointer, in every direction, and is orthogonal", () => {
+    for (const to of [{ x: 400, y: 300 }, { x: 20, y: 300 }, { x: 140, y: 20 }, { x: 150, y: 100.5 }]) {
+      for (const side of ["R", "L", "U", "D"] as const) {
+        const pts = ghostRoute(box, side, to);
+        expect(pts[pts.length - 1]).toEqual(to);
+        expect(isOrthogonal(pts)).toBe(true);
+        expect(pts[0]).toEqual(sidePoint(box, side));
+      }
+    }
+    expect(freeRoute({ x: 0, y: 0 }, "R", { x: 100, y: 50 }).length).toBeGreaterThan(2);
   });
 });

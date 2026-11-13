@@ -5,7 +5,7 @@
 import type { ConnectRelation } from "../../diagram/protocol.js";
 import type { ViewModel, VmNode } from "../../diagram/view-model.js";
 import type { Box, Pt } from "./geometry.js";
-import { routeOrthogonal, type Side } from "./routing.js";
+import { clean, routeOrthogonal, type Side } from "./routing.js";
 
 export const SIDES: readonly Side[] = ["R", "L", "U", "D"];
 
@@ -26,8 +26,24 @@ export function facingSide(b: Box, p: Pt): Side {
  */
 export function ghostRoute(src: Box, side: Side | undefined, to: Pt, target?: Box): Pt[] {
   if (target) return routeOrthogonal(src, target, side);
-  const s = side ?? facingSide(src, to);
-  return routeOrthogonal(src, { x: to.x, y: to.y, w: 0, h: 0 }, s);
+  return freeRoute(sidePoint(src, side ?? facingSide(src, to)), side ?? facingSide(src, to), to);
+}
+
+/** An orthogonal route from the side point `a` (leaving in the direction of `side`) that ends exactly at `to`. */
+export function freeRoute(a: Pt, side: Side, to: Pt): Pt[] {
+  const STUB = 20;
+  const horiz = side === "R" || side === "L";
+  const dir = side === "R" || side === "D" ? 1 : -1;
+  const ahead = horiz ? (to.x - a.x) * dir > STUB : (to.y - a.y) * dir > STUB;
+  let pts: Pt[];
+  if (horiz) {
+    const mx = ahead ? (a.x + to.x) / 2 : a.x + dir * STUB;
+    pts = [a, { x: mx, y: a.y }, { x: mx, y: to.y }, to];
+  } else {
+    const my = ahead ? (a.y + to.y) / 2 : a.y + dir * STUB;
+    pts = [a, { x: a.x, y: my }, { x: to.x, y: my }, to];
+  }
+  return clean(pts);
 }
 
 const isState = (n: VmNode) => n.shape === "state";

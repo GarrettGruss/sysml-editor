@@ -110,3 +110,54 @@ describe("reconnecting one end of a line", () => {
     expect(host.applied).toHaveLength(0);
   });
 });
+
+describe("undo and redo of connecting edits", () => {
+  const snap = (host: FakeHost, ) => JSON.stringify(host.diagramOnDisk(D).edges.map((e) => ({ s: e.source, t: e.target, l: e.locator, p: e.points })));
+  test("connectNew: one edge entry, undo removes node and line, redo brings back the same entries", async () => {
+    const d = diagram("actionFlow", "P::A", [{ id: "n1", ref: "P::A" }, { id: "n2", ref: "P::A::a", parent: "n1" }, { id: "n3", ref: "P::A::b", parent: "n1" }]);
+    const { host, svc, q } = setup("package P { action def A { action a; action b; first a then b; } }", d);
+    const before = snap(host);
+    const r = ok(await svc.addConnectedNode(q("P::A::b"), "fork", "succession", { diagram: D, placement: { diagram: D, parentNode: "n1", x: 5, y: 6 } }));
+    const doc = host.diagramOnDisk(D);
+    const node = doc.nodes.find((n) => n.ref === "P::A::fork1")!;
+    expect(doc.nodes.filter((n) => n.ref === "P::A::fork1")).toHaveLength(1);
+    expect(doc.edges.filter((e) => e.target === node.id)).toHaveLength(1);
+    expect(doc.edges.find((e) => e.target === node.id)).toMatchObject({ source: "n3", locator: { kind: "succession", ends: ["b", "fork1"] } });
+    const after = snap(host);
+    await svc.undo(r);
+    expect(host.diagramOnDisk(D).nodes.some((n) => n.ref === "P::A::fork1")).toBe(false);
+    expect(snap(host)).toBe(before);
+    await svc.redo(r);
+    expect(host.diagramOnDisk(D).nodes.filter((n) => n.ref === "P::A::fork1")).toHaveLength(1);
+    expect(snap(host)).toBe(after);
+  });
+  test("reconnect: undo restores locator, ends and route; redo repeats them", async () => {
+    const d = diagram("actionFlow", "P::A", [{ id: "n1", ref: "P::A" }, { id: "n2", ref: "P::A::a", parent: "n1" }, { id: "n3", ref: "P::A::b", parent: "n1" }, { id: "n4", ref: "P::A::c", parent: "n1" }], [{ id: "e1", locator: { owner: "P::A", kind: "succession", ends: ["a", "b"] }, source: "n2", target: "n3", points: [{ x: 1, y: 1 }, { x: 5, y: 1 }] }]);
+    const { host, svc, q } = setup("package P { action def A { action a; action b; action c; first a then b; } }", d);
+    const before = snap(host);
+    const s = q("P::A").members.find((m) => m.kind === "succession")!;
+    const r = ok(await svc.reconnect(s, "target", q("P::A::c"), { diagram: D }));
+    const after = snap(host);
+    expect(host.diagramOnDisk(D).edges).toHaveLength(1);
+    expect(after).not.toBe(before);
+    await svc.undo(r);
+    expect(snap(host)).toBe(before);
+    await svc.redo(r);
+    expect(snap(host)).toBe(after);
+  });
+  test("reconnect works when the owner has no qualified name", async () => {
+    const { host, svc, q } = setup("package P { action def A { action a; action b; action c; first a then b; } }");
+    const s = q("P::A").members.find((m) => m.kind === "succession")!;
+    ok(await svc.reconnect(s, "target", q("P::A::c")));
+    expect(host.disk.get(U)).toContain("first a then c;");
+  });
+});
+
+describe("only the end text is replaced", () => {
+  test("a guard stays when the target moves", async () => {
+    const { host, svc, q } = setup("package P { action def A { action a; action b; action c; first a if x > 1 then b; } }");
+    const s = q("P::A").members.find((m) => m.kind === "succession")!;
+    ok(await svc.reconnect(s, "target", q("P::A::c")));
+    expect(host.disk.get(U)).toContain("first a if x > 1 then c;");
+  });
+});
