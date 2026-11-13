@@ -503,6 +503,17 @@ export class SvgRenderer implements DiagramRenderer {
     const t = `translate(${x} ${y}) scale(${k})`;
     this.world.setAttribute("transform", t);
     this.overlay.setAttribute("transform", t);
+    this.placeEditor();
+  }
+
+  /** Put the inline input back on its anchor after a pan, a zoom or a redraw; close it when what it is on has gone. */
+  private placeEditor(): void {
+    const e = this.editor;
+    if (!e) return;
+    const a = e.currentAnchor();
+    if (!a) { this.closeEditor(); return; }
+    const r = this.svg.getBoundingClientRect();
+    e.moveTo(r.left + this.view.x + a.x * this.view.k, r.top + this.view.y + a.y * this.view.k);
   }
 
   // ---- selection -------------------------------------------------------------------------
@@ -657,6 +668,8 @@ export class SvgRenderer implements DiagramRenderer {
     }, { passive: false });
     svg.addEventListener("keydown", (e) => {
       svg.removeAttribute("data-pointer");
+      // An inline input that lost focus after an error is still open: Escape cancels it (and so the ghost and the tool behind it).
+      if (e.key === "Escape" && this.editor) { this.editor.cancel(); e.preventDefault(); return; }
       if (e.key === "Escape" && (this.cg || this.quick)) { this.cancelConnect(); e.preventDefault(); return; }
       if (e.key === "Escape" && this.cancelLineGesture()) { e.preventDefault(); return; }
       if (e.key === "Escape" && !this.tool && this.selectedEdge !== undefined) { this.selectedEdge = undefined; this.repaint(); this.tools.setSelection(this.vm, this.ia.selection); }
@@ -1129,7 +1142,7 @@ export class SvgRenderer implements DiagramRenderer {
     const c = this.toClient(at);
     const k = this.view.k;
     const input = new InlineInput({
-      left: c.clientX + 4 * k, top: c.clientY + (g.keyword ? 18 : 3) * k, width: Math.max(110, (g.w - 8) * k), anchor: { x: at.x + 4, y: at.y + (g.keyword ? 18 : 3) },
+      left: c.clientX + 4 * k, top: c.clientY + (g.keyword ? 18 : 3) * k, width: Math.max(110, (g.w - 8) * k), anchor: { x: at.x + 4, y: at.y + (g.keyword ? 18 : 3) }, anchorNow: () => ({ x: at.x + 4, y: at.y + (g.keyword ? 18 : 3) }),
       value: this.pg?.name ?? this.guessName(kind), purpose, label: `Name of the new ${kind}`,
       check: async (v) => (await this.cb.checkName({ name: v, kind, ...where })).problem,
       init: async (inp) => {
@@ -1179,6 +1192,7 @@ export class SvgRenderer implements DiagramRenderer {
     const top = box.y + (n.keyword ? 18 : 3);
     this.editor = new InlineInput({
       left: r.left + this.view.x + (box.x + 4) * this.view.k, top: r.top + this.view.y + top * this.view.k, width: Math.max(90, (box.w - 8) * this.view.k), anchor: { x: box.x + 4, y: top },
+      anchorNow: () => { const b = this.scene.get(id)?.abs; const nn = this.vm?.nodes.find((x) => x.id === id); return b && nn ? { x: b.x + 4, y: b.y + (nn.keyword ? 18 : 3) } : undefined; },
       value: original, purpose: "rename", label: `Rename ${original}`,
       check: async (v) => (v === original ? undefined : (await this.cb.checkName({ name: v, siblingOf: id, rename: true })).problem),
       onCommit: (v) => { this.editor = undefined; this.svg.focus({ preventScroll: true }); if (v.trim() !== "" && v !== original) this.cb.onModel({ kind: "rename", id, name: v }); },
@@ -1203,13 +1217,17 @@ export class SvgRenderer implements DiagramRenderer {
     const top = c.docArea ? box.y + c.docArea.y - 2 : box.y + c.headerH;
     const k = this.view.k;
     this.editor = new InlineInput({
-      left: r.left + this.view.x + (box.x + 4) * k, top: r.top + this.view.y + top * k, width: Math.max(180, (box.w - 8) * k), anchor: { x: box.x + 4, y: top }, height: Math.max(56, ((c.docArea?.h ?? 0) + 14) * k),
+      left: r.left + this.view.x + (box.x + 4) * k, top: r.top + this.view.y + top * k, width: Math.max(180, (box.w - 8) * k), anchor: { x: box.x + 4, y: top },
+      anchorNow: () => { const b = this.scene.get(id)?.abs; const nn = this.vm?.nodes.find((x) => x.id === id); if (!b || !nn) return undefined; const cc = describeBox(nn, this.measure); return { x: b.x + 4, y: cc.docArea ? b.y + cc.docArea.y - 2 : b.y + cc.headerH }; },
+      height: Math.max(56, ((c.docArea?.h ?? 0) + 14) * k),
       value: original, multiline: true, purpose: "doc", label: `Description of ${n.props.name ?? n.label}`,
       onCommit: (v) => {
         this.editor = undefined;
         this.svg.focus({ preventScroll: true });
-        const text = v.replace(/\r\n/g, "\n").trim();
-        if (text !== original.trim()) this.cb.onModel({ kind: "setProperties", id, changes: { documentation: text === "" ? null : text } });
+        // Leading whitespace of the first line is kept; only blank lines at the start and trailing whitespace go.
+        const clean = (t: string) => t.replace(/\r\n/g, "\n").replace(/^(?:[ \t]*\n)+/, "").trimEnd();
+        const text = clean(v);
+        if (text !== clean(original)) this.cb.onModel({ kind: "setProperties", id, changes: { documentation: text.trim() === "" ? null : text } });
       },
       onCancel: () => { this.editor = undefined; this.svg.focus({ preventScroll: true }); },
     });

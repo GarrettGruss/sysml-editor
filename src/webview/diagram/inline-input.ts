@@ -20,6 +20,8 @@ export interface InlineInputOptions {
   width: number;
   /** Where the field's corner is on the canvas (the window screenshot places it from this). */
   anchor?: { x: number; y: number };
+  /** The anchor now (the node may have moved); undefined when what the input is on is gone. Used by `place`. */
+  anchorNow?(): { x: number; y: number } | undefined;
   /** The field's height in client pixels (multi-line fields). */
   height?: number;
   value: string;
@@ -87,6 +89,17 @@ export class InlineInput {
 
   /** Settled when the last save or cancel has run (a test measure). */
   settle(): Promise<void> { return this.op; }
+
+  /** The canvas point the field is on now, or undefined when it is gone. */
+  currentAnchor(): { x: number; y: number } | undefined { return this.o.anchorNow ? this.o.anchorNow() : this.o.anchor; }
+
+  /** Move the field to a client position. */
+  moveTo(left: number, top: number): void {
+    this.el.style.left = `${left}px`;
+    this.el.style.top = `${top}px`;
+    const a = this.currentAnchor();
+    if (a) { this.el.dataset.ax = String(a.x); this.el.dataset.ay = String(a.y); }
+  }
 
   get value(): string { return this.field.value; }
 

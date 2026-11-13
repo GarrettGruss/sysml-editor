@@ -824,6 +824,20 @@ export function editingTests(c: Ctx): Test[] {
       await waitFor(() => onDisk(model).includes("part wheel;"), 15000, "a click elsewhere saves the corrected name");
     })],
 
+    ["Palette ghost: a name with spaces is quoted; after a click outside with an error, Escape on the canvas cancels the input and the ghost", scenario("EdGhost3", { "tmp-edghost3.sysmld": gen("EdGhost3") }, async ({ model, diagram }) => {
+      const original = MODEL("EdGhost3");
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, hold: true });
+      await gesture(diagram, { kind: "inline", text: "spare", end: "blur" });
+      await sleep(300);
+      assert.strictEqual((await metrics(diagram)).inlineEditor, true, "an error keeps the input open after a click outside");
+      await gesture(diagram, { kind: "key", key: "Escape" });
+      await c.eventually(async () => { const m = await metrics(diagram); assert.strictEqual(m.inlineEditor, false); assert.strictEqual(m.paletteGhost, undefined); assert.strictEqual(m.tool, undefined); }, "Escape cleaned up the input, the ghost and the tool");
+      assert.strictEqual(onDisk(model), original);
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, hold: true });
+      await gesture(diagram, { kind: "inline", text: "my wheel", end: "enter" });
+      await waitFor(() => onDisk(model).includes("part 'my wheel';"), 15000, "the name is quoted");
+    })],
+
     ["Inline rename: a click outside saves (references follow), Escape cancels, and an inherited element offers no input but has a tooltip saying why", scenario("EdRen2", { "tmp-edren2b.sysmld": gen("EdRen2") }, async ({ model, diagram }) => {
       await gesture(diagram, { kind: "dblclick", id: "n3" });
       assert.strictEqual((await metrics(diagram)).inline?.purpose, "rename");

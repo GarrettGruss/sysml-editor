@@ -17,7 +17,7 @@ export const kindLabel = (kind: string): string => LABELS[kind] ?? kind.charAt(0
 /** Why `name` cannot be used for a new or renamed member of `owner`, or undefined when it is fine. */
 export function nameProblem(name: string, owner: Element | undefined, renaming?: Element, index?: ModelIndex): string | undefined {
   if (name.trim() === "") return "Enter a name.";
-  if (/[\r\n]/.test(name)) return "The name must be a single line.";
+  if (/[\u0000-\u001f\u007f]/.test(name)) return "The name must be a single line without control characters (tabs included).";
   const taken = owner?.members.find((m) => m !== renaming && m.kind !== "import" && (m.name === name || m.shortName === name));
   if (taken) return `${owner!.name ?? "The owner"} already has a member named '${name}'.`;
   // With the index, a name the owner inherits clashes too (the planner refuses it; the user sees why while typing).

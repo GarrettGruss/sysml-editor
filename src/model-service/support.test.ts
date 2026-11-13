@@ -34,6 +34,7 @@ describe("tree and dialog helpers", () => {
   it("validates names", () => {
     expect(nameProblem("", q("P"))).toMatch(/Enter a name/);
     expect(nameProblem("a\nb", q("P"))).toMatch(/single line/);
+    expect(nameProblem("a\tb", q("P"))).toMatch(/control characters/);
     expect(nameProblem("Engine", q("P"))).toMatch(/already has a member/);
     expect(nameProblem("Engine", q("P"), q("P::Engine"))).toBeUndefined();
     expect(nameProblem("fuel pump", q("P"))).toBeUndefined();

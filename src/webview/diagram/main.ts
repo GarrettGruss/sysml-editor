@@ -50,6 +50,8 @@ const renderer = new SvgRenderer(document.body, measure, {
   checkName: (req) => new Promise((resolve) => {
     const requestId = ++suggestId;
     nameChecks.set(requestId, resolve);
+    // No answer (the host is busy or the panel was reloaded): the input goes on without a verdict; the host checks again when it writes.
+    setTimeout(() => { if (nameChecks.delete(requestId)) resolve({}); }, 2000);
     post({ type: "nameCheck", requestId, ...req });
   }),
 });

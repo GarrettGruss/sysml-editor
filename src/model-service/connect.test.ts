@@ -35,6 +35,13 @@ describe("a node and its line, as one edit", () => {
     expect(doc.nodes.find((n) => n.ref === "P::A::action1")).toMatchObject({ x: 200, y: 90, parent: "n1" });
     expect(doc.edges.some((e) => e.target === doc.nodes.find((n) => n.ref === "P::A::action1")!.id)).toBe(true);
   });
+  test.each([["my step", "'my step'"], ["then", "'then'"], ["it's", "'it\\'s'"]])("a typed name %s is quoted in the declaration and the line", async (name, quoted) => {
+    const { host, svc, q } = setup(model);
+    ok(await svc.addConnectedNode(q("P::A::b"), "action", "succession", { name }));
+    const t = host.disk.get(U)!;
+    expect(t).toContain(`action ${quoted};`);
+    expect(t).toContain(`first b then ${quoted};`);
+  });
   test("a state and a transition to it", async () => {
     const { host, svc, q } = setup("package P { state def S { state idle; } }");
     ok(await svc.addConnectedNode(q("P::S::idle"), "state", "transition"));

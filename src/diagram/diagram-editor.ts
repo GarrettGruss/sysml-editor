@@ -466,14 +466,13 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       case "typeSuggestions": {
         const t = this.targetOf(doc, m.id);
         const items = t ? typeCandidates(this.model.index, t.element, typeof m.query === "string" ? m.query : "") : [];
-        const p2 = [...(this.panels.get(doc.key) ?? [])].find((x) => x.ready);
-        if (p2) this.post(p2, { type: "typeSuggestionsResult", requestId: m.requestId, items });
+        // To the panel that asked: the same diagram can be open in two.
+        this.post(p, { type: "typeSuggestionsResult", requestId: m.requestId, items });
         break;
       }
       case "nameCheck": {
         const r = this.checkName(doc, m);
-        const p2 = [...(this.panels.get(doc.key) ?? [])].find((x) => x.ready);
-        if (p2) this.post(p2, { type: "nameCheckResult", requestId: m.requestId, ...r });
+        this.post(p, { type: "nameCheckResult", requestId: m.requestId, ...r });
         break;
       }
       case "relink":
