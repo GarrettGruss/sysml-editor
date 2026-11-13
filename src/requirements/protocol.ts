@@ -168,7 +168,7 @@ export interface RequirementsMetrics {
   };
   matrix: {
     /** The drawn rows: the requirement cell's id and name, and the texts of the other cells. */
-    rows: { qn: string; kind: "section" | "requirement"; number: string; depth: number; id: string; satisfiedBy: string[]; method: string; verifiedBy: string[]; status: string; links: string[]; selected: boolean }[];
+    rows: { qn: string; kind: "section" | "requirement"; number: string; depth: number; id: string; satisfiedBy: string[]; usages: string; method: string; verifiedBy: string[]; status: string; links: string[]; selected: boolean }[];
     filter: string;
     summary: string;
     columns: string[];

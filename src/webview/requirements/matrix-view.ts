@@ -1,5 +1,5 @@
 /** The verification matrix of the requirements editor webview: rows, cells that link to declarations, summary, filters, export. */
-import { filterRows, type MatrixFilter, type MatrixLink, type MatrixRow, type MatrixVM } from "../../requirements/matrix-shape.js";
+import { filterRows, usagesText, type MatrixFilter, type MatrixLink, type MatrixRow, type MatrixVM } from "../../requirements/matrix-shape.js";
 import type { Intent } from "../../requirements/protocol.js";
 
 type Child = Node | string | undefined | false;
@@ -17,13 +17,14 @@ export const FILTERS: readonly { id: MatrixFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "gaps", label: "Gaps" },
   { id: "not satisfied", label: "Not satisfied" },
+  { id: "partly satisfied", label: "Partly satisfied" },
   { id: "no verification", label: "No verification" },
   { id: "covered", label: "Covered" },
 ];
 
 export const summaryText = (m: MatrixVM): string => {
   const s = m.summary;
-  return s.total === 0 ? "No requirements" : `${s.total} requirement${s.total === 1 ? "" : "s"}: ${s.covered} covered (${s.percentCovered}%), ${s.noVerification} with no verification, ${s.notSatisfied} not satisfied`;
+  return s.total === 0 ? "No requirements" : `${s.total} requirement${s.total === 1 ? "" : "s"}: ${s.covered} covered (${s.percentCovered}%), ${s.noVerification} with no verification, ${s.partlySatisfied} partly satisfied, ${s.notSatisfied} not satisfied`;
 };
 
 export function matrixView(m: MatrixVM, c: MatrixContext): HTMLElement {
@@ -83,10 +84,12 @@ function requirementRow(r: MatrixRow, c: MatrixContext): HTMLElement {
   const first = h("td", { "data-cell": "requirement", "data-depth": String(r.depth) }, h("span", { class: "num" }, r.number + " "), name);
   indent(first, r.depth);
   tr.append(first);
-  const list = (links: MatrixLink[], testid: string, remove: (l: MatrixLink) => Intent, add: Intent, addLabel: string) =>
-    h("td", { "data-cell": testid }, h("ul", { class: "mx-list", "data-testid": testid }, ...links.map((l) => link(l, c, l.statementKey && r.editable ? () => c.intent(remove(l)) : undefined))), c.button("+", testid + "-add", () => c.intent(add), { title: addLabel, disabled: !r.editable, className: "icon" }));
+  const list = (links: MatrixLink[], testid: string, remove: (l: MatrixLink) => Intent, add: Intent, addLabel: string, note?: string) =>
+    h("td", { "data-cell": testid }, h("div", { class: "mx-box" },
+      h("ul", { class: "mx-list", "data-testid": testid }, ...links.map((l) => link(l, c, l.statementKey && r.editable ? () => c.intent(remove(l)) : undefined)), note ? h("li", { class: "usages", "data-testid": "mx-usages" }, note) : undefined),
+      c.button("+", testid + "-add", () => c.intent(add), { title: addLabel, disabled: !r.editable, className: "icon" })));
   tr.append(
-    list(r.satisfiedBy, "mx-satisfy", (l) => ({ type: "removeSatisfy", key: l.statementKey! }), { type: "addSatisfy", qn: r.qn }, `Add an element that satisfies ${r.name}`),
+    list(r.satisfiedBy, "mx-satisfy", (l) => ({ type: "removeSatisfy", key: l.statementKey! }), { type: "addSatisfy", qn: r.qn }, `Add an element that satisfies ${r.name}`, r.usages ? usagesText(r.usages) : undefined),
     h("td", { "data-cell": "mx-method" }, r.methods.join(", ")),
     list(r.verifiedBy, "mx-verify", (l) => ({ type: "removeVerify", key: l.statementKey! }), { type: "addVerify", qn: r.qn }, `Add a verification case for ${r.name}`),
     h("td", { "data-cell": "mx-status" }, h("span", { class: "status status-" + (r.status ?? "").replace(/ /g, "-") }, r.status ?? "")),
@@ -98,7 +101,7 @@ function requirementRow(r: MatrixRow, c: MatrixContext): HTMLElement {
 /** What the metrics report: read from the drawn rows, so tests see what the user sees. */
 export function matrixMetrics(filter: MatrixFilter, selected: string | undefined) {
   const t = (e: Element | null | undefined) => (e?.textContent ?? "").replace(/\s+/g, " ").trim();
-  const items = (tr: Element, id: string) => [...tr.querySelectorAll(`[data-testid=${id}] > li`)].map((li) => [t(li.querySelector("a, span")), t(li.querySelector(".via-note"))].filter(Boolean).join(" "));
+  const items = (tr: Element, id: string) => [...tr.querySelectorAll(`[data-testid=${id}] > li:not(.usages)`)].map((li) => [t(li.querySelector("a, span")), t(li.querySelector(".via-note"))].filter(Boolean).join(" "));
   const rows = [...document.querySelectorAll<HTMLElement>("tr[data-testid=mx-row]")].map((tr) => {
     const kind = tr.dataset.kind === "section" ? ("section" as const) : ("requirement" as const);
     const num = t(tr.querySelector(".num"));
@@ -109,6 +112,7 @@ export function matrixMetrics(filter: MatrixFilter, selected: string | undefined
       depth: Number((tr.querySelector("td, th") as HTMLElement | null)?.dataset.depth ?? "0"),
       id: kind === "section" ? "" : t(tr.querySelector("[data-cell=requirement] a")),
       satisfiedBy: items(tr, "mx-satisfy"),
+      usages: t(tr.querySelector(".usages")),
       method: t(tr.querySelector("[data-cell=mx-method]")),
       verifiedBy: items(tr, "mx-verify"),
       status: tr.dataset.status ?? "",

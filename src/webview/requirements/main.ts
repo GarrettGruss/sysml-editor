@@ -442,7 +442,7 @@ function draw(): void {
     tabs.append(t);
   }
   root.append(h("div", { class: "bar" }, h("span", { class: "scope", "data-testid": "scope" }, s?.scopeName ?? ""), tabs));
-  root.append(h("div", { id: "notice", class: "notice " + (notice?.level ?? ""), role: "status", "data-testid": "notice", hidden: !notice }, notice?.message));
+  root.append(h("div", { id: "notice", class: "notice " + (notice?.level ?? ""), role: "status", "data-testid": "notice", hidden: !notice?.message }, notice?.message));
   if (!s) root.append(h("p", { class: "empty" }, "Loading..."));
   else if (s.problem) root.append(h("p", { class: "empty error" }, s.problem));
   else root.append(view === "table" ? tableView(s) : view === "matrix" ? matrixSection(s) : documentView(s));

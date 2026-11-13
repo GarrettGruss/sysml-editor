@@ -2,7 +2,7 @@
 export type VerificationMethod = "inspect" | "analyze" | "demo" | "test";
 export const VERIFICATION_METHODS: readonly VerificationMethod[] = ["inspect", "analyze", "demo", "test"];
 
-export type MatrixStatus = "not satisfied" | "no verification" | "covered";
+export type MatrixStatus = "not satisfied" | "partly satisfied" | "no verification" | "covered";
 
 /** An element named in a cell. `qn` navigates to its declaration; `statementKey` removes the statement that links it. */
 export interface MatrixLink {
@@ -23,6 +23,8 @@ export interface MatrixRow {
   id: string;
   name: string;
   satisfiedBy: MatrixLink[];
+  /** A definition (or a requirement it owns) with usages: how many of them are satisfied. */
+  usages?: { satisfied: number; total: number };
   methods: VerificationMethod[];
   verifiedBy: MatrixLink[];
   /** Requirement rows only. */
@@ -35,6 +37,7 @@ export interface MatrixSummary {
   covered: number;
   noVerification: number;
   notSatisfied: number;
+  partlySatisfied: number;
   /** Whole percent of requirements that are covered (0 when there are none). */
   percentCovered: number;
 }
@@ -52,3 +55,6 @@ export function filterRows(rows: readonly MatrixRow[], filter: MatrixFilter): Ma
   return rows.filter((r) => r.kind === "requirement" && (filter === "gaps" ? r.status !== "covered" : r.status === filter));
 }
 
+
+/** "1 of 2 usages": how many usages of a requirement definition are satisfied. */
+export const usagesText = (u: { satisfied: number; total: number }): string => `${u.satisfied} of ${u.total} usage${u.total === 1 ? "" : "s"}`;

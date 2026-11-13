@@ -747,15 +747,15 @@ export function requirementsTests(c: Ctx): Test[] {
       assert.strictEqual((await row("S2")).status, "not satisfied");
       assert.strictEqual((await row("MFRQ03")).status, "no verification");
       // summary and filters
-      assert.match(x.matrix.summary, /9 requirements: 3 covered \(33%\), 5 with no verification, 1 not satisfied/);
+      assert.match(x.matrix.summary, /9 requirements: 4 covered \(44%\), 4 with no verification, 0 partly satisfied, 1 not satisfied/);
       await gesture(scope, { kind: "click", selector: "[data-testid=filter-no-verification]" });
       await eventually(async () => {
         const f = await m();
         assert.strictEqual(f.matrix.filter, "no verification");
-        assert.deepStrictEqual(f.matrix.rows.map((r) => r.status), ["no verification", "no verification", "no verification", "no verification", "no verification"]);
+        assert.deepStrictEqual(f.matrix.rows.map((r) => r.status), ["no verification", "no verification", "no verification", "no verification"]);
       }, "only the rows without verification are shown");
       await gesture(scope, { kind: "click", selector: "[data-testid=filter-gaps]" });
-      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 6), "gaps: not satisfied and no verification");
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 5), "gaps: not satisfied and no verification");
       await gesture(scope, { kind: "click", selector: "[data-testid=filter-all]" });
       // a cell links to its declaration
       await gesture(scope, { kind: "click", selector: `tr[data-qn="${qn("MiningFrigateRequirements::oreExtraction")}"] [data-testid=mx-verify] a.mx-link` });
@@ -820,9 +820,9 @@ export function requirementsTests(c: Ctx): Test[] {
       const lines = csv.trimEnd().split("\r\n");
       assert.strictEqual(lines[0], "Number,Id,Name,Satisfied by,Verification method,Verified by,Status");
       assert.strictEqual(lines.length, 11, "a header and one line per row");
-      assert.ok(lines.includes("1.1,MFRQ01,oreExtraction,frigate (via SYS1 frigateNeeds),test,OreExtractionTest,covered"));
+      assert.ok(lines.includes("1.1,MFRQ01,oreExtraction,frigate (via SYS1 frigateNeeds) [1 of 1 usage],test,OreExtractionTest,covered"));
       assert.strictEqual(md.trimEnd().split("\n").length, 12);
-      assert.ok(md.includes("| 1.1 | MFRQ01 | oreExtraction | frigate (via SYS1 frigateNeeds) | test | OreExtractionTest | covered |"));
+      assert.ok(md.includes("| 1.1 | MFRQ01 | oreExtraction | frigate (via SYS1 frigateNeeds) [1 of 1 usage] | test | OreExtractionTest | covered |"));
       // the trace line under each requirement of the document view
       await api.requirements.setView(scope, "document");
       await eventually(async () => {

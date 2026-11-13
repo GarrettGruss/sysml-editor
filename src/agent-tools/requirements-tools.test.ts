@@ -206,7 +206,7 @@ describe("sysml_read_verification_matrix", () => {
     const out = JSON.parse(r.text);
     const req = out.rows.filter((x: { kind: string }) => x.kind === "requirement");
     expect(req).toHaveLength(9);
-    expect(out.summary).toMatchObject({ total: 9, covered: 3, noVerification: 5, notSatisfied: 1 });
+    expect(out.summary).toMatchObject({ total: 9, covered: 4, noVerification: 4, notSatisfied: 1 });
     const q1 = req.find((x: { id: string }) => x.id === "MFRQ01");
     expect(q1).toMatchObject({ number: "1.1", methods: ["test"], status: "covered" });
     expect(q1.verifiedBy.map((v: { label: string }) => v.label)).toEqual(["OreExtractionTest"]);

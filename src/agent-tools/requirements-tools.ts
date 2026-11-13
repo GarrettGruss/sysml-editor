@@ -69,7 +69,7 @@ const readVerificationMatrix: ToolDefinition = {
   description:
     "Read the requirements verification matrix of a package, the same rows, columns and status as the requirements editor's Matrix view: one row per requirement, nested and numbered by ownership (1, 1.1, ...; packages are section rows), with satisfied by, verification method, verified by and status. " +
     "The method comes from the standard VerificationMethod metadata on the verification case (@VerificationMethod { kind = VerificationMethodKind::test; }): inspect, analyze, demo or test. " +
-    "Status is `not satisfied` (no satisfy statement, own or counted from a parent requirement or from a usage of its definition), `no verification` (satisfied, no verification case verifies it) or `covered`. Satisfaction counted from elsewhere has `via` set. Pass/fail results are not part of the model and not shown. " +
+    "Status is `not satisfied` (no satisfy statement, own or counted from a parent requirement), `partly satisfied` (a requirement definition, or a requirement it owns, whose usages are not all satisfied; `usages` gives satisfied and total), `no verification` (satisfied, no verification case verifies it, own or counted from a parent requirement) or `covered`. Satisfaction counted from elsewhere has `via` set. Pass/fail results are not part of the model and not shown. " +
     "`package` is the qualified name of the package. `format` is `json` (default: summary and rows with qualified names, to pass to the edit tools), `markdown` or `csv` (the editor's export text). At most 1000 rows. Read-only.",
   inputSchema: {
     type: "object",
@@ -88,8 +88,9 @@ const readVerificationMatrix: ToolDefinition = {
     const m = buildMatrix(ctx.index, el, (uri) => !ctx.index.isReadOnly(uri));
     const rows = m.rows.slice(0, MATRIX_ROW_CAP);
     const format = input.format ?? "json";
-    if (format === "markdown") return { text: matrixToMarkdown(rows) };
-    if (format === "csv") return { text: matrixToCsv(rows) };
+    const note = m.rows.length > rows.length ? `\ntruncated: showing ${rows.length} of ${m.rows.length} rows\n` : "";
+    if (format === "markdown") return { text: matrixToMarkdown(rows) + note };
+    if (format === "csv") return { text: matrixToCsv(rows) + note.replace(/\n/g, "\r\n") };
     return { text: JSON.stringify({ package: qn, columns: [...MATRIX_COLUMNS], summary: m.summary, ...(m.rows.length > rows.length ? { truncated: true } : {}), rows }, null, 2) };
   },
 };

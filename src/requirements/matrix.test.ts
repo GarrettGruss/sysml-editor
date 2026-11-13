@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { ModelIndex } from "../model/index.js";
+import { ModelIndex, loadLibrary } from "../model/index.js";
 import { buildMatrix, filterRows, matrixToCsv, matrixToMarkdown, traceLine, verificationMethodsOf } from "./matrix.js";
 
 const URI = "file:///w/matrix.sysml";
@@ -56,14 +56,16 @@ describe("verification matrix", () => {
     expect(by("SYS1").satisfiedBy.map((s) => s.label)).toEqual(["frigate"]);
     expect(by("MFRQ01").satisfiedBy[0]).toMatchObject({ label: "frigate", via: "SYS1 frigateNeeds" });
     expect(by("MFRQ01").status).toBe("covered");
-    expect(by("MFRQ02.1").status).toBe("no verification");
+    expect(by("MFRQ02.1").status).toBe("covered");
+    expect(by("MFRQ02.1").verifiedBy.map((v) => [v.label, v.via])).toEqual([["CargoInspection", "MFRQ02 cargoCapacity"]]);
+    expect(by("MFRQ02.1").methods).toEqual(["inspect"]);
     expect(by("MFRQ03").status).toBe("no verification");
   });
 
   test("the summary counts each status and filters show only those rows", () => {
     const m = matrix(setup());
-    expect(m.summary).toEqual({ total: 9, covered: 3, noVerification: 5, notSatisfied: 1, percentCovered: 33 });
-    expect(filterRows(m.rows, "no verification").map((r) => r.id)).toEqual(["MFRD", "MFRQ02.1", "MFRQ03", "SYS1", "S1"]);
+    expect(m.summary).toEqual({ total: 9, covered: 4, noVerification: 4, notSatisfied: 1, partlySatisfied: 0, percentCovered: 44 });
+    expect(filterRows(m.rows, "no verification").map((r) => r.id)).toEqual(["MFRD", "MFRQ03", "SYS1", "S1"]);
     expect(filterRows(m.rows, "not satisfied").map((r) => r.id)).toEqual(["S2"]);
     expect(filterRows(m.rows, "gaps").every((r) => r.kind === "requirement" && r.status !== "covered")).toBe(true);
     expect(filterRows(m.rows, "all")).toHaveLength(m.rows.length);
@@ -74,7 +76,7 @@ describe("verification matrix", () => {
     const csv = matrixToCsv(m.rows).trimEnd().split("\r\n");
     expect(csv[0]).toBe("Number,Id,Name,Satisfied by,Verification method,Verified by,Status");
     expect(csv).toHaveLength(m.rows.length + 1);
-    expect(csv.find((l) => l.startsWith("1.1,MFRQ01"))).toBe("1.1,MFRQ01,oreExtraction,frigate (via SYS1 frigateNeeds),test,OreExtractionTest,covered");
+    expect(csv.find((l) => l.startsWith("1.1,MFRQ01"))).toBe("1.1,MFRQ01,oreExtraction,frigate (via SYS1 frigateNeeds) [1 of 1 usage],test,OreExtractionTest,covered");
     const md = matrixToMarkdown(m.rows).trimEnd().split("\n");
     expect(md).toHaveLength(m.rows.length + 2);
     expect(md[0]).toBe("| Number | Id | Name | Satisfied by | Verification method | Verified by | Status |");
@@ -88,5 +90,58 @@ describe("verification matrix", () => {
     const by = (id: string) => m.rows.find((r) => r.id === id)!;
     expect(traceLine(by("S2"))).toBe("Not satisfied yet · Not verified yet");
     expect(traceLine(by("MFRQ01"))).toBe("Satisfied by: frigate (via SYS1 frigateNeeds) · Verified by: OreExtractionTest");
+  });
+
+  test("a definition is satisfied only when every usage is; partly satisfied otherwise", () => {
+    const ix = setup(`package P {
+      requirement def D { requirement <'D1'> inner; }
+      requirement <'U1'> u1 : D;
+      requirement <'U2'> u2 : D;
+      part p { satisfy u1; }
+      verification def V { objective { verify D; } }
+    }`);
+    const m = buildMatrix(ix, ix.findByQualifiedName("P")[0]!, () => true);
+    const by = (id: string) => m.rows.find((r) => r.id === id || r.name === id)!;
+    for (const id of ["D", "D1"]) {
+      expect(by(id).usages).toEqual({ satisfied: 1, total: 2 });
+      expect(by(id).status).toBe("partly satisfied");
+      expect(by(id).satisfiedBy.map((l) => [l.label, l.via])).toEqual([["p", "U1 u1"]]);
+    }
+    expect(m.summary.partlySatisfied).toBe(2);
+    expect(filterRows(m.rows, "partly satisfied").map((r) => r.name)).toEqual(["D", "inner"]);
+    expect(traceLine(by("D"))).toBe("Partly satisfied (1 of 2 usages) by p (via U1 u1) · Verified by: V");
+    // the second usage is satisfied too: now the definition is
+    const ix2 = setup(`package P { requirement def D; requirement u1 : D; requirement u2 : D; part p { satisfy u1; satisfy u2; } }`);
+    const r = buildMatrix(ix2, ix2.findByQualifiedName("P")[0]!, () => true).rows[0]!;
+    expect(r.usages).toEqual({ satisfied: 2, total: 2 });
+    expect(r.status).toBe("no verification");
+  });
+
+  test("VerificationMethod is read in every form, through specializations, and not from comments", { timeout: 60000 }, () => {
+    const lib = resolve(__dirname, "../../fixtures/sysml-v2-release/sysml.library");
+    const ix = new ModelIndex();
+    loadLibrary(ix, lib);
+    const methods = (body: string, extra = "") => {
+      ix.setDocument(URI, `package P { ${extra} verification def V ${body} }`);
+      return verificationMethodsOf(ix, ix.findByQualifiedName("P::V")[0]!);
+    };
+    expect(methods("{ metadata vm : VerificationMethod { kind = VerificationMethodKind::demo; } }")).toEqual(["demo"]);
+    expect(methods("{ metadata VerificationMethod { kind = VerificationMethodKind::analyze; } }")).toEqual(["analyze"]);
+    expect(methods("{ @vm : VerificationMethod { kind = VerificationMethodKind::inspect; } }")).toEqual(["inspect"]);
+    expect(methods("{ @VerificationCases::VerificationMethod { kind = VerificationMethodKind::test; } }")).toEqual(["test"]);
+    expect(methods("{ @VM { kind = VerificationMethodKind::test; } }", "alias VM for VerificationCases::VerificationMethod;")).toEqual(["test"]);
+    expect(methods("{ @Other { kind = VerificationMethodKind::test; } }")).toEqual([]);
+    expect(methods("{ @VerificationMethod { /* kind = test */ // kind = demo\n kind = VerificationMethodKind::inspect; } }")).toEqual(["inspect"]);
+    expect(methods("{ doc /* @VerificationMethod { kind = test; } */ }")).toEqual([]);
+    expect(methods("{ @VerificationMethod { kind = (VerificationMethodKind::demo, VerificationMethodKind::test); } }")).toEqual(["demo", "test"]);
+    // through the definition the case is typed by and the definitions that one specializes (a cycle ends)
+    ix.setDocument(URI, `package P { verification def A :> B { @VerificationMethod { kind = VerificationMethodKind::demo; } } verification def B :> A { @VerificationMethod { kind = VerificationMethodKind::test; } } verification def C :> A; verification c : C; }`);
+    expect(verificationMethodsOf(ix, ix.findByQualifiedName("P::c")[0]!)).toEqual(["demo", "test"]);
+  });
+
+  test("CSV cells that look like formulas are neutralised", () => {
+    const ix = setup(`package P { requirement <'=1+1'> r; requirement <'-x'> q; requirement <'@a'> a; requirement <'+b'> b; }`);
+    const csv = matrixToCsv(buildMatrix(ix, ix.findByQualifiedName("P")[0]!, () => true).rows);
+    for (const f of ["'=1+1", "'-x", "'@a", "'+b"]) expect(csv).toContain("," + f + ",");
   });
 });

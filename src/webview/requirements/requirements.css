@@ -134,9 +134,14 @@ textarea { resize: vertical; min-height: 2.4em; max-height: 22em; }
 .matrix-view { padding-top: 10px; }
 .matrix-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 8px; }
 .matrix-summary { font-weight: 600; flex: 1 1 18em; min-width: 0; }
-.matrix-filters { display: flex; flex-wrap: wrap; gap: 4px; }
+.matrix-bar { row-gap: 6px; }
+.matrix-filters { display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; max-width: 100%; overflow-x: auto; }
 .matrix-filters button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-.matrix-export { display: flex; gap: 4px; }
+.matrix-export { display: flex; flex: 0 0 auto; gap: 4px; }
+.mx-box { display: flex; align-items: flex-start; gap: 6px; }
+.mx-box .mx-list { flex: 1 1 auto; display: block; min-width: 0; margin: 0; }
+.mx-box button.icon { flex: 0 0 auto; }
+.mx-list li.usages { color: var(--muted); font-size: 11px; }
 table.matrix { width: 100%; min-width: 56em; border-collapse: collapse; table-layout: fixed; }
 table.matrix th { text-align: left; font-weight: 600; padding: 6px; border-bottom: 1px solid var(--border); color: var(--muted); }
 table.matrix th:nth-child(1) { width: 26%; } table.matrix th:nth-child(2) { width: 24%; } table.matrix th:nth-child(3) { width: 12%; } table.matrix th:nth-child(4) { width: 22%; } table.matrix th:nth-child(5) { width: 16%; }
