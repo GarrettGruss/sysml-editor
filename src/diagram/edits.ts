@@ -5,6 +5,9 @@ import type { ViewModel } from "./view-model.js";
 import { adjustRoute } from "../webview/diagram/route-edit.js";
 import type { Box } from "../webview/diagram/geometry.js";
 import { MAX_COORD, validBox } from "./session.js";
+import { addElement } from "./create.js";
+import type { ModelIndex } from "../model/index.js";
+import type { SourceMapper } from "./resolve.js";
 
 const MAX_POINTS = 1000;
 const sameBox = (a: Box, b: Box) => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
@@ -160,4 +163,28 @@ export function applyEdgeLayout(doc: DiagramDocument, patches: readonly EdgePatc
     return next;
   });
   return changed ? { ...doc, edges } : undefined;
+}
+
+/**
+ * Pins the diagram does not store (ids start with `pin:`) get a node under their action when the user moves one: the patch then
+ * addresses that node. Pins whose feature or action cannot be found are dropped from the patches.
+ */
+export function materializePins(doc: DiagramDocument, patches: readonly BoxPatch[], vm: ViewModel | undefined, index: ModelIndex, sourceOf?: SourceMapper): { doc: DiagramDocument; boxes: BoxPatch[] } {
+  let cur = doc;
+  const boxes: BoxPatch[] = [];
+  for (const p of patches) {
+    if (!p || typeof p.id !== "string" || !p.id.startsWith("pin:")) {
+      boxes.push(p);
+      continue;
+    }
+    const pin = vm?.nodes.find((n) => n.id === p.id);
+    const qn = pin?.pin?.qualifiedName;
+    const el = qn !== undefined ? index.findByQualifiedName(qn)[0] : undefined;
+    if (!pin || !el || pin.attachedTo === undefined || !cur.nodes.some((n) => n.id === pin.attachedTo)) continue;
+    const r = addElement(cur, index, el, pin.attachedTo, sourceOf ? { sourceOf } : {});
+    if (!r.id) continue;
+    cur = r.doc;
+    boxes.push({ ...p, id: r.id });
+  }
+  return { doc: cur, boxes };
 }

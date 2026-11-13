@@ -15,11 +15,11 @@
 
 ## 3. Nesting and pins
 
-- [ ] 3.1 Implement nesting by drop with reference rewriting for states, actions, and parts; verify both scenarios
-- [ ] 3.2 Implement parameter pins as ELK ports and pin-to-pin flows; verify both scenarios (needs fix-diagram-editing task 2.3)
+- [x] 3.1 Implement nesting by drop with reference rewriting for states, actions, and parts; verify both scenarios
+- [x] 3.2 Implement parameter pins as ELK ports and pin-to-pin flows; verify both scenarios (needs fix-diagram-editing task 2.3)
 
 ## 4. Files
 
-- [ ] 4.1 Implement the unsaved new diagram document; verify the three scenarios
-- [ ] 4.2 Keep `sysml_create_diagram` writing at once; verify the "Agent creates a diagram" scenario
-- [ ] 4.3 Implement "New Diagram…" on files in the tree and the Explorer; verify the three scenarios
+- [x] 4.1 Implement the unsaved new diagram document; verify the three scenarios
+- [x] 4.2 Keep `sysml_create_diagram` writing at once; verify the "Agent creates a diagram" scenario
+- [x] 4.3 Implement "New Diagram…" on files in the tree and the Explorer; verify the three scenarios

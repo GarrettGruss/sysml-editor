@@ -87,7 +87,9 @@ function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: 
   const sw = n.shape === "requirement" ? ' stroke-width="1.5"' : "";
   let g = `<g data-node="${esc(n.id)}" data-shape="${n.shape}" role="img" aria-label="${esc(nodeName(n) + (inh ? " (inherited from " + n.inherited!.from + ")" : ""))}"${inh ? ' data-inherited="true"' : ""}${selected ? ' data-selected="true" aria-current="true"' : ""} transform="translate(${f(b.x)} ${f(b.y)})">`;
   if (n.shape === "port") {
+    if (n.tooltip) g = g.replace(/^<g /, `<g data-pin="${esc(n.pin?.direction ?? "")}" `) + `<title>${esc(n.tooltip)}</title>`;
     g += `<rect width="${f(b.w)}" height="${f(b.h)}"${dash}${paint(o, fill, stroke)}/>`;
+    if (n.pin) g += `<path d="M${f(b.w * 0.25)} ${f(b.h * 0.2)} L${f(b.w * 0.8)} ${f(b.h / 2)} L${f(b.w * 0.25)} ${f(b.h * 0.8)} Z"${paint(o, stroke, stroke)}/>`;
     return g + "</g>";
   }
   const shapeG = drawSpecial(n, b, c, o, fill, stroke, dash);

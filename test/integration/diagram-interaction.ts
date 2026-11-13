@@ -173,6 +173,7 @@ export function interactionTests(c: Ctx): Test[] {
       const f = "tmp-contain.sysmld";
       const m0 = await metrics(f);
       const cont = nodeOf(m0, "n0");
+      // released at once (no dwell on a target): a plain layout move, clamped; moving out of the container needs the hold of a nest gesture
       await gesture(f, { kind: "drag", id: "n1", dx: -2000, dy: -2000 });
       await waitFor(() => dirty(f), 5000, "the clamped move is still an edit");
       await settled(f);
@@ -564,24 +565,30 @@ export function interactionTests(c: Ctx): Test[] {
         assert.deepStrictEqual(asked, ["General View", "Interconnection View", "Requirements View"]);
         assert.strictEqual(path.basename(uri.fsPath), "Car.sysmld");
         assert.strictEqual(path.dirname(uri.fsPath), path.dirname(vehicleFile(folder)), "next to the element's source file");
+        assert.ok(!existsSync(uri.fsPath), "nothing is written until the diagram is saved");
+        const name = path.basename(uri.fsPath);
+        await c.eventually(async () => assert.deepStrictEqual((await metrics(name)).nodes.map((n) => n.id), ["n1", "n2", "n3"]), "it opens showing the element and its direct members");
+        assert.strictEqual(api.diagram.state(uri).pending, true);
+        assert.strictEqual(api.diagram.state(uri).dirty, false, "the generated layout does not dirty it");
+        const m = await metrics(name);
+        assert.ok(m.nodes[0]!.text?.includes("Car"));
+        assert.strictEqual(m.overlaps, 0);
+        await api.diagram.save(uri);
+        assert.strictEqual(api.diagram.state(uri).pending, false);
         const written = JSON.parse(readFileSync(uri.fsPath, "utf8")) as DiagramDoc;
         assert.strictEqual(written.version, 1);
         assert.strictEqual(written.kind, "general");
         assert.strictEqual(written.root, "Vehicle::Car");
         assert.deepStrictEqual(written.nodes.map((n) => n.ref), ["Vehicle::Car", "Vehicle::Car::engine", "Vehicle::Car::wheels"]);
-        assert.ok(written.nodes.every((n) => n.x === undefined), "no positions are written");
-        const name = path.basename(uri.fsPath);
-        await c.eventually(async () => assert.deepStrictEqual((await metrics(name)).nodes.map((n) => n.id), ["n1", "n2", "n3"]), "it opens showing the element and its direct members");
-        const m = await metrics(name);
-        assert.ok(m.nodes[0]!.text?.includes("Car"));
-        assert.strictEqual(m.overlaps, 0);
         await close();
         // a second diagram of the same element gets another name
         const again = (await vscode.commands.executeCommand("sysml.newDiagram", car)) as vscode.Uri;
         created.push(again.fsPath);
         assert.strictEqual(path.basename(again.fsPath), "Car 2.sysmld");
+        assert.ok(!existsSync(again.fsPath), "the second one is not written either");
         assert.ok(readFileSync(uri.fsPath).length > 0, "the first file is untouched");
         await close();
+        assert.ok(!existsSync(again.fsPath), "closing it untouched leaves no file");
         // from the command palette: the element is picked
         api.diagram.setUi({
           pick: async (items: PickItem[]) => items.find((i) => i.description === "Ports::Drivetrain") ?? items.find((i) => i.label === "Interconnection View"),
@@ -591,7 +598,8 @@ export function interactionTests(c: Ctx): Test[] {
         created.push(viaPalette.fsPath);
         assert.strictEqual(path.basename(viaPalette.fsPath), "Drivetrain.sysmld");
         assert.strictEqual(path.dirname(viaPalette.fsPath), folder.fsPath.replace(/\/$/, ""), "next to ports.sysml");
-        assert.strictEqual((JSON.parse(readFileSync(viaPalette.fsPath, "utf8")) as DiagramDoc).kind, "interconnection");
+        await c.eventually(async () => assert.ok((await metrics(path.basename(viaPalette.fsPath))).nodes.length > 0), "the palette-created diagram renders");
+        assert.strictEqual((api.diagram.state(viaPalette).doc as DiagramDoc).kind, "interconnection");
       } finally {
         api.diagram.setUi(undefined);
         await close();

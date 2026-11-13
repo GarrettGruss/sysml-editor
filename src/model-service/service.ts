@@ -15,7 +15,8 @@ import {
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { composeChanges, nameNodesChange, placeElementChange, placeNodeAndLineChange, reconnectChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { planFlow, planNest } from "../edit/index.js";
+import { composeChanges, nestChange, nameNodesChange, placeElementChange, placeNodeAndLineChange, reconnectChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
 import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
@@ -655,6 +656,11 @@ export class ModelService {
     }, opts, "Add succession");
   }
 
+  /** `flow from a.x to b.y;` in `owner`: the ends are dotted paths to features (pins), written as given. */
+  addFlow(owner: Element, from: string, to: string, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    return this.statementIn(owner, "flow", (o2) => planFlow(this.index, o2, from, to), opts, "Add flow");
+  }
+
   /** `transition first a [accept T] [if g] [do e] then b;` in the nearest common owner of the two states (see `addSuccession`). */
   addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
     const o = this.commonOwner(owner, source, target, "transition", opts.context);
@@ -1023,6 +1029,35 @@ export class ModelService {
       if (to.before) mt.before = it.next().value as Element;
       return planMoveMember(this.index, el!, mt);
     }, () => [...new Set([element.uri, ...(to.owner ? [to.owner.uri] : []), ...(to.after ? [to.after.uri] : []), ...(to.before ? [to.before.uri] : [])])], origin);
+  }
+
+  /**
+   * Nesting by dropping (design D33): move the declaration of `t` into `owner` (the diagram's root for moving out),
+   * rewriting references, as one edit. Features a usage only inherits are refused (D18).
+   */
+  nest(t: Target, owner: Element, origin?: Origin): Promise<OpResult> {
+    return this.serial(async () => {
+      const refusal = this.inheritedRefusal(t, "moved");
+      if (refusal) return refusal;
+      let nested: { oldQn: string; newQn: string; ends: NonNullable<PlanOk["nest"]>["endsChanges"] } | undefined;
+      return this.run(
+        async () => {
+          const el = this.fresh(t.element);
+          const ow = this.fresh(owner);
+          if (!el) return fail(gone("The element", t.element));
+          if (!ow) return fail(gone("The target", owner));
+          const r = planNest(this.index, el, ow);
+          if (r.ok && r.nest?.newQn) nested = { oldQn: r.nest.oldQn, newQn: r.nest.newQn, ends: r.nest.endsChanges };
+          return r;
+        },
+        () => ({
+          element: () => (nested ? this.index.findByQualifiedName(nested.newQn)[0] : undefined),
+          change: () => (nested ? nestChange(nested.oldQn, nested.newQn, owner.qualifiedName ?? "", nested.ends, "Move into owner") : undefined),
+        }),
+        origin,
+        () => [t.element.uri, owner.uri],
+      );
+    });
   }
 
   /** Replace the body of a `doc` or `comment` element (an empty text removes it). */

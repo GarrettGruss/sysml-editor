@@ -1,10 +1,10 @@
 import * as assert from "node:assert";
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import { viaLm, viaMcp } from "./diagram-agent.js";
 import type { Ctx } from "./diagram-interaction.js";
-import type { DiagramDoc, Failure, Gesture, Metrics, MNode, PickItem } from "./index.js";
+import type { DiagramDoc, Failure, Gesture, Metrics, MNode, ModelNode, PickItem } from "./index.js";
 
 type Test = [name: string, fn: () => Promise<void>];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -280,7 +280,7 @@ export function behaviorTests(c: Ctx): Test[] {
     // ---- editing: Action Flow ----------------------------------------------------------------
     ["Add action and Draw succession: the palette writes `action pack2;` and `first retry then ship;`, saved at once, one undo each; a duplicate succession is refused", scenario("BhAct", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, original }) => {
       const m0 = await metrics(diagram);
-      assert.deepStrictEqual(m0.palette, ["Action", "Fork", "Join", "Decide", "Merge", "Succession"], "the Action Flow palette");
+      assert.deepStrictEqual(m0.palette, ["Action", "Fork", "Join", "Decide", "Merge", "Succession", "Flow"], "the Action Flow palette");
       const root = id("deliverOrder");
       script.input = "pack2";
       await gesture(diagram, { kind: "palette", item: "action", id: root, x: 30, y: 60 });
@@ -736,6 +736,180 @@ export function behaviorTests(c: Ctx): Test[] {
       await c.eventually(async () => assert.ok((await metrics(diagram)).edges.some((e) => e.label === "Reset")), "the open diagram shows it");
       await vscode.commands.executeCommand("undo");
     })],
+
+    // ---- authoring: nesting, pins, new diagrams (add-diagram-authoring 3.1, 3.2, 4.x) ------------------------------------
+
+    ["Nest a state by dropping it on another state: the declaration moves into the target, references are rewritten, one undo restores the text byte for byte", scenario("AuNest", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
+      const m = await metrics(diagram);
+      const off = nodeOf(m, id("lamp::off")), op = nodeOf(m, id("lamp::operating"));
+      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + op.w / 2 - (off.x + off.w / 2)), dy: Math.round(op.y + 20 - (off.y + off.h / 2)), hold: 700 });
+      await waitFor(() => /state operating \{[^}]*state off;/.test(onDisk(model)), 20000, "off is declared inside operating");
+      await savedAndClean(model);
+      const text = onDisk(model);
+      assert.ok(!/^ {4}state off;$/m.test(text), "the old declaration is gone");
+      assert.strictEqual(text.split("AuNest::lamp::operating::off").length - 1, 3, `the start succession and both transitions are rewritten:\n${text}`);
+      await c.eventually(async () => assert.strictEqual(nodeOf(await metrics(diagram), id("lamp::operating::off")).parent, id("lamp::operating")), "the node sits inside operating and follows it");
+      assert.ok(!(await metrics(diagram)).nodes.some((n) => n.shape === "unresolved"), "every node still resolves");
+      await vscode.commands.executeCommand("undo");
+      await waitFor(() => onDisk(model) === original, 20000, "one undo restores the text").catch((e: Error) => assert.fail(`${e.message}\n${onDisk(model)}`));
+    })],
+
+    ["Drag a nested state out onto the diagram root: it is declared in the root again; a name clash is refused with a reason and nothing changes", scenario("AuOut", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
+      const m = await metrics(diagram);
+      const low = nodeOf(m, id("lamp::operating::low")), lamp = nodeOf(m, id("lamp"));
+      await gesture(diagram, { kind: "drag", id: low.id, dx: Math.round(lamp.x + lamp.w - 30 - (low.x + low.w / 2)), dy: Math.round(lamp.y + lamp.h - 20 - (low.y + low.h / 2)), hold: 700 });
+      await waitFor(() => /^ {4}state low;$/m.test(onDisk(model)) && !/state operating \{[^}]*state low;/.test(onDisk(model)), 20000, "low is declared in lamp");
+      await savedAndClean(model);
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).nodes.find((n) => n.id === low.id)?.parent, id("lamp")), "the node now sits in lamp");
+      await vscode.commands.executeCommand("undo");
+      await waitFor(() => onDisk(model) === original, 20000, "undo moves it back").catch((e: Error) => assert.fail(`${e.message}\n${onDisk(model)}`));
+    })],
+
+    ["A drop on the edge of a sibling (pointer less than 12 px inside it) does not nest: the move is a layout edit and the .sysml is untouched", scenario("AuEdge", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
+      const m = await metrics(diagram);
+      const off = nodeOf(m, id("lamp::off")), op = nodeOf(m, id("lamp::operating"));
+      await api.diagram.save(uriOf(diagram));
+      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + 4 - (off.x + off.w / 2)), dy: Math.round(op.y + op.h / 2 - (off.y + off.h / 2)), hold: 700 });
+      await waitFor(() => dirty(diagram), 10000, "the move is an unsaved layout edit");
+      assert.strictEqual(onDisk(model), original, "nothing was nested");
+      assert.deepStrictEqual(rec.fails, []);
+    })],
+
+    ["A move that cannot be done is refused with the reason, and the text is unchanged", scenario("AuRef", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
+      const m = await metrics(diagram);
+      const off = nodeOf(m, id("lamp::off")), op = nodeOf(m, id("lamp::operating"));
+      assert.ok(original.includes("state operating {\n      state off;"), "the fixture has the clash");
+      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + op.w / 2 - (off.x + off.w / 2)), dy: Math.round(op.y + 20 - (off.y + off.h / 2)), hold: 700 });
+      await waitFor(() => rec.fails.length > 0, 20000, "the move is refused");
+      assert.match(rec.fails[0]!.reason, /off/, rec.fails[0]!.reason);
+      assert.strictEqual(onDisk(model), original, "nothing was written");
+      assert.strictEqual(textDoc(model)?.isDirty ?? false, false);
+    }, { text: (t) => t.replace("state operating {", "state operating {\n      state off;") })],
+
+    ["Parameter pins: inputs on the left, outputs on the right, the flow runs pin to pin, a new flow writes the dotted path, sliding a pin changes only the diagram", scenario("AuPin", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, original }) => {
+      const pins = async () => (await metrics(diagram)).nodes.filter((n) => n.shape === "port");
+      await c.eventually(async () => assert.ok((await pins()).length >= 2, "pins are drawn"), "pins are drawn");
+      const m = await metrics(diagram);
+      const pack = nodeOf(m, id("deliverOrder::pack")), ship = nodeOf(m, id("deliverOrder::ship"));
+      const out = (await pins()).find((p) => p.attachedTo === pack.id)!;
+      const inp = (await pins()).find((p) => p.attachedTo === ship.id)!;
+      assert.ok(out && inp, "pack and ship have a parcel pin");
+      assert.ok(Math.abs(out.x + out.w / 2 - (pack.x + pack.w)) < 2, "the output pin sits on the right border");
+      assert.ok(Math.abs(inp.x + inp.w / 2 - ship.x) < 2, "the input pin sits on the left border");
+      const flow = m.edges.find((e) => e.style === "flow")!;
+      assert.strictEqual(flow.source, out.id, "the flow starts at the output pin");
+      assert.strictEqual(flow.target, inp.id, "and ends at the input pin");
+      assert.strictEqual(m.portsOffBorder, 0);
+      png("action-flow-pins.png", await api.diagram.png(uriOf(diagram)));
+      // sliding a pin is a layout edit
+      await api.diagram.save(uriOf(diagram));
+      await gesture(diagram, { kind: "drag", id: out.id, dx: 0, dy: 16 });
+      await waitFor(() => dirty(diagram), 10000, "sliding the pin is an unsaved edit of the diagram");
+      assert.strictEqual(onDisk(model), original, "the model file is untouched");
+      assert.ok(mem(diagram).nodes.some((n) => (n as { parent?: string }).parent === pack.id && (n as { y?: number }).y !== undefined), "the pin's position is stored under its action");
+      await api.diagram.save(uriOf(diagram));
+      assert.strictEqual(onDisk(model), original, "still untouched after save");
+    })],
+
+    ["Draw a flow from pin to pin: `flow from pack.parcel to ship.parcel;` is written at once", scenario("AuFlow", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id }) => {
+      await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.filter((n) => n.shape === "port").length >= 2), "pins are drawn");
+      const m = await metrics(diagram);
+      const pack = nodeOf(m, id("deliverOrder::pack")), ship = nodeOf(m, id("deliverOrder::ship"));
+      const out = m.nodes.find((p) => p.shape === "port" && p.attachedTo === pack.id)!;
+      const inp = m.nodes.find((p) => p.shape === "port" && p.attachedTo === ship.id)!;
+      await gesture(diagram, { kind: "connect", source: out.id, target: inp.id, relation: "flow" });
+      await waitFor(() => onDisk(model).includes("flow from pack.parcel to ship.parcel;"), 20000, "the flow is on disk").catch(async (e: Error) => assert.fail(`${e.message}\nfails: ${JSON.stringify(rec.fails)}\nnote: ${(await metrics(diagram)).properties.note}\npins: ${JSON.stringify(out)} ${JSON.stringify(inp)}\n${onDisk(model)}`));
+      await savedAndClean(model);
+    })],
+
+    ["New Diagram on a file: one package is the root, the kind choice follows, nothing is written, an untouched close leaves no file, edits give the save prompt state, a model edit is written at once", async () => {
+      const file = vscode.Uri.joinPath(folder, "tmp-au-new.sysml");
+      const expectedDiagram = vscode.Uri.joinPath(folder, "tmp-au-new.sysmld");
+      const name = "tmp-au-new.sysmld";
+      const picks: string[][] = [];
+      rmSync(expectedDiagram.fsPath, { force: true });
+      writeFileSync(file.fsPath, "package AuNew {\n  state def Machine {\n    state idle;\n  }\n}\n");
+      try {
+        await api.model.ready;
+        await vscode.workspace.openTextDocument(file);
+        await waitFor(() => api.model.index.findByQualifiedName("AuNew::Machine").length > 0, 300000, "AuNew is in the model");
+        api.diagram.setUi({ pick: async (items: PickItem[]) => { picks.push(items.map((i) => i.label)); return items[0]; } });
+        const fileNode = { id: file.toString(), uri: file.toString(), kind: "file" } as ModelNode;
+        const made = (await vscode.commands.executeCommand("sysml.newDiagram", fileNode)) as vscode.Uri;
+        assert.strictEqual(path.basename(made.fsPath), "AuNew.sysmld", "named after the root, next to the file");
+        const f = "AuNew.sysmld";
+        assert.deepStrictEqual(picks, [["General View", "Requirements View"]], "one package: no root question, only the kinds that fit follow");
+        assert.ok(!existsSync(uriOf(f).fsPath), "nothing is written");
+        await c.eventually(async () => assert.ok((await metrics(f)).nodes.length > 0), "it renders");
+        assert.strictEqual(api.diagram.state(uriOf(f)).pending, true);
+        assert.strictEqual(api.diagram.state(uriOf(f)).dirty, false);
+        await close();
+        assert.ok(!existsSync(uriOf(f).fsPath), "closing it untouched leaves no file");
+        assert.strictEqual(api.diagram.errors().length, 0);
+      } finally {
+        api.diagram.setUi(undefined);
+        await close();
+        rmSync(file.fsPath, { force: true });
+        rmSync(uriOf("AuNew.sysmld").fsPath, { force: true });
+      }
+    }],
+
+    ["An unsaved new diagram: a palette add is written to the .sysml at once and makes the unsaved diagram dirty; a move keeps it dirty; Ctrl+S writes the file at the intended path", async () => {
+      const file = vscode.Uri.joinPath(folder, "tmp-au-new2.sysml");
+      writeFileSync(file.fsPath, "state def AuMach {\n  state idle;\n}\n");
+      const f = "AuMach.sysmld";
+      rmSync(uriOf(f).fsPath, { force: true });
+      installUi();
+      try {
+        await api.model.ready;
+        await vscode.workspace.openTextDocument(file);
+        await waitFor(() => api.model.index.findByQualifiedName("AuMach").length > 0, 300000, "AuMach is in the model");
+        api.diagram.setUi({ pick: async (items: PickItem[]) => items.find((i) => i.label === "State Transition View") ?? items[0], input: async () => "running" });
+        const made = (await vscode.commands.executeCommand("sysml.newDiagram", { id: file.toString(), uri: file.toString(), kind: "file" })) as vscode.Uri;
+        assert.strictEqual(path.basename(made.fsPath), f);
+        await c.eventually(async () => assert.ok((await metrics(f)).nodes.length > 0), "it renders");
+        const root = mem(f).nodes.find((n) => n.ref === "AuMach")!;
+        await gesture(f, { kind: "palette", item: "state", id: root.id, x: 30, y: 40 });
+        await waitFor(() => onDisk("tmp-au-new2.sysml").includes("state running;"), 20000, "the state is written to the .sysml at once");
+        assert.ok(!existsSync(uriOf(f).fsPath), "the diagram file still does not exist");
+        // the text is saved first and the diagram change follows it, so wait for the change
+        await waitFor(() => dirty(f), 15000, "the new node is content only this unsaved diagram holds, so it becomes dirty");
+        await c.eventually(async () => assert.ok((await metrics(f)).nodes.some((n) => n.text?.includes("running"))), "the new state is drawn");
+        const idle = mem(f).nodes.find((n) => n.ref === "AuMach::idle")!;
+        await api.diagram.gesture(uriOf(f), { kind: "flush" });
+        await gesture(f, { kind: "drag", id: idle.id, dx: 40, dy: 24 });
+        await waitFor(() => dirty(f), 10000, "a move dirties it");
+        assert.ok(!existsSync(uriOf(f).fsPath), "still no file");
+        await api.diagram.save(uriOf(f));
+        assert.ok(existsSync(uriOf(f).fsPath), "saving writes the file at the intended path");
+        assert.strictEqual(api.diagram.state(uriOf(f)).pending, false);
+        assert.strictEqual(dirty(f), false);
+        assert.ok(diskDiagram(f).nodes.some((n) => n.ref === "AuMach::running"), "the saved diagram holds the state added meanwhile");
+      } finally {
+        api.diagram.setUi(undefined);
+        await close();
+        rmSync(file.fsPath, { force: true });
+        rmSync(uriOf(f).fsPath, { force: true });
+      }
+    }],
+
+    ["sysml_create_diagram still writes the file at once", async () => {
+      const file = vscode.Uri.joinPath(folder, "tmp-au-agent.sysml");
+      const diagram = "tmp-au-agent.sysmld";
+      rmSync(uriOf(diagram).fsPath, { force: true });
+      writeFileSync(file.fsPath, "package AuAgent {\n  part def Thing;\n}\n");
+      try {
+        await api.model.ready;
+        await vscode.workspace.openTextDocument(file);
+        await waitFor(() => api.model.index.findByQualifiedName("AuAgent::Thing").length > 0, 300000, "AuAgent is in the model");
+        const made = await viaLm("sysml_create_diagram", { root: "AuAgent::Thing", kind: "general", path: diagram });
+        assert.ok(JSON.parse(made.text).created, made.text);
+        assert.ok(existsSync(uriOf(diagram).fsPath), "the file exists when the call returns");
+      } finally {
+        rmSync(file.fsPath, { force: true });
+        rmSync(uriOf(diagram).fsPath, { force: true });
+      }
+    }],
   ];
   // keep the helper types referenced
   void STATES; void same;

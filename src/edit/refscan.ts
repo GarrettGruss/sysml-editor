@@ -293,7 +293,7 @@ export interface Seen {
 
 export const resolutionKey = (uri: string, tok: number, seg: number) => `${uri}\0${tok}\0${seg}`;
 
-function declsOf(index: ModelIndex, e: Element): Decl[] {
+export function declsOf(index: ModelIndex, e: Element): Decl[] {
   const all = e.qualifiedName !== undefined ? index.findByQualifiedName(e.qualifiedName) : [];
   return (all.length ? all : [e]).map((d) => ({ uri: d.uri, off: (d.nameRange ?? d.range).start.offset }));
 }

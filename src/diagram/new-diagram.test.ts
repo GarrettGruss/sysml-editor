@@ -3,7 +3,7 @@ import { ModelIndex, LIBRARY_URI_SCHEME } from "../model/index.js";
 import { DiagramFileIndex } from "./diagram-index.js";
 import { createDiagram } from "./create.js";
 import { serializeDiagram } from "./format.js";
-import { defaultDiagramFileName, fileNameProblem, listElements, relinkCandidates, uniqueFileName } from "./new-diagram.js";
+import { defaultDiagramFileName, fileNameProblem, fileRoots, listElements, relinkCandidates, uniqueFileName } from "./new-diagram.js";
 import { makeSourceMapper } from "./resolve.js";
 
 const SRC = `package P {
@@ -93,5 +93,34 @@ describe("diagram file index", () => {
     expect(d.isUnparsed("file:///w/bad.sysmld")).toBe(false);
     d.delete("file:///w/bad.sysmld");
     expect(d.allUris()).toEqual([]);
+  });
+});
+
+describe("New Diagram on a file", () => {
+  it("offers the single top-level package as the root", () => {
+    const r = fileRoots(ix, "file:///w/p.sysml");
+    expect(r.ok && r.roots.map((e) => e.qualifiedName)).toEqual(["P"]);
+  });
+  it("offers every top-level package of a file with several", () => {
+    const m = new ModelIndex();
+    m.setDocument("file:///w/two.sysml", "package A { part def X; }\npackage B { part def Y; }");
+    const r = fileRoots(m, "file:///w/two.sysml");
+    expect(r.ok && r.roots.map((e) => e.qualifiedName)).toEqual(["A", "B"]);
+  });
+  it("says why an empty file or a file with errors and no earlier version cannot be used", () => {
+    const m = new ModelIndex();
+    m.setDocument("file:///w/empty.sysml", "// nothing here\n");
+    m.setDocument("file:///w/broken.sysml", "package {{{ ");
+    const empty = fileRoots(m, "file:///w/empty.sysml");
+    expect(!empty.ok && empty.reason).toMatch(/no top-level elements/);
+    const broken = fileRoots(m, "file:///w/broken.sysml");
+    expect(!broken.ok && broken.reason).toMatch(/syntax errors/);
+  });
+  it("keeps offering the last good model of a file that now has errors", () => {
+    const m = new ModelIndex();
+    m.setDocument("file:///w/x.sysml", "package A { part def X; }");
+    m.setDocument("file:///w/x.sysml", "package A { part def X; ((( }");
+    const r = fileRoots(m, "file:///w/x.sysml");
+    expect(r.ok && r.roots.map((e) => e.qualifiedName)).toEqual(["A"]);
   });
 });

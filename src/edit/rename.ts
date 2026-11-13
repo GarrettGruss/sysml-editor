@@ -47,7 +47,7 @@ function mapQn(old: readonly string[], next: readonly string[], s: string): stri
   return joinQn([...next, ...segs.slice(old.length)]);
 }
 
-function namedOwnerQn(e: Element): string | undefined {
+export function namedOwnerQn(e: Element): string | undefined {
   for (let o = e.owner; o; o = o.owner) if (o.qualifiedName !== undefined) return o.qualifiedName;
   return undefined;
 }
