@@ -383,7 +383,7 @@ export function foldersTests(c: Ctx): Test[] {
         await waitFor(() => indexed("empty/model.sysml"), 20000, "the new file is indexed");
         assert.strictEqual(api.provider.getTreeItem(await find(tmp, "empty")).description, undefined, "the folder is no longer empty");
         const pkg = JSON.parse(readFileSync(path.join(c.ext.extensionPath, "package.json"), "utf8")) as { contributes: { menus: { "view/title": { command: string }[] } } };
-        assert.ok(pkg.contributes.menus["view/title"].some((m) => m.command === "sysml.newFile"));
+        assert.ok(pkg.contributes.menus["view/title"].some((m) => m.command === "sysml.tree.newFile"));
         await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
       } finally {
         rmSync(dir(), { recursive: true, force: true });
@@ -648,6 +648,104 @@ export function foldersTests(c: Ctx): Test[] {
         await vscode.commands.executeCommand("workbench.action.closeAllEditors");
       }
       rmSync(dir(), { recursive: true, force: true });
+    })],
+    ["New File and New Folder: title bar commands exist; target rule uses the folder of a selected element; live label, duplicate, create, cancel", withFolders(async () => {
+      rmSync(dir(), { recursive: true, force: true });
+      mkdirSync(dir("a"), { recursive: true });
+      writeFileSync(dir("a", "b.sysml"), "package NfB { part def NfPart; }\n");
+      const cmds = await vscode.commands.getCommands(true);
+      for (const id of ["sysml.tree.newFile", "sysml.tree.newFolder", "sysml.tree.refresh"]) assert.ok(cmds.includes(id), id);
+      try {
+        await waitFor(() => indexed("a/b.sysml"), 90000, "the file is indexed");
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+        // Earlier tests leave the view with a selection that no longer exists; a refresh starts it afresh.
+        await vscode.commands.executeCommand("sysml.tree.refresh");
+        await vscode.commands.executeCommand("sysmlModel.focus");
+        const root = (await vkids())[0]!;
+        const tmp = await vfind(root, "tmp-tree");
+        const a = await vfind(tmp, "a");
+        const bFile = await vfind(a, "b.sysml");
+        const pkg = (await vkids(bFile))[0]!;
+        const part = (await vkids(pkg))[0]!;
+        let lastErr = "";
+        await waitFor(async () => {
+          await api.view.reveal(part, { select: true, focus: false }).then(undefined, (e: unknown) => { lastErr = String(e); });
+          return api.view.selection[0]?.id === part.id;
+        }, 10000, `the part is selected (reveal error: ${lastErr}; selection ${api.view.selection.map((n) => n.id).join(",")}; query "${api.provider.query}")`);
+        // Selected element: the file is created in folder a. The placeholder shows there first among the files.
+        await vscode.commands.executeCommand("sysml.tree.newFile");
+        await waitFor(() => api.newEntry.active() !== undefined, 5000, "the input box opens");
+        await waitFor(async () => (await vkids(a)).some((k) => k.kind === "placeholder"), 5000, "the placeholder row appears in a");
+        let ph = (await vkids(a)).find((k) => k.kind === "placeholder")!;
+        assert.strictEqual(label(ph), "untitled.sysml");
+        assert.strictEqual((await vkids(a)).findIndex((k) => k.kind === "placeholder"), 0, "first among a's entries (no subfolders)");
+        assert.ok(!existsSync(dir("a", "untitled.sysml")), "nothing on disk yet");
+        await waitFor(() => api.view.selection[0]?.kind === "placeholder", 5000, "the placeholder is selected");
+        // Live label, staying in place while typing.
+        api.newEntry.type("engine");
+        assert.strictEqual(api.newEntry.active()!.label, "engine.sysml");
+        ph = (await vkids(a)).find((k) => k.kind === "placeholder")!;
+        assert.strictEqual(label(ph), "engine.sysml");
+        assert.strictEqual((await vkids(a)).findIndex((k) => k.kind === "placeholder"), 0);
+        assert.strictEqual(api.newEntry.active()!.validation?.severity, "info");
+        // Duplicate: an error, and Enter does not create.
+        api.newEntry.type("b");
+        assert.strictEqual(api.newEntry.active()!.validation?.severity, "error");
+        await api.newEntry.accept();
+        assert.ok(api.newEntry.active(), "the input box stays open");
+        assert.ok(!existsSync(dir("a", "b.sysml.sysml")) && readFileSync(dir("a", "b.sysml"), "utf8").includes("NfB"));
+        api.newEntry.type("a/b");
+        assert.strictEqual(api.newEntry.active()!.validation?.severity, "error", "invalid characters");
+        // Cancel removes the placeholder and writes nothing.
+        api.newEntry.type("never");
+        await api.newEntry.cancel();
+        await waitFor(async () => !(await vkids(a)).some((k) => k.kind === "placeholder"), 5000, "the placeholder is removed");
+        assert.strictEqual(api.newEntry.active(), undefined);
+        assert.ok(!existsSync(dir("a", "never.sysml")));
+        // Create: Enter writes the file, the placeholder becomes the real node, the file opens.
+        await api.view.reveal(part, { select: true, focus: false });
+        await waitFor(() => api.view.selection[0]?.id === part.id, 5000, "the part is selected again");
+        await vscode.commands.executeCommand("sysml.tree.newFile");
+        await waitFor(() => api.newEntry.active() !== undefined, 5000, "the input box opens again");
+        api.newEntry.type("engine");
+        await api.newEntry.accept();
+        assert.ok(existsSync(dir("a", "engine.sysml")), "created with .sysml appended");
+        await waitFor(() => vscode.window.activeTextEditor?.document.uri.fsPath === dir("a", "engine.sysml"), 10000, "the file opens in the editor");
+        await waitFor(async () => {
+          const k = await vkids(a);
+          return !k.some((n) => n.kind === "placeholder") && k.some((n) => label(n) === "engine.sysml");
+        }, 20000, "the real node replaces the placeholder");
+        // Folder: New Folder with a folder selected creates inside it.
+        await api.view.reveal(a, { select: true, focus: false });
+        await waitFor(() => api.view.selection[0]?.id === a.id, 5000, "a is selected");
+        await vscode.commands.executeCommand("sysml.tree.newFolder");
+        await waitFor(() => api.newEntry.active()?.kind === "folder", 5000, "the folder input box opens");
+        assert.strictEqual(api.newEntry.active()!.label, "New Folder");
+        api.newEntry.type("sub");
+        assert.strictEqual(api.newEntry.active()!.label, "sub");
+        await api.newEntry.accept();
+        assert.ok(existsSync(dir("a", "sub")));
+        await waitFor(async () => (await vkids(a)).some((k) => k.kind === "folder" && label(k) === "sub"), 20000, "the folder node appears");
+        assert.ok(!(await vkids(a)).some((k) => k.kind === "placeholder"));
+      } finally {
+        await api.newEntry.cancel();
+        await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+        rmSync(dir(), { recursive: true, force: true });
+      }
+    })],
+    ["Refresh: a file added outside VS Code and the Refresh command shows it in the tree", withFolders(async () => {
+      rmSync(dir(), { recursive: true, force: true });
+      mkdirSync(dir(), { recursive: true });
+      try {
+        const root = (await vkids())[0]!;
+        writeFileSync(dir("fresh.sysml"), "package Fresh;\n");
+        await vscode.commands.executeCommand("sysml.tree.refresh");
+        await waitFor(() => indexed("fresh.sysml"), 20000, "the file is indexed");
+        const tmp = await vfind(root, "tmp-tree");
+        await waitFor(async () => (await vkids(tmp)).some((k) => label(k) === "fresh.sysml"), 20000, "the file appears");
+      } finally {
+        rmSync(dir(), { recursive: true, force: true });
+      }
     })],
   ];
 

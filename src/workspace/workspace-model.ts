@@ -142,6 +142,12 @@ export class WorkspaceModel implements vscode.Disposable {
     for (const f of r.failed) this.log(`library file failed: ${f.path}: ${f.error}`);
   }
 
+  /** Read the workspace's `.sysml` files again (the Refresh button): files the watchers missed are added or updated. */
+  async rescan(): Promise<void> {
+    await this.ready;
+    await this.scanWorkspace();
+  }
+
   private async scanWorkspace(): Promise<void> {
     // Passing no exclude keeps the user's `files.exclude`; sysml.exclude and search.exclude are applied below.
     const found = await vscode.workspace.findFiles(GLOB, undefined);

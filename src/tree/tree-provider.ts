@@ -3,9 +3,11 @@ import * as vscode from "vscode";
 import { uriKey } from "../workspace/uri-key.js";
 import type { ModelIndex } from "../model/index.js";
 import { ELEMENT_MIME } from "../diagram/protocol.js";
+import { PLACEHOLDER_ID, effectiveName, placeholderNode, withPlaceholder, type NewEntryKind } from "./new-entry.js";
 import { RescanScheduler } from "./rescan-scheduler.js";
 import { makeExcludeFilter, patternsFromObject } from "../workspace/exclude.js";
 import {
+  folderNode,
   NO_MATCHES_NODE, allChildren, allFolderInfo, buildAllFilter, MAX_AUTO_EXPAND, messageText, tooManyMatchesNode, buildDiagramFilter, buildElementFilter, isMessageNode, keepElementNodes, keepFolderNodes, isExcludedPath,
   affectedDiagramNodes, affectedFolderNodes, childNodes, diagramChildren, diagramFolderInfo, diagramKindLabel, elementNames, fileChildren, fileName, firstErrorPosition, firstErrorText,
   diagramRoots, folderChildren, folderInfo, folderParent, folderRoots, isDiagramNode, isErrorNode, isFileNode, isFolderNode, nodeAtOffset, nodeInfo, resolveNode, visibleDiagrams, workspaceUris,
@@ -463,6 +465,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       if (record) for (const k of kids) this.handed.set(k.id, k);
       return kids;
     };
+    if (node?.kind === "placeholder") return [];
     if (this.filterValue === "diagrams") {
       return this.diagramsReady.then(async () => {
         const f = this.queryValue ? this.diagramFilterNow() : undefined;
@@ -493,7 +496,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
           this.noteSubfolders(node, kids);
           if (f) kids = keepFolderNodes(kids, f);
           await Promise.all(kids.filter(isDiagramNode).map((k) => this.loadKind(k.uri)));
-          return track(kids);
+          return track(f ? kids : this.withNewEntry(node, kids));
         }
         const kids = isFileNode(node) ? fileChildren(this.index, node) : childNodes(this.index, node);
         return track(f ? keepElementNodes(kids, f) : kids);
@@ -510,7 +513,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     if (isFolderNode(node)) {
       return folderChildren(this.index, this.env, node).then((k) => {
         this.noteSubfolders(node, k);
-        return track(f ? keepFolderNodes(k, f) : k);
+        return track(f ? keepFolderNodes(k, f) : this.withNewEntry(node, k));
       });
     }
     const kids = isFileNode(node) ? fileChildren(this.index, node) : childNodes(this.index, node);
@@ -521,6 +524,61 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private withTooMany(kept: ModelNode[]): ModelNode[] {
     if (!kept.length) return [NO_MATCHES_NODE];
     return this.tooManyMatches() ? [tooManyMatchesNode(this.matchCount()), ...kept] : kept;
+  }
+
+  /** The row being named by New File or New Folder (nothing is on disk yet). */
+  private newEntry: { folderUri: string; kind: NewEntryKind; text: string } | undefined;
+
+  private withNewEntry(node: ModelNode, kids: ModelNode[]): ModelNode[] {
+    const e = this.newEntry;
+    return e && e.folderUri === node.uri ? withPlaceholder(kids, node.uri, e.kind) : kids;
+  }
+
+  /** The workspace folders as index keys. */
+  get roots(): readonly { name: string; uri: string }[] {
+    return this.env.roots;
+  }
+
+  /** Show the placeholder row in the folder; returns the node to reveal. */
+  startNewEntry(folderUri: string, kind: NewEntryKind): ModelNode {
+    this.newEntry = { folderUri, kind, text: "" };
+    this.leafFolders.delete(folderUri);
+    this.fireTargeted([folderNode(folderUri)]);
+    return placeholderNode(folderUri);
+  }
+
+  /** The placeholder label follows the typed text (one targeted refresh of the row). */
+  updateNewEntry(text: string): void {
+    if (!this.newEntry) return;
+    this.newEntry.text = text;
+    this.fireTargeted([placeholderNode(this.newEntry.folderUri)]);
+  }
+
+  /** Remove the placeholder row and refresh its folder. */
+  endNewEntry(): void {
+    const e = this.newEntry;
+    if (!e) return;
+    this.newEntry = undefined;
+    this.handed.delete(PLACEHOLDER_ID);
+    this.leafFolders.delete(e.folderUri);
+    this.fireTargeted([folderNode(e.folderUri)]);
+  }
+
+  /** The label of the placeholder row, if one is shown. */
+  get newEntryLabel(): string | undefined {
+    return this.newEntry && effectiveName(this.newEntry.kind, this.newEntry.text);
+  }
+
+  /** The Refresh button: forget what is cached and read everything again. */
+  async refreshAll(): Promise<void> {
+    this.leafFolders.clear();
+    this.diagramsDirty = true;
+    if (this.filterValue !== "elements") this.diagramsReady = this.scanDiagrams();
+    await this.diagramsReady;
+    this.elementFilterCache = undefined;
+    this.allFilterCache = undefined;
+    this.diagramFilterCache = undefined;
+    this.fullRefresh();
   }
 
   /** Empty folders without subfolders found when last listed: shown as leaves. */
@@ -657,6 +715,15 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   }
 
   getTreeItem(node: ModelNode): vscode.TreeItem {
+    if (node.kind === "placeholder") {
+      const e = this.newEntry;
+      const item = new vscode.TreeItem(this.newEntryLabel ?? "", vscode.TreeItemCollapsibleState.None);
+      item.id = PLACEHOLDER_ID;
+      item.iconPath = new vscode.ThemeIcon(e?.kind === "folder" ? "new-folder" : "new-file", new vscode.ThemeColor("charts.blue"));
+      item.contextValue = "sysmlNewEntry";
+      item.tooltip = "Type a name in the input box above and press Enter";
+      return item;
+    }
     const item = this.buildItem(node);
     if (isMessageNode(node)) return item;
     if (!this.queryValue) {
