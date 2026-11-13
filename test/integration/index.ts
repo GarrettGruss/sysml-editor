@@ -54,7 +54,7 @@ export interface TestApi {
     state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
-    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void> } | undefined): void;
+    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined> } | undefined): void;
     activeUri(): string | undefined;
     hoverOf(uri: vscode.Uri): string | undefined;
   };
@@ -116,12 +116,16 @@ export type Gesture =
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
   | { kind: "hover"; id?: string }
+  | { kind: "labelClick"; id: string }
+  | { kind: "wheel"; deltaY: number; ctrl?: boolean }
+  | { kind: "focusCanvas"; mouse: boolean }
   | { kind: "flush" };
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean; labelBox?: { x: number; y: number; w: number; h: number }; labelLines?: string[]; labelLaidOut?: boolean }[];
   overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number; userLabelsOverNodes: number; userLabelsOffCanvas: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; routeHandles: number; labelHandles: number; focusable: boolean; zoom: number;
+  view: { x: number; y: number; k: number }; canvas: { w: number; h: number }; highlights: number; staleDraws: number; focusOutline: boolean;
   inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }

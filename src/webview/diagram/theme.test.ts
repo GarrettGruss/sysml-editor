@@ -15,7 +15,7 @@ describe("editor theme", () => {
 
   it("takes every colour of the live view from CSS classes bound to theme variables", () => {
     const css = read("diagram.css");
-    for (const cls of ["f-bg", "f-node", "f-line", "f-edge", "f-text", "f-subtext", "f-warn", "s-line", "s-edge", "s-warn", "sel-line", "sel-fill", "band"]) {
+    for (const cls of ["f-bg", "f-node", "f-line", "f-edge", "f-text", "f-subtext", "f-warn", "s-line", "s-edge", "s-warn", "s-sel", "sel-line", "sel-fill", "band"]) {
       const rule = new RegExp(`\\.${cls}[^{]*\\{([^}]*)\\}`).exec(css);
       expect(rule, cls).not.toBeNull();
       expect(rule![1], cls).toMatch(/var\(--vscode-/);

@@ -14,7 +14,7 @@ import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import { readSettled } from "./read-settled.js";
 import { writeDiagramFile } from "./write-uri.js";
 import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
-import { addElements } from "./create.js";
+import { addElements, rootProblem } from "./create.js";
 import { applyAutoLayout, applyBoxPatches, applyEdgeLayout, removeItems } from "./edits.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
 import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
@@ -41,12 +41,15 @@ export interface DiagramUi {
   confirm(message: string, detail: string, action: string): Promise<boolean>;
   /** Show a refused or failed model edit, with "Go to error" or "Go to Definition" when it offers them. */
   fail(failure: OpFailure): Promise<void>;
+  /** A message with action buttons; resolves to the chosen action, or undefined when dismissed. */
+  choose(message: string, actions: readonly string[]): Promise<string | undefined>;
 }
 
 export const defaultUi: DiagramUi = {
   pick: (items, options) => Promise.resolve(vscode.window.showQuickPick(items, options)),
   input: (options) => Promise.resolve(vscode.window.showInputBox(options)),
   fail: (f) => showFailure(f),
+  choose: (message, actions) => Promise.resolve(vscode.window.showWarningMessage(message, ...actions)),
   confirm: async (message, detail, action) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action,
 };
 
@@ -58,6 +61,8 @@ export class SysmlDiagramDocument implements vscode.CustomDocument {
   pendingSelect?: string[];
   /** Resolvers of callers waiting for the webview's answer to an Auto-layout command. */
   layoutWaiters: Array<() => void> = [];
+  /** Whether the root has been checked against the kind since the document was opened. */
+  rootChecked = false;
   /** Own writes of the file in flight (state.disk already has their text); file watcher events during them are stale. */
   writing = 0;
   /** Set when a watcher event was skipped during an own write: the file is read once more afterwards. */
@@ -368,8 +373,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         break;
       case "edit":
         // An edit made on a render of an earlier load (revert, external change) must not be applied to the document now.
-        if (m.generation !== doc.state.generation) this.log(`diagram: dropped an edit from generation ${String(m.generation)} (document is at ${doc.state.generation})`);
-        else this.userEdit(doc, m.edit);
+        if (m.generation !== doc.state.generation) {
+          this.log(`diagram: dropped an edit from generation ${String(m.generation)} (document is at ${doc.state.generation})`);
+          this.post(p, { type: "editRejected" });
+        } else if (!this.userEdit(doc, m.edit)) this.post(p, { type: "editRejected" });
         if (m.edit?.kind === "autoLayout") this.layoutDone(doc);
         break;
       case "hover":
@@ -490,9 +497,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   /** A layout or remove edit from the webview: one undoable edit of the diagram file, never of the model. */
-  private userEdit(doc: SysmlDiagramDocument, edit: DiagramEdit): void {
+  /** Whether the edit was applied (otherwise the webview is told to draw the committed state again). */
+  private userEdit(doc: SysmlDiagramDocument, edit: DiagramEdit): boolean {
     const cur = doc.state.doc;
-    if (!cur || !edit || typeof edit !== "object") return;
+    if (!cur || !edit || typeof edit !== "object") return false;
     let next: FileDoc | undefined;
     let label = "Edit diagram";
     switch (edit.kind) {
@@ -518,6 +526,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       }
     }
     if (next) this.edit(doc, next, label);
+    return next !== undefined;
   }
 
   // ---- model edits ------------------------------------------------------------------------
@@ -813,6 +822,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (r.updates && !doc.renderOnly) void this.followRename(doc, r.updates);
     if (r.vanished && !doc.renderOnly) void this.dropVanished(doc, r.vanished);
     if (r.restore && !doc.renderOnly) void this.restoreDropped(doc, r.restore);
+    if (!doc.renderOnly && !doc.rootChecked && [...(this.panels.get(doc.key) ?? [])].some((p) => p.ready)) {
+      doc.rootChecked = true;
+      void this.checkRoot(doc).catch((e) => this.fail("Check root", e));
+    }
     for (const p of this.panels.get(doc.key) ?? []) {
       if (!p.ready) continue;
       // The generation is part of the key: after a reload the webview must learn the new one even if the drawing is the same.
@@ -825,6 +838,28 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       const ids = doc.pendingSelect;
       doc.pendingSelect = undefined;
       for (const p of this.panels.get(doc.key) ?? []) if (p.ready && p.lastHash !== undefined) this.post(p, { type: "select", ids });
+    }
+  }
+
+  /** An open diagram whose root does not fit its kind (an Interconnection View of a package): say why and offer to fix it (D27). */
+  private async checkRoot(doc: SysmlDiagramDocument): Promise<void> {
+    const d = doc.state.doc;
+    if (!d) return;
+    const root = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
+    const problem = root && rootProblem(d.kind, root);
+    if (!problem) return;
+    const change = "Change root", convert = "Convert to General";
+    const pick = await this.ui.choose(`${problem} Change the root or convert the diagram to a General View.`, [change, convert]);
+    const cur = doc.state.doc;
+    if (!cur || cur.root !== d.root) return;
+    if (pick === convert) this.edit(doc, { ...cur, kind: "general" }, "Convert to General View");
+    else if (pick === change) {
+      const items = listElements(this.model.index).filter((e) => !rootProblem(cur.kind, e)).map((e) => ({ label: e.name ?? "", description: e.qualifiedName ?? "", detail: e.kind }));
+      const chosen = await this.ui.pick(items, { title: "Change root", placeHolder: "Choose an element this diagram can show", matchOnDescription: true });
+      if (!chosen) return;
+      const latest = doc.state.doc;
+      if (!latest || latest.root !== d.root) return;
+      this.edit(doc, { ...latest, root: chosen.description, nodes: latest.nodes.map((n) => (n.ref === latest.root ? { ...n, ref: chosen.description } : n)) }, "Change root");
     }
   }
 

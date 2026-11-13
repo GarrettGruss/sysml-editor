@@ -116,6 +116,12 @@ export type TestGesture =
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
   /** Move the pointer over a node or line (no button pressed), or off the diagram when `id` is absent. */
   | { kind: "hover"; id?: string }
+  /** Click the drawn text box of a line's label (the line need not be selected). */
+  | { kind: "labelClick"; id: string }
+  /** A wheel event on the canvas (a zoom step with `ctrl`, a pan without). */
+  | { kind: "wheel"; deltaY: number; ctrl?: boolean }
+  /** Focus the canvas with a mouse press (`true`) or from the keyboard (`false`). */
+  | { kind: "focusCanvas"; mouse: boolean }
   | { kind: "flush" };
 
 export type HostToWebview =
@@ -131,7 +137,9 @@ export type HostToWebview =
   | { type: "testGesture"; requestId: number; gesture: TestGesture }
   | { type: "typeSuggestionsResult"; requestId: number; items: { name: string; qualifiedName: string; library: boolean }[] }
   /** A model edit was refused or failed; shown in the properties panel as well as in a notification. */
-  | { type: "notice"; message: string };
+  | { type: "notice"; message: string }
+  /** The host did not apply the last diagram edit (stale or refused): the webview draws the committed state again. */
+  | { type: "editRejected" };
 
 /** Edges, in the metrics: absolute canvas coordinates. */
 export interface MetricsEdge {
@@ -205,6 +213,15 @@ export interface DiagramMetrics {
   focusable: boolean;
   /** Zoom factor. */
   zoom: number;
+  /** The pan and zoom, and the size of the canvas in px. */
+  view: { x: number; y: number; k: number };
+  canvas: { w: number; h: number };
+  /** Selected-line highlight strokes drawn. */
+  highlights: number;
+  /** Times a line was drawn with its old route between the release of a drag and the host's answer (D22): 0. */
+  staleDraws: number;
+  /** Whether the canvas shows a focus outline now (the computed outline style is not "none"). */
+  focusOutline: boolean;
 }
 
 export type WebviewToHost =

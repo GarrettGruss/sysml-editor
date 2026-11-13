@@ -92,7 +92,7 @@ async function render(vm: ViewModel, gen: number): Promise<void> {
   if (first) {
     first = false;
     if (saved?.view) renderer.setView(saved.view);
-    else renderer.fit();
+    else renderer.fitOnOpen();
   }
   if (layout.placed.size) {
     const nodes: NodeBox[] = [...layout.placed].map((id) => ({ id, ...layout.boxes.get(id)! }));
@@ -246,6 +246,9 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
     case "typeSuggestionsResult":
       suggestions.get(m.requestId)?.(m.items);
       suggestions.delete(m.requestId);
+      break;
+    case "editRejected":
+      renderer.editRejected();
       break;
     case "notice":
       renderer.tools.notice(m.message);

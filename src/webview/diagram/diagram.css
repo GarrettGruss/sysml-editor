@@ -1,6 +1,10 @@
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--vscode-editor-background, #ffffff); color: var(--vscode-editor-foreground, #1f2328); font-family: var(--vscode-font-family); }
 .diagram { width: 100vw; height: 100vh; display: block; cursor: default; outline: none; }
-.diagram:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: -2px; }
+.diagram:focus { outline: none; }
+/* Keyboard focus only: a thin inset line, dotted so it does not read as a selection. A press with the mouse never shows it. */
+.diagram:focus-visible { outline: 1px dotted var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: -3px; }
+.diagram[data-pointer]:focus-visible { outline: none; }
+.diagram .s-sel { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
 .diagram .sel-line { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); fill: none; }
 .diagram .sel-fill { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
 .diagram .band { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
