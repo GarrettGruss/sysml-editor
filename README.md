@@ -102,3 +102,7 @@ offers Satisfy, Verify and Derivation tools, and agents get `sysml_read_requirem
 ## AI agents
 
 Agents can read and validate the open SysML model, edit diagrams and edit the model (create, delete, rename, change properties, connect and satisfy) through Language Model Tools and MCP (the behaviour views included: actions, states, successions, transitions, messages), and can ask what the user is looking at (`sysml_get_editor_context`: active diagram, hovered and selected elements); model edits go through the same operations as the tree and the diagrams, are saved at once, are one undo step and are refused in untrusted workspaces. See [docs/agents.md](docs/agents.md).
+
+## License
+
+MIT, see [LICENSE](LICENSE). Bundled third-party material (the SysML v2 grammar and standard library, antlr4ng, elkjs) keeps its own license; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
