@@ -52,6 +52,7 @@ const CASES: { name: string; file: string; root: string; kind: DiagramKind; node
   { name: "ServerSequenceModel", file: REL + "examples/Interaction Sequencing Examples/ServerSequenceModel.sysml", root: "ServerSequenceModel::PubSubSequence", kind: "sequence", nodes: 3, edges: 3 },
   { name: "workspace actions", file: WS + "actions.sysml", root: "Delivery::deliverOrder", kind: "actionFlow", nodes: 7, edges: 7 },
   { name: "workspace states", file: WS + "states.sysml", root: "Lamp::lamp", kind: "stateTransition", nodes: 6, edges: 4 },
+  { name: "many self-transitions with long labels", file: "test/fixtures/self-transitions.sysml", root: "Fleet::FleetStates", kind: "stateTransition", nodes: 7, edges: 12 },
   { name: "workspace interaction", file: WS + "interaction.sysml", root: "Ordering::OrderInteraction", kind: "sequence", nodes: 3, edges: 3 },
 ];
 
@@ -72,6 +73,16 @@ describe("diagrams of real release fixtures and the workspace fixtures", () => {
       expect(r.edges.labelsOnOwnEdge).toBe(0);
       expect(r.edges.labelsOverLabels).toBe(0);
       for (const e of r.vm.edges) if (!e.derived) expect(r.svg.routes.get(e.id), e.id).toBeDefined();
+      if (c.name.startsWith("many self-transitions")) {
+        // No label runs past the frame of the state it belongs to.
+        const frame = r.abs.get(r.vm.nodes.find((n) => n.parent === undefined)!.id)!;
+        for (const [id, l] of r.svg.labels) {
+          expect(l.x, id).toBeGreaterThanOrEqual(frame.x);
+          expect(l.y, id).toBeGreaterThanOrEqual(frame.y);
+          expect(l.x + l.w, id).toBeLessThanOrEqual(frame.x + frame.w);
+          expect(l.y + l.h, id).toBeLessThanOrEqual(frame.y + frame.h);
+        }
+      }
     });
   }
 });

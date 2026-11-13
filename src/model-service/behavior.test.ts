@@ -137,4 +137,32 @@ describe("behaviour operations", () => {
     expect(r.ok).toBe(false);
     expect((r as { reason: string }).reason).toMatch(/syntax error/);
   });
+
+  describe("nested ends", () => {
+    const MODEL = "package P { state def M { entry; then idle; state idle; state operating { entry; then low; state low; state high; } state off; } action def A { action pre; action grp { action inner; } action post; } }";
+    test("a transition to a nested state is written with a dotted path in the owner", async () => {
+      const { host, svc, q } = setup(MODEL);
+      ok(await svc.addTransition(q("P::M"), q("P::M::idle"), q("P::M::operating::high")));
+      expect(host.disk.get(U)).toContain("transition first idle then operating.high;");
+    });
+    test("the statement goes into the nearest common owner of the ends", async () => {
+      const { host, svc, q } = setup(MODEL);
+      ok(await svc.addTransition(q("P"), q("P::M::operating::low"), q("P::M::operating::high")));
+      const op = q("P::M::operating");
+      expect(op.members.some((m) => m.kind === "transition" && m.ends.join() === "low,high")).toBe(true);
+      expect(host.disk.get(U)).toContain("transition first low then high;");
+    });
+    test("a succession reaches into a nested action", async () => {
+      const { host, svc, q } = setup(MODEL);
+      ok(await svc.addSuccession(q("P::A"), q("P::A::pre"), q("P::A::grp::inner")));
+      expect(host.disk.get(U)).toContain("first pre then grp.inner;");
+    });
+    test("an end that cannot be reached says why", async () => {
+      const { svc, q } = setup(MODEL);
+      const r = await svc.addTransition(q("P::M"), q("P::M::idle"), q("P::A::pre"));
+      expect(r.ok).toBe(false);
+      expect((r as { reason: string }).reason).toMatch(/common owner|not both inside|not an action|not a state/);
+      expect((r as { reason: string }).reason).not.toMatch(/out of date/);
+    });
+  });
 });

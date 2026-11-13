@@ -394,11 +394,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       case "relink":
         void this.relinkInteractive(doc, m.id).catch((e) => this.fail("Re-link", e));
         break;
-      case "showElement":
-        void this.showElementInteractive(doc).catch((e) => this.fail("Show Element", e));
-        break;
       case "dropElements":
-        this.addByName(doc, Array.isArray(m.names) ? m.names : []);
+        this.addByName(doc, Array.isArray(m.names) ? m.names : [], typeof m.x === "number" && typeof m.y === "number" && Number.isFinite(m.x) && Number.isFinite(m.y) ? { x: m.x, y: m.y } : undefined);
         break;
       case "gestureResult":
       case "pngResult":
@@ -734,31 +731,24 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   /** Add elements to the diagram as one undoable edit; existing ones are just selected. */
-  addElementsTo(doc: SysmlDiagramDocument, elements: Element[]): { ids: string[]; added: number } {
+  addElementsTo(doc: SysmlDiagramDocument, elements: Element[], at?: { x: number; y: number }): { ids: string[]; added: number } {
     const cur = doc.state.doc;
     if (!cur) throw new Error("This diagram cannot be edited: its file does not parse.");
-    const r = addElements(cur, this.model.index, elements, this.opts(doc));
+    const r = addElements(cur, this.model.index, elements, { ...this.opts(doc), ...(at ? { at } : {}) });
     if (r.added.length) this.edit(doc, r.doc, elements.length === 1 ? "Add to Diagram" : "Add elements to Diagram");
     this.selectIds(doc, r.ids);
     return { ids: r.ids, added: r.added.length };
   }
 
-  private addByName(doc: SysmlDiagramDocument, names: string[]): void {
+  private addByName(doc: SysmlDiagramDocument, names: string[], at?: { x: number; y: number }): void {
     // A drop payload comes from outside the extension: bounded, and never standard library content.
     const els = names.slice(0, MAX_DROPPED_NAMES).flatMap((n) => (typeof n === "string" ? [...this.model.index.findByQualifiedName(n).filter((e) => !isLibraryUri(e.uri)).slice(0, 1)] : []));
     if (!els.length) return;
     try {
-      this.addElementsTo(doc, els);
+      this.addElementsTo(doc, els, at);
     } catch (e) {
       this.fail("Add to Diagram", e);
     }
-  }
-
-  /** The "Show Element…" picker: any named element of the workspace model. */
-  async showElementInteractive(doc: SysmlDiagramDocument): Promise<void> {
-    const items = listElements(this.model.index).map((e) => ({ label: e.name!, description: e.qualifiedName!, detail: e.kind, element: e }));
-    const pick = await this.ui.pick(items, { title: "Show Element on Diagram", placeHolder: "Type the name of a model element", matchOnDescription: true, matchOnDetail: true });
-    if (pick) this.addElementsTo(doc, [pick.element]);
   }
 
   /** The "Re-link…" picker for an unresolved item: elements of the kind it had, not already shown. */

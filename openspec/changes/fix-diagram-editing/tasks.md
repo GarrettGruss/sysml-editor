@@ -9,9 +9,9 @@
 
 ## 2. Layout and model
 
-- [ ] 2.1 Pass wrapped label sizes to ELK, stack self-transition loops, add the many-self-transitions fixture; verify 0 label overlaps
-- [ ] 2.2 Allow nested ends in `addTransition` and `addSuccession`, choose the common owner, replace the messages; verify both scenarios and check the other "out of date" messages
-- [ ] 2.3 Record feature direction, show "parameters", report it in agent read tools; verify the "Directed feature compartment" and "Read a directed feature" scenarios
+- [x] 2.1 Pass wrapped label sizes to ELK, stack self-transition loops, add the many-self-transitions fixture; verify 0 label overlaps
+- [x] 2.2 Allow nested ends in `addTransition` and `addSuccession`, choose the common owner, replace the messages; verify both scenarios and check the other "out of date" messages
+- [x] 2.3 Record feature direction, show "parameters", report it in agent read tools; verify the "Directed feature compartment" and "Read a directed feature" scenarios
 
 ## 3. Diagram and canvas
 
@@ -22,5 +22,5 @@
 
 ## 4. Tree and docs
 
-- [ ] 4.1 Remove "Show Element…" and its command; rename to "Add to Diagram"; update README, docs, and mockups; verify both scenarios
-- [ ] 4.2 Verify tree-to-diagram drag for every kind and add the integration test; verify the "Drop position" scenario
+- [x] 4.1 Remove "Show Element…" and its command; rename to "Add to Diagram"; update README, docs, and mockups; verify both scenarios
+- [x] 4.2 Verify tree-to-diagram drag for every kind and add the integration test; verify the "Drop position" scenario

@@ -39,13 +39,52 @@ export function partProblem(what: string, text: string): string | undefined {
   return undefined;
 }
 
-const nodeName = (e: Element, what: string): string | PlanFailure => {
+/** The elements from `owner` (exclusive) down to `el` (inclusive), or undefined when `el` is not inside `owner`. */
+function chainBelow(owner: Element, el: Element): Element[] | undefined {
+  const chain: Element[] = [];
+  for (let e: Element | undefined = el; e; e = e.owner) {
+    if (e === owner) return chain.reverse();
+    chain.push(e);
+  }
+  return undefined;
+}
+
+/**
+ * The end as written in a statement of `owner`: `start`/`done`, a member's name, or a dotted path to a node nested below
+ * (`operating.high`). A failure says why the end cannot be written there.
+ */
+const nodeName = (e: Element, what: string, owner?: Element): string | PlanFailure => {
   if (isSynthetic(e) && (e.kind === "start" || e.kind === "done")) return e.kind;
-  if (e.name === undefined) return fail(`The ${what} is an unnamed ${e.kind}; give it a name before connecting it.`);
-  return quoteName(e.name);
+  const chain = owner ? chainBelow(owner, e) : [e];
+  if (!chain) return fail(`The ${what} ${describeElement(e)} is not inside ${describeElement(owner!)}, so it cannot be reached from there.`);
+  const names: string[] = [];
+  for (const [i, x] of chain.entries()) {
+    if (x.name === undefined) {
+      return fail(i === chain.length - 1
+        ? `The ${what} is an unnamed ${e.kind}; give it a name before connecting it (a statement can only refer to a node by name).`
+        : `The ${what} ${describeElement(e)} lies in an unnamed ${x.kind}, so it cannot be named from ${owner ? describeElement(owner) : "here"}; give that ${x.kind} a name first.`);
+    }
+    names.push(quoteName(x.name));
+  }
+  return names.join(".");
 };
 
-const flowOwner = (index: ModelIndex, owner: Element, el: Element): boolean => isSynthetic(el) ? el.owner === owner : el.owner === owner && (isActionNode(el) || isStateNode(el) || isControlNode(el));
+/** Whether `el` is a node a statement of `owner` can name: its start or done node, or an action, state or control node below it. */
+const flowOwner = (index: ModelIndex, owner: Element, el: Element): boolean => isSynthetic(el) ? el.owner === owner : chainBelow(owner, el) !== undefined && (isActionNode(el) || isStateNode(el) || isControlNode(el));
+
+/** Why `el` cannot be an end of a statement in `owner`, in words; undefined when it can. */
+function endProblem(index: ModelIndex, owner: Element, el: Element, role: string, want: string): string | undefined {
+  if (flowOwner(index, owner, el)) return undefined;
+  if (isSynthetic(el)) return `The ${el.kind} node belongs to ${describeElement(el.owner!)}, not to ${describeElement(owner)}, so it cannot be the ${role} here.`;
+  if (!chainBelow(owner, el)) return `${describeElement(el)} is not reachable from ${describeElement(owner)} (it is not inside it), so it cannot be the ${role} of a ${want} there.`;
+  return `${describeElement(el)} is not an action, state or control node, so it cannot be the ${role} of a ${want}.`;
+}
+
+/** The member of `owner` that holds `el` (the element itself when it is a direct member). */
+function memberOf(owner: Element, el: Element): Element {
+  const chain = chainBelow(owner, el);
+  return chain?.[0] ?? el;
+}
 
 type Position = Parameters<typeof insertDecls>[3];
 
@@ -92,12 +131,14 @@ function after(index: ModelIndex, owner: Element, edits: readonly TextEdit[]): {
 export function planAddSuccession(index: ModelIndex, owner: Element, source: Element, target: Element, guard?: string): PlanResult {
   const c = checkElement(index, owner);
   if (!c.ok) return c;
-  if (!flowOwner(index, owner, source)) return fail(`${describeElement(source)} is not a node of ${describeElement(owner)}, so it cannot be the source of a succession there.`);
-  if (!flowOwner(index, owner, target)) return fail(`${describeElement(target)} is not a node of ${describeElement(owner)}, so it cannot be the target of a succession there.`);
+  const sp = endProblem(index, owner, source, "source", "succession");
+  if (sp) return fail(sp);
+  const tp = endProblem(index, owner, target, "target", "succession");
+  if (tp) return fail(tp);
   if (source === target) return fail("A succession needs two different nodes.");
-  const a = nodeName(source, "source");
+  const a = nodeName(source, "source", owner);
   if (typeof a !== "string") return a;
-  const b = nodeName(target, "target");
+  const b = nodeName(target, "target", owner);
   if (typeof b !== "string") return b;
   if (source.kind === "done") return fail("Nothing can follow the done node.");
   if (target.kind === "start") return fail("Nothing can lead to the start node.");
@@ -109,7 +150,7 @@ export function planAddSuccession(index: ModelIndex, owner: Element, source: Ele
   const dup = analyze(index, owner).successions.find((s) => s.source === source && s.target === target && same(s.guard, g));
   if (dup) return fail(`There is already a succession from ${a} to ${b}${g ? ` with the guard [${g}]` : ""} in ${describeElement(owner)}.`);
   const decl = `first ${a}${g !== "" ? ` if ${g}` : ""} then ${b};`;
-  return insertAt(index, owner, decl, positionsAfter([source, target]), (edits) => {
+  return insertAt(index, owner, decl, positionsAfter([source, target].map((e) => (isSynthetic(e) ? e : memberOf(owner, e)))), (edits) => {
     const v = checked(index, owner, { ok: true, edits, description: `Add succession ${a} then ${b} to ${describeElement(owner)}` });
     if (!v.ok) return v;
     const now = after(index, owner, edits);
@@ -152,17 +193,21 @@ function readsBack(index: ModelIndex, owner: Element, source: Element, target: E
 export function planAddTransition(index: ModelIndex, owner: Element, source: Element, target: Element, parts: TransitionParts = {}): PlanResult {
   const c = checkElement(index, owner);
   if (!c.ok) return c;
-  if (!flowOwner(index, owner, source) || !(isStateNode(source) || source.kind === "start")) return fail(`${describeElement(source)} is not a state of ${describeElement(owner)}, so a transition cannot start there.`);
-  if (!flowOwner(index, owner, target) || !(isStateNode(target) || target.kind === "done")) return fail(`${describeElement(target)} is not a state of ${describeElement(owner)}, so a transition cannot end there.`);
+  const sp = endProblem(index, owner, source, "source", "transition");
+  if (sp) return fail(sp);
+  const tp = endProblem(index, owner, target, "target", "transition");
+  if (tp) return fail(tp);
+  if (!(isStateNode(source) || source.kind === "start")) return fail(`${describeElement(source)} is not a state, so a transition cannot start there.`);
+  if (!(isStateNode(target) || target.kind === "done")) return fail(`${describeElement(target)} is not a state, so a transition cannot end there.`);
   const bad = checkParts(parts);
   if (bad) return fail(bad);
-  const a = nodeName(source, "source");
+  const a = nodeName(source, "source", owner);
   if (typeof a !== "string") return a;
-  const b = nodeName(target, "target");
+  const b = nodeName(target, "target", owner);
   if (typeof b !== "string") return b;
   if (analyze(index, owner).transitions.some((t) => t.source === source && t.target === target && same(t.trigger, parts.trigger) && same(t.guard, parts.guard) && same(t.effect, parts.effect)))
     return fail(`There is already a transition from ${a} to ${b} with the same trigger, guard and effect in ${describeElement(owner)}.`);
-  return insertAt(index, owner, transitionText(a, b, parts), positionsAfter([source, target]), (edits) => {
+  return insertAt(index, owner, transitionText(a, b, parts), positionsAfter([source, target].map((e) => (isSynthetic(e) ? e : memberOf(owner, e)))), (edits) => {
     const v = checked(index, owner, { ok: true, edits, description: `Add transition ${a} to ${b} in ${describeElement(owner)}` });
     if (!v.ok) return v;
     const now = after(index, owner, edits);
@@ -185,9 +230,9 @@ export function planSetTransition(index: ModelIndex, transition: Element, parts:
   if (bad) return fail(bad);
   const info = analyze(index, owner).transitions.find((t) => t.statement === transition);
   if (!info) return fail("This transition's source or target is not a state of its owner, so it cannot be edited here.");
-  const a = nodeName(info.source, "source");
+  const a = nodeName(info.source, "source", owner);
   if (typeof a !== "string") return a;
-  const b = nodeName(info.target, "target");
+  const b = nodeName(info.target, "target", owner);
   if (typeof b !== "string") return b;
   // A dotted end (`first s1.sub`) is written back exactly as it was.
   const written = parseTransition(state0(index, transition), transition);
