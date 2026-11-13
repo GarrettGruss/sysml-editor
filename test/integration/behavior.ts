@@ -25,12 +25,12 @@ export function behaviorTests(c: Ctx): Test[] {
   const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g.kind === "palette" && g.name === undefined && g.hold !== true && script.input !== undefined ? { ...g, name: script.input } : g);
   const dirty = (name: string) => api.diagram.state(uriOf(name)).dirty;
   const textDoc = (name: string) => vscode.workspace.textDocuments.find((d) => d.uri.fsPath === uriOf(name).fsPath);
-  const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
+  const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string, diagnose?: () => string) => {
     // A monotonic clock: on some machines (WSL) the wall clock jumps by an hour while a test runs.
     const t0 = performance.now();
     const end = t0 + ms;
     while (!(await cond())) {
-      if (performance.now() > end) assert.fail(`timed out waiting for: ${what} (after ${Math.round(performance.now() - t0)} ms, limit ${ms} ms)`);
+      if (performance.now() > end) assert.fail(`timed out waiting for: ${what} (after ${Math.round(performance.now() - t0)} ms, limit ${ms} ms)${diagnose ? `\n${diagnose()}` : ""}`);
       await sleep(25);
     }
   };
@@ -340,7 +340,18 @@ export function behaviorTests(c: Ctx): Test[] {
       await savedAndClean(model);
       await api.model.ready;
       await vscode.commands.executeCommand("undo");
-      await waitFor(() => onDisk(model) === original, 15000, "one undo removes the naming and the succession");
+      await waitFor(() => onDisk(model) === original, 15000, "one undo removes the naming and the succession", () => {
+        const d = textDoc(model);
+        const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+        const input = tab?.input as { uri?: vscode.Uri; viewType?: string } | undefined;
+        return [
+          `active tab: ${tab?.label} (${input?.viewType ?? "text"} ${input?.uri?.fsPath ?? ""})`,
+          `on disk:\n${onDisk(model)}`,
+          `document (dirty=${d?.isDirty}):\n${d?.getText()}`,
+          `diagram dirty=${dirty(diagram)}; nodes in memory: ${JSON.stringify(mem(diagram).nodes.map((n) => ({ id: n.id, ref: n.ref, locator: (n as { locator?: unknown }).locator })))}`,
+          `diagram nodes on disk: ${JSON.stringify(diskDiagram(diagram).nodes.map((n) => ({ id: n.id, ref: n.ref, locator: (n as { locator?: unknown }).locator })))}`,
+        ].join("\n");
+      });
     }, { text: (t) => t.replace("    then done;", "    then fork;\n    then done;") })],
 
     // ---- editing: State Transition -----------------------------------------------------------
