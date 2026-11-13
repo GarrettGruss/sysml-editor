@@ -33,6 +33,7 @@ export interface TestApi {
     /** Re-reads of newly created folders still scheduled. */
     readonly pendingFolderRescans: number;
     readonly diagramUris: string[];
+    readonly diagramLog: string[];
     readonly query: string;
     setExpanded(n: ModelNode, expanded: boolean): void;
   };

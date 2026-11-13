@@ -471,7 +471,7 @@ export function foldersTests(c: Ctx): Test[] {
           assert.deepStrictEqual((await kids(deep)).map(label), ["state-one.sysmld"]);
         } catch (e) {
           const tree = (await dump(undefined, 5)).join("\n");
-          throw new Error(`${String(e)}\ndiagram set: ${JSON.stringify(api.provider.diagramUris.filter((u) => u.includes("/tmp-tree/")))}\nquery: ${api.provider.query}\ntree:\n${tree}`);
+          throw new Error(`${String(e)}\ndiagram set: ${JSON.stringify(api.provider.diagramUris.filter((u) => u.includes("/tmp-tree/")))}\ndiagram set changes:\n${api.provider.diagramLog.join("\n")}\nquery: ${api.provider.query}\ntree:\n${tree}`);
         }
         api.search.post({ type: "query", text: "qqqzzz" });
         assert.deepStrictEqual((await kids()).map(label), ["No matches"]);

@@ -148,6 +148,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
 
   /** The diagram set may be wrong everywhere (configuration or workspace folders changed): rescan now if shown, else when shown. */
   private rescanAll(): void {
+    this.trace("rescanAll (workspace folders or exclude settings changed)");
     this.diagramsDirty = true;
     if (this.filterValue !== "elements") this.diagramsReady = this.scanDiagrams().then(() => this.fullRefresh());
     this.fullRefresh();
@@ -204,6 +205,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   private async scanDiagrams(): Promise<void> {
     const generation = ++this.scanGeneration;
     this.diagramsDirty = false;
+    this.trace(`scan #${generation} starts`);
     this.scanEvents.clear();
     this.lastEvent.clear(); // reads started before this scan give way to it anyway
     this.scanning++;
@@ -244,16 +246,29 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     }
     if (generation !== this.scanGeneration) return;
     const next = visibleDiagrams(this.env, found.map(uriKey));
+    this.trace(`scan #${generation} read ${found.length} files, replaying ${this.scanEvents.size} events`);
     for (const [u, created] of this.scanEvents) {
       if (created && visibleDiagrams(this.env, [u]).size > 0) next.add(u);
       else if (!created) next.delete(u);
     }
     this.scanEvents.clear();
-    this.applyDiagrams(next);
+    this.applyDiagrams(next, `scan #${generation}`);
   }
 
-  private applyDiagrams(next: ReadonlySet<string>): void {
+  /** The last changes to the diagram set, with their cause (failure diagnostics for tests). */
+  private readonly diagramTrace: string[] = [];
+  private trace(what: string): void {
+    this.diagramTrace.push(`${Date.now() % 100000} ${what}`);
+    if (this.diagramTrace.length > 80) this.diagramTrace.shift();
+  }
+
+  get diagramLog(): string[] {
+    return [...this.diagramTrace];
+  }
+
+  private applyDiagrams(next: ReadonlySet<string>, cause = "?"): void {
     const previous = this.diagrams;
+    this.trace(`${cause}: ${previous.size} -> ${next.size}`);
     this.diagrams = next;
     for (const u of this.kinds.keys()) if (!next.has(u)) this.kinds.delete(u);
     this.diagramFilterCache = undefined;
@@ -299,7 +314,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
       if (visibleDiagrams(this.env, [uri]).size === 0) return;
       next.add(uri);
     } else if (!next.delete(uri)) return;
-    this.applyDiagrams(next);
+    this.applyDiagrams(next, `${created ? "create" : "delete"} ${uri.split("/").slice(-1)[0]}`);
   }
 
   /**
@@ -344,14 +359,14 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     if (next.size === this.diagrams.size && [...next].every((u) => this.diagrams.has(u))) return;
     // A full scan still running may have read the disk before these files existed and would overwrite them when it ends: it replays them.
     if (this.scanning > 0) for (const u of next) if (!this.diagrams.has(u)) this.scanEvents.set(u, true);
-    this.applyDiagrams(next);
+    this.applyDiagrams(next, `re-read of ${path.split("/").slice(-2).join("/")}`);
   }
 
   /** A deleted folder takes the diagrams below it out of the set. */
   private dropDiagramsBelow(path: string): void {
     const prefix = path + "/";
     const next = new Set([...this.diagrams].filter((u) => !u.startsWith(prefix)));
-    if (next.size !== this.diagrams.size) this.applyDiagrams(next);
+    if (next.size !== this.diagrams.size) this.applyDiagrams(next, `folder delete ${path.split("/").slice(-2).join("/")}`);
   }
 
   /** Test hooks: how many workspace searches and directory reads the tree did, and how many folder re-reads are still due. */
