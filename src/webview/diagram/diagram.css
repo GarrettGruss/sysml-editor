@@ -62,3 +62,12 @@ svg, svg * { -webkit-user-select: none; user-select: none; }
 .diagram [data-label-handle="resize"] { cursor: nwse-resize; }
 .ctx-menu button[aria-checked="true"]::before { content: "\2713"; margin-right: 6px; }
 .ctx-menu button[aria-checked="false"]::before { content: ""; display: inline-block; width: 1em; margin-right: 6px; }
+
+.diagram .ghost-bad { stroke: var(--vscode-errorForeground, #d13438); fill: none; }
+.diagram [data-connect-handle] { cursor: crosshair; }
+.diagram [data-reconnect-handle] { cursor: grab; }
+.ghost-tip { position: fixed; z-index: 12; max-width: 280px; padding: 3px 8px; pointer-events: none; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-editorWidget-border, transparent)); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.ghost-tip[hidden] { display: none; }
+.quick-bar { position: fixed; z-index: 11; display: flex; gap: 3px; padding: 4px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); color: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-contrastBorder, transparent)); box-shadow: 0 2px 6px var(--vscode-widget-shadow, transparent); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.quick-bar button { background: var(--vscode-button-secondaryBackground, transparent); color: var(--vscode-button-secondaryForeground, inherit); border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, transparent)); padding: 2px 8px; cursor: pointer; font: inherit; }
+.quick-bar button:hover, .quick-bar button:focus-visible { background: var(--vscode-button-background); color: var(--vscode-button-foreground); outline: none; }
