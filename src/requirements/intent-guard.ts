@@ -28,7 +28,7 @@ export function parseIntent(x: unknown): { ok: true; intent: Intent } | { ok: fa
     case "setParagraph": return str("key") === undefined || !text("value") || !text("expected") ? bad("key, value and expected must be text") : ok();
     case "addRequirement":
       if (x.kind !== "requirement" && x.kind !== "requirement def") return bad("kind must be requirement or requirement def");
-      return need(["id", "name"]) || !optStr("ownerQn") || !optStr("afterQn") ? bad("id and name must be text, ownerQn and afterQn text when given") : ok();
+      return need(["id", "name"]) || !optStr("ownerQn") || !optStr("afterQn") || !optStr("beforeQn") ? bad("id and name must be text, ownerQn, afterQn and beforeQn text when given") : ok();
     case "deleteRequirement": case "addSatisfy": case "addVerify": case "addDerivedFrom": case "addDerives": case "deleteSection":
       return need(["qn"]) ? bad("qn must be text") : ok();
     case "removeSatisfy": case "removeVerify": return need(["key"]) ? bad("key must be text") : ok();
@@ -37,8 +37,15 @@ export function parseIntent(x: unknown): { ok: true; intent: Intent } | { ok: fa
       if (need(["qn"])) return bad("qn must be text");
       return x.to === "tree" || x.to === "text" || x.to === "diagram" ? ok() : bad("to must be tree, text or diagram");
     case "exportMatrix": return x.format === "csv" || x.format === "markdown" ? ok() : bad("format must be csv or markdown");
-    case "addSection": return need(["parentQn", "name"]) || !optStr("afterQn") || !optBool("appendix") ? bad("parentQn and name must be text, appendix a boolean, afterQn text when given") : ok();
+    case "addSection": if (x.afterQn !== undefined && x.beforeQn !== undefined) return bad("give afterQn or beforeQn, not both"); return need(["parentQn", "name"]) || !optStr("afterQn") || !optStr("beforeQn") || !optBool("appendix") ? bad("parentQn and name must be text, appendix a boolean, afterQn text when given") : ok();
     case "addParagraph": return str("pkgQn") === undefined || !text("text") ? bad("pkgQn and text must be text") : ok();
+    case "moveRequirement": {
+      if (need(["qn"])) return bad("qn must be text");
+      const how = x.how;
+      if (how === "up" || how === "down") return ok();
+      if (isRec(how) && typeof how.ownerQn === "string" && how.ownerQn.length <= MAX_NAME && (how.beforeQn === undefined || (typeof how.beforeQn === "string" && how.beforeQn.length <= MAX_NAME))) return ok();
+      return bad("how must be up, down or { ownerQn, beforeQn? }");
+    }
     case "moveSection": {
       if (need(["qn"])) return bad("qn must be text");
       const how = x.how;

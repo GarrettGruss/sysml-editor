@@ -4,6 +4,7 @@
  * No `vscode`, no DOM.
  */
 import type { Element, ModelIndex } from "../model/index.js";
+import { numbered } from "./document-model.js";
 import { buildRelations, type Relations } from "./queries.js";
 import { isRequirement } from "./relations.js";
 import { usagesText, VERIFICATION_METHODS, type MatrixLink, type MatrixRow, type MatrixSummary, type MatrixVM, type MatrixStatus, type VerificationMethod } from "./matrix-shape.js";
@@ -169,24 +170,24 @@ export function buildMatrix(index: ModelIndex, scope: Element | string, editable
       editable: editable(e.uri),
     });
   };
-  const walk = (members: readonly Element[], prefix: string, depth: number) => {
-    let n = 0;
-    for (const m of members) {
+  const walk = (owner: Element, prefix: string, depth: number, root = false) => {
+    const nums = numbered(index, owner, prefix, root); // the same numbers as the document view
+    for (const m of owner.members) {
       if (!isRequirement(m) && !(isPkg(m) && hasRequirement(m))) continue;
-      const number = prefix + String(++n);
+      const number = nums.get(m) ?? "";
       if (isRequirement(m)) {
         addReq(m, number, depth);
-        walk(m.members, number + ".", depth + 1);
+        walk(m, number, depth + 1);
       } else {
         rows.push({ kind: "section", number, depth, qn: m.qualifiedName ?? m.name ?? "", id: "", name: m.name ?? "", satisfiedBy: [], methods: [], verifiedBy: [], editable: editable(m.uri) });
-        walk(m.members, number + ".", depth + 1);
+        walk(m, number, depth + 1);
       }
     }
   };
-  if (typeof scope === "string") walk(index.getDocument(scope)?.model.roots ?? [], "", 0);
+  if (typeof scope === "string") walk({ members: index.getDocument(scope)?.model.roots ?? [] } as unknown as Element, "", 0, true);
   else {
     const decls = scope.qualifiedName !== undefined ? index.findByQualifiedName(scope.qualifiedName).filter((d) => d === scope || d.kind === scope.kind) : [scope];
-    walk((decls.includes(scope) ? decls : [scope, ...decls]).flatMap((d) => d.members), "", 0);
+    walk({ members: (decls.includes(scope) ? decls : [scope, ...decls]).flatMap((d) => d.members) } as unknown as Element, "", 0, true);
   }
   return { rows, summary: summarize(rows) };
 }

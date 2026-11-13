@@ -35,7 +35,7 @@ describe("DocumentModel", () => {
     expect(doc.annotated).toBe(true);
     expect(doc.sections.map((s) => sectionLabel(s))).toEqual(["1 Performance Requirements", "2 Safety"]);
     expect(doc.appendices.map((s) => sectionLabel(s))).toEqual(["Appendix A Glossary", "Appendix B Index"]);
-    expect(doc.toc.map((t) => `${t.number} ${t.heading}`)).toEqual(["1 Performance Requirements", "1.1 Sub", "2 Safety", "A Glossary", "B Index"]);
+    expect(doc.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`)).toEqual(["1 Performance Requirements", "1.2 Sub", "2 Safety", "A Glossary", "B Index"]);
   });
   test("section content: paragraphs in order, requirement items, model elements", () => {
     const { doc } = model(ANNOTATED, "VehicleSpec");
@@ -109,5 +109,63 @@ describe("Markdown subset", () => {
     expect((p as any).c.filter((n: any) => n.t === "link")).toHaveLength(1);
     expect(inlineText((p as any).c)).toContain("<script>x</script>"); // text, never markup
     expect(JSON.stringify(p)).not.toContain("javascript:");
+  });
+});
+
+const MINING = `package MiningFrigate {
+  requirement def MiningFrigateRequirementsDef {
+    doc /* The owner. */
+    requirement <'MFRQ01'> OreExtractionEfficiencyRequirement {
+      doc /* The Mining Frigate shall extract ore at 85 percent. */
+      requirement <'MFRQ01_1'> Yield { doc /* Yield. */ }
+      requirement <'MFRQ01_2'> Wear { doc /* Wear. */ requirement <'W1'> Deep; }
+    }
+    requirement <'MFRQ02'> Cargo { doc /* Cargo. */ }
+  }
+  package Section { requirement <'S1'> One; package Sub { requirement <'S2'> Two; } }
+}`;
+
+describe("requirement hierarchy and numbering", () => {
+  test("a plain requirement definition is the document: owner heading, requirements as items with computed numbers", () => {
+    const { doc } = model(MINING, "MiningFrigate::MiningFrigateRequirementsDef");
+    expect(doc.title).toBe("MiningFrigateRequirementsDef");
+    expect(doc.annotated).toBe(false);
+    const items = doc.blocks.filter((b) => b.kind === "item") as any[];
+    expect(items.map((i) => [i.number, i.info.shortName, i.info.name])).toEqual([["1", "MFRQ01", "OreExtractionEfficiencyRequirement"], ["2", "MFRQ02", "Cargo"]]);
+    expect(items[0].info.text).toContain("85 percent");
+    expect(items[0].children.map((c: any) => c.number)).toEqual(["1.1", "1.2"]);
+    expect(items[0].children[1].children.map((c: any) => c.number)).toEqual(["1.2.1"]);
+    // the owner's own doc is a paragraph of the document, not a requirement
+    expect(doc.blocks.filter((b) => b.kind === "paragraph")).toHaveLength(1);
+  });
+  test("numbers are never part of the text", () => {
+    const { doc } = model(MINING, "MiningFrigate::MiningFrigateRequirementsDef");
+    expect(JSON.stringify(doc.blocks.filter((b) => b.kind === "item").map((b: any) => b.info.text))).not.toMatch(/1\.1/);
+  });
+  test("the table of contents has the requirement headings, nested, in document order", () => {
+    const { doc } = model(MINING, "MiningFrigate::MiningFrigateRequirementsDef");
+    expect(doc.toc.map((t) => `${t.kind}:${t.number} ${t.heading}:${t.level}`)).toEqual([
+      "requirement:1 MFRQ01 : OreExtractionEfficiencyRequirement:1",
+      "requirement:1.1 MFRQ01_1 : Yield:2",
+      "requirement:1.2 MFRQ01_2 : Wear:2",
+      "requirement:1.2.1 W1 : Deep:3",
+      "requirement:2 MFRQ02 : Cargo:1",
+    ]);
+  });
+  test("one counter in source order shared by sections and requirements", () => {
+    const { doc } = model(MINING, "MiningFrigate");
+    // the requirement definition is member 1 of the package, the section member 2
+    expect(doc.blocks.filter((b) => b.kind === "item").map((b: any) => b.number)).toEqual(["1"]);
+    expect(doc.sections.map((s) => s.number)).toEqual(["2"]);
+    const s = doc.sections[0]!;
+    expect((s.blocks.find((b) => b.kind === "item") as any).number).toBe("2.1");
+    expect(s.children[0]!.number).toBe("2.2");
+  });
+  test("adding a member shifts only the numbers after it", () => {
+    const text = "package P {\n  requirement <'A'> a;\n  package S { requirement <'B'> b; }\n  requirement <'C'> c;\n}";
+    const before = model(text, "P").doc.toc.map((t) => `${t.number} ${t.heading}`);
+    const after = model(text.replace("  package S", "  requirement <'N'> n;\n  package S"), "P").doc.toc.map((t) => `${t.number} ${t.heading}`);
+    expect(before).toEqual(expect.arrayContaining(["1 A : a", "2 S", "2.1 B : b", "3 C : c"]));
+    expect(after).toEqual(expect.arrayContaining(["1 A : a", "2 N : n", "3 S", "3.1 B : b", "4 C : c"]));
   });
 });

@@ -8,7 +8,7 @@ import {
   buildDeclaration, planConnect, planDeleteElement, planInsertMember, planRename, planSatisfy, planSetDocumentation,
   planSetMultiplicity, planSetShortName, planSetType, validatePlan,
   isPlanCurrent, sourceMatches, sourceOf,
-  detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, planRemoveDerivation, planRemoveSatisfy,
+  detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, positionBefore, planRemoveDerivation, planRemoveSatisfy,
   planRemoveVerify, planSetCommentBody, planVerify, type MoveTarget,
   freeNodeName, planAddConnectedNode, planAddMessage, planAddSuccession, planReconnect, planAddTransition, planDeleteBehavior, planSetTransition, type MessageSpec, type TransitionParts,
   type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
@@ -121,6 +121,9 @@ export interface Origin {
   /** URI of the diagram the edit is made from (it gets the undo entry). */
   diagram?: string;
 }
+
+/** The same owner: the element itself, or another declaration of the same name in the same file. */
+const ownerIs = (a: Element, b: Element): boolean => a === b || (a.qualifiedName !== undefined && a.qualifiedName === b.qualifiedName && a.uri === b.uri);
 
 export interface AddSpec {
   /** Declaration kind, e.g. `part`, `part def`, `port`. */
@@ -405,7 +408,7 @@ export class ModelService {
 
   // ---- operations ----------------------------------------------------------------------------
 
-  addElement(owner: Element, spec: AddSpec, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string }; context?: Element } = {}): Promise<OpResult> {
+  addElement(owner: Element, spec: AddSpec, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string }; context?: Element; /** Insert just above this member of the owner (default: at the end). */ before?: Element } = {}): Promise<OpResult> {
     return this.serial(async () => {
       if (opts.context) {
         const refusal = this.inheritedRefusal({ element: owner, context: opts.context }, "extended");
@@ -435,13 +438,20 @@ export class ModelService {
             type = t;
           }
           const memberSpec = { kind: spec.kind, ...(spec.name !== undefined ? { name: spec.name } : {}), ...(spec.shortName ? { shortName: spec.shortName } : {}), ...(type !== undefined ? { type } : {}), ...(spec.multiplicity ? { multiplicity: spec.multiplicity } : {}) };
-          if (!spec.documentation) return planInsertMember(this.index, ownerNow, memberSpec);
+          let at: import("../edit/body.js").InsertPosition = "end";
+          if (opts.before) {
+            const bef = this.fresh(opts.before);
+            const pos = bef && bef.owner && ownerIs(bef.owner, ownerNow) ? positionBefore(this.index, bef) : undefined;
+            if (pos === undefined || pos === "same") return fail("The member the new element should go above is no longer in that owner; nothing was changed.");
+            at = pos;
+          }
+          if (!spec.documentation) return planInsertMember(this.index, ownerNow, memberSpec, at);
           const b = buildDeclaration(this.index, ownerNow, memberSpec);
           if (!b.ok) return b;
           const docText = newCommentDecl("doc", escapeTerminator(spec.documentation.replace(/\r\n/g, "\n").trim()), "\n", "");
           const unit = detectIndentUnit(this.index.getDocument(ownerNow.uri)?.text ?? "");
           const decl = b.text.replace(/;$/, ` {\n${unit}${docText.split("\n").join("\n" + unit)}\n}`);
-          return planInsertMember(this.index, ownerNow, decl);
+          return planInsertMember(this.index, ownerNow, decl, at);
         },
         () => ({
           element: () => {
@@ -1101,18 +1111,18 @@ export class ModelService {
   }
 
   /** A new section (package) or appendix (package with `@Appendix;` and the library import when missing). */
-  addSection(parent: Element, name: string, opts: { appendix?: boolean; after?: Element } = {}, origin?: Origin): Promise<OpResult> {
-    return this.plain([parent, opts.after], (f) => planAddSection(this.index, f[0]!, name, { ...(opts.appendix ? { appendix: true } : {}), ...(opts.after ? { after: f[1]! } : {}) }), () => [parent.uri], origin);
+  addSection(parent: Element, name: string, opts: { appendix?: boolean; after?: Element; before?: Element } = {}, origin?: Origin): Promise<OpResult> {
+    return this.plain([parent, opts.after, opts.before], (f) => planAddSection(this.index, f[0]!, name, { ...(opts.appendix ? { appendix: true } : {}), ...(opts.after ? { after: f[1]! } : {}), ...(opts.before ? { before: f[2]! } : {}) }), () => [parent.uri], origin);
   }
 
   /** A new requirement (usage or definition) with an optional id (short name) and documentation. */
-  createRequirement(owner: Element, spec: { definition?: boolean; id?: string; name: string; documentation?: string }, origin?: Origin): Promise<OpResult> {
+  createRequirement(owner: Element, spec: { definition?: boolean; id?: string; name: string; documentation?: string; before?: Element }, origin?: Origin): Promise<OpResult> {
     return this.addElement(owner, {
       kind: spec.definition ? "requirement def" : "requirement",
       name: spec.name,
       ...(spec.id ? { shortName: spec.id } : {}),
       ...(spec.documentation ? { documentation: spec.documentation } : {}),
-    }, origin?.diagram ? { diagram: origin.diagram } : {});
+    }, { ...(origin?.diagram ? { diagram: origin.diagram } : {}), ...(spec.before ? { before: spec.before } : {}) });
   }
 
   // ---- undo and redo -------------------------------------------------------------------------

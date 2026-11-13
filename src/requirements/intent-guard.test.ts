@@ -54,4 +54,8 @@ describe("intent shape guard", () => {
       if (!r.ok) expect(r.reason.length).toBeGreaterThan(5);
     }
   });
+  test("addSection with both afterQn and beforeQn is rejected", () => {
+    expect(parseIntent({ type: "addSection", parentQn: "P", name: "n", afterQn: "a", beforeQn: "b" }).ok).toBe(false);
+    expect(parseIntent({ type: "addSection", parentQn: "P", name: "n", beforeQn: "b" }).ok).toBe(true);
+  });
 });

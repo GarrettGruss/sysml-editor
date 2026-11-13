@@ -175,3 +175,123 @@ describe("conflicts and stable paragraph keys", () => {
     expect((await ctl.handle({ type: "setParagraph", key: key.replace(/\|1$/, "|7"), value: "x", expected: "" })).ok).toBe(false);
   });
 });
+
+describe("requirements authoring: add and move", () => {
+  const MF = `package MF {
+    requirement def Owner {
+        requirement <'MFRQ01'> First {
+            doc /* One. */
+        }
+        // about the second
+        requirement <'MFRQ02'> Second {
+            doc /* Two. */
+        }
+        requirement <'MFRQ03'> Third;
+    }
+}
+`;
+  function mf() {
+    const host = new FakeHost();
+    host.addDocument(URI, MF);
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "MF::Owner");
+    return { host, ctl, text: () => host.buffers.get(URI)!, order: () => [...host.buffers.get(URI)!.matchAll(/<'(MFRQ\d+)'>/g)].map((m) => m[1]) };
+  }
+  test("add above a requirement, at the end, and as a child inside a requirement body", async () => {
+    const { ctl, text, order } = mf();
+    expect((await ctl.handle({ type: "addRequirement", kind: "requirement", id: "MFRQ00", name: "Zero", ownerQn: "MF::Owner", beforeQn: "MF::Owner::First" })).ok).toBe(true);
+    expect(order()).toEqual(["MFRQ00", "MFRQ01", "MFRQ02", "MFRQ03"]);
+    expect((await ctl.handle({ type: "addRequirement", kind: "requirement", id: "MFRQ04", name: "Fourth", ownerQn: "MF::Owner" })).ok).toBe(true);
+    expect(order().at(-1)).toBe("MFRQ04");
+    expect((await ctl.handle({ type: "addRequirement", kind: "requirement", id: "MFRQ01_1", name: "Child", ownerQn: "MF::Owner::First" })).ok).toBe(true);
+    expect(text()).toMatch(/<'MFRQ01'> First \{[\s\S]*<'MFRQ01_1'> Child[\s\S]*\}\s*\/\/ about the second/);
+    expect((await ctl.handle({ type: "addRequirement", kind: "requirement", id: "X", name: "Nope", ownerQn: "MF::Owner", beforeQn: "MF::Owner::Missing" })).ok).toBe(false);
+  });
+  test("a comment above the target stays attached: the new requirement goes above the comment", async () => {
+    const { ctl, text } = mf();
+    await ctl.handle({ type: "addRequirement", kind: "requirement", id: "N", name: "New", ownerQn: "MF::Owner", beforeQn: "MF::Owner::Second" });
+    expect(text()).toMatch(/<'N'> New;?[\s\S]*\/\/ about the second\s*\n\s*requirement <'MFRQ02'>/);
+  });
+  test("move up, down, to a gap; the leading comment travels with it", async () => {
+    const { ctl, text, order } = mf();
+    expect((await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::Second", how: "up" })).ok).toBe(true);
+    expect(order()).toEqual(["MFRQ02", "MFRQ01", "MFRQ03"]);
+    expect(text()).toMatch(/\/\/ about the second\s*\n\s*requirement <'MFRQ02'>/);
+    expect((await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::First", how: "down" })).ok).toBe(true);
+    expect(order()).toEqual(["MFRQ02", "MFRQ03", "MFRQ01"]);
+    expect((await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::Third", how: { ownerQn: "MF::Owner", beforeQn: "MF::Owner::Second" } })).ok).toBe(true);
+    expect(order()).toEqual(["MFRQ03", "MFRQ02", "MFRQ01"]);
+    expect((await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::Third", how: "up" })).ok).toBe(false);
+  });
+  test("dropping onto a requirement nests it, creating { } when it has none; dragging out un-nests", async () => {
+    const { ctl, text, order } = mf();
+    const r = await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::Second", how: { ownerQn: "MF::Owner::Third" } });
+    expect(r.ok).toBe(true);
+    expect(text()).toMatch(/<'MFRQ03'> Third \{[\s\S]*<'MFRQ02'> Second[\s\S]*\}/);
+    expect(order()).toEqual(["MFRQ01", "MFRQ03", "MFRQ02"]);
+    expect((await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::Third::Second", how: { ownerQn: "MF::Owner", beforeQn: "MF::Owner::First" } })).ok).toBe(true);
+    expect(order()).toEqual(["MFRQ02", "MFRQ01", "MFRQ03"]);
+    expect((await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::First", how: { ownerQn: "MF::Owner::First" } })).ok).toBe(false);
+  });
+  test("a move that would change what a name resolves to is refused with a reason, and nothing changes", async () => {
+    const host = new FakeHost();
+    const text = "package D {\n    package A {\n        requirement <'RA'> X;\n    }\n    package B {\n        requirement <'RB'> X;\n    }\n    package C {\n        private import A::*;\n        part y : X;\n    }\n}\n";
+    host.addDocument(URI, text);
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "D");
+    const r = await ctl.handle({ type: "moveRequirement", qn: "D::B::X", how: { ownerQn: "D::C" } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/refer to|resolve/i);
+    expect(host.buffers.get(URI)).toBe(text);
+  });
+  test("a gap anchor that is not in the target owner is refused, here and in the plan", async () => {
+    const { ctl, text } = mf();
+    const t0 = text();
+    const r = await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::Third", how: { ownerQn: "MF::Owner::First", beforeQn: "MF::Owner::Second" } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/not in that owner/);
+    expect(text()).toBe(t0);
+    const a = await ctl.handle({ type: "addRequirement", kind: "requirement", id: "Z", name: "Zed", ownerQn: "MF::Owner::First", beforeQn: "MF::Owner::Second" });
+    expect(a.ok).toBe(false);
+    expect(text()).toBe(t0);
+  });
+  test("a move is refused when the owner cannot hold the kind, or lies outside the open document", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, "package MF {\n    requirement def D1 {\n        requirement <'A'> a;\n    }\n    requirement def D2 {\n        requirement <'B'> b;\n    }\n}\n");
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "MF::D1");
+    const t0 = host.buffers.get(URI)!;
+    const out = await ctl.handle({ type: "moveRequirement", qn: "MF::D1::a", how: { ownerQn: "MF::D2" } });
+    expect(out.ok).toBe(false);
+    expect(out.message).toMatch(/only be moved within the document/);
+    const add = await ctl.handle({ type: "addRequirement", kind: "requirement", id: "C", name: "c", ownerQn: "MF::D2" });
+    expect(add.ok).toBe(false);
+    expect(host.buffers.get(URI)).toBe(t0);
+  });
+  test("a requirement definition cannot be moved into a requirement", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, "package MF {\n    requirement def D1;\n    requirement def D2;\n    requirement r;\n}\n");
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "MF");
+    const r = await ctl.handle({ type: "moveRequirement", qn: "MF::D1", how: { ownerQn: "MF::r" } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/cannot be moved into/);
+  });
+  test("renaming the heading of a requirement-rooted document renames with references, and a stale heading is a conflict", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, "package MF {\n    requirement def Owner {\n        requirement <'A'> a;\n    }\n    part def H {\n        ref requirement x : Owner;\n    }\n}\n");
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "MF::Owner");
+    const stale = await ctl.handle({ type: "setHeading", qn: "MF::Owner", value: "Boss", expected: "Old" });
+    expect(stale.conflict).toEqual({ fieldKey: "MF::Owner|heading", current: "Owner" });
+    expect((await ctl.handle({ type: "setHeading", qn: "MF::Owner", value: "Boss", expected: "Owner" })).ok).toBe(true);
+    const t = host.buffers.get(URI)!;
+    expect(t).toContain("requirement def Boss");
+    expect(t).toContain("x : Boss");
+  });
+});

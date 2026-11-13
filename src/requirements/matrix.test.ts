@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { ModelIndex, loadLibrary } from "../model/index.js";
+import { buildState } from "./view-model.js";
+import { buildDocumentModel } from "./document-model.js";
 import { buildMatrix, filterRows, matrixToCsv, matrixToMarkdown, traceLine, verificationMethodsOf } from "./matrix.js";
 
 const URI = "file:///w/matrix.sysml";
@@ -143,5 +145,31 @@ describe("verification matrix", () => {
     const ix = setup(`package P { requirement <'=1+1'> r; requirement <'-x'> q; requirement <'@a'> a; requirement <'+b'> b; }`);
     const csv = matrixToCsv(buildMatrix(ix, ix.findByQualifiedName("P")[0]!, () => true).rows);
     for (const f of ["'=1+1", "'-x", "'@a", "'+b"]) expect(csv).toContain("," + f + ",");
+  });
+  test("a requirement and a section have the same number in the matrix and in the document", () => {
+    const src = "package P {\n  requirement <'A'> a;\n  package S {\n    requirement <'B'> b {\n      requirement <'C'> c;\n    }\n  }\n  requirement <'D'> d;\n}";
+    const ix = setup(src);
+    const root = ix.findByQualifiedName("P")[0]!;
+    const doc = buildDocumentModel(ix, root);
+    const fromDoc = new Map(doc.toc.map((t) => [t.qualifiedName, t.number]));
+    const rows = buildMatrix(ix, root, () => true).rows;
+    expect(rows.length).toBe(5);
+    for (const r of rows) expect(r.number, r.qn).toBe(fromDoc.get(r.qn));
+    expect(rows.map((r) => r.number)).toEqual(["1", "2", "2.1", "2.1.1", "3"]);
+  });
+  test("the document items carry the matrix status and trace line, not a second calculation", () => {
+    const ix = setup();
+    const st = buildState(ix, { kind: "package", qualifiedName: "MiningSpec" });
+    const rows = new Map(st.matrix!.rows.filter((r) => r.kind === "requirement").map((r) => [r.qn, r]));
+    const items: { qn: string; status?: string; trace?: string }[] = [];
+    const walkItems = (l: any[]) => l.forEach((b) => { if (b.kind === "item") { items.push(b); walkItems(b.children); } });
+    const walkSec = (s: any) => { walkItems(s.blocks); s.children.forEach(walkSec); };
+    walkItems(st.document!.blocks);
+    st.document!.sections.forEach(walkSec);
+    expect(items.length).toBeGreaterThan(0);
+    for (const it of items) {
+      expect(it.status, it.qn).toBe(rows.get(it.qn)!.status);
+      expect(it.trace, it.qn).toBe(traceLine(rows.get(it.qn)!));
+    }
   });
 });

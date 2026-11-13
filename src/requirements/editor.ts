@@ -11,6 +11,7 @@ import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import { RequirementsController, type ControllerResult, type Navigation, type PickItem, type RequirementsUi } from "./controller.js";
 import type { Gesture, HostToWebview, Intent, RequirementsMetrics, RequirementsScope, ViewMode, WebviewToHost } from "./protocol.js";
 import { parseIntent } from "./intent-guard.js";
+import { isRequirement } from "./relations.js";
 import { buildState, scopeRoot } from "./view-model.js";
 import { matrixToCsv, matrixToMarkdown } from "./matrix.js";
 
@@ -82,7 +83,7 @@ export class RequirementsEditor implements vscode.Disposable {
           panel.dispose();
           return;
         }
-        this.attach(panel, state.scope, state.view ?? "matrix");
+        this.attach(panel, state.scope, state.view ?? "document");
       },
     }));
   }
@@ -142,7 +143,7 @@ export class RequirementsEditor implements vscode.Disposable {
   // ---- panels --------------------------------------------------------------------------------
 
   /** Open (or reveal) the editor for a scope. */
-  async open(scope: RequirementsScope, view: ViewMode = "matrix"): Promise<void> {
+  async open(scope: RequirementsScope, view: ViewMode = "document"): Promise<void> {
     const key = scopeKey(scope);
     const existing = this.panels.get(key);
     if (existing) {
@@ -281,7 +282,7 @@ export class RequirementsEditor implements vscode.Disposable {
   }
 
   readonly testApi: RequirementsTestApi = {
-    open: async (scope, view = "table") => {
+    open: async (scope, view = "document") => {
       // A new webview can be slow to come up (or, the first time in a session, not at all while its group is not visible): ask again with a fresh panel.
       for (let attempt = 0; attempt < 4; attempt++) {
         await this.open(scope, view);
@@ -355,6 +356,7 @@ export class RequirementsEditor implements vscode.Disposable {
   scopeOf(el: Element | undefined): RequirementsScope | undefined {
     if (!el) return undefined;
     if ((el.kind === "package" || el.kind === "library package") && el.qualifiedName !== undefined) return { kind: "package", qualifiedName: el.qualifiedName };
+    if (isRequirement(el) && el.qualifiedName !== undefined) return { kind: "package", qualifiedName: el.qualifiedName };
     return undefined;
   }
 

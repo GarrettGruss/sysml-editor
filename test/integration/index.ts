@@ -10,6 +10,7 @@ import { interactionTests } from "./diagram-interaction.js";
 import { foldersTests } from "./folders.js";
 import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
+import { requirementsAuthoringTests } from "./requirements-authoring.js";
 import { elementRoots } from "./tree-util.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
@@ -91,11 +92,12 @@ export type ReqGesture =
   | { kind: "click"; selector: string }
   | { kind: "input"; selector: string; value: string; event?: "change" | "input" }
   | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
-  | { kind: "key"; selector: string; key: string };
+  | { kind: "key"; selector: string; key: string; alt?: boolean }
+  | { kind: "mouse"; type: "contextmenu" | "pointermove" | "pointerdown" | "pointerup" | "click"; selector: string; at?: "center" | "top" | "bottom" | "left"; dy?: number };
 export interface ReqMetrics {
   view: "table" | "matrix" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
   table: { rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[]; selected?: string; counts: { total: number; unsatisfied: number; unverified: number }; detail?: { qn: string; satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] } };
-  document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string; trace: string }[]; rootBlocks: number };
+  document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number; kind: string; qn: string }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string; number: string; owner: string; collapsed: boolean; visible: boolean; trace: string; status: string }[]; rootBlocks: number; heading: string; gapCount: number; authoring: { mode: string; what?: string; ghost: boolean; activeGap?: { owner: string; before?: string; level: number; target: string }; visibleGaps: number; inputs: boolean; nestTarget?: string } };
   matrix: { rows: { qn: string; kind: "section" | "requirement"; number: string; depth: number; id: string; satisfiedBy: string[]; usages: string; method: string; verifiedBy: string[]; status: string; links: string[]; selected: boolean }[]; filter: string; summary: string; columns: string[] };
   pendingEdits: string[]; conflicts: string[]; overflow: { count: number; horizontalScroll: boolean; samples: string[] }; notice?: { level: string; message: string }; errors: string[]; size: { width: number; height: number };
   layout: { width: number; mode: "table" | "card"; detail: "beside" | "below"; textWidths: number[]; rowWidths: number[] };
@@ -687,6 +689,7 @@ export async function run(): Promise<void> {
     ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...requirementsTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...requirementsAuthoringTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...foldersTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
