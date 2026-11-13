@@ -201,4 +201,41 @@ describe("behaviour operations", () => {
       expect(host.disk.get(U)).toContain("then fork fork1; // split here");
     });
   });
+
+  describe("review findings", () => {
+    test("two unnamed decide nodes in one succession are named decide1 and decide2, in the diagram too, and undo restores both", async () => {
+      const model = "package P { action def A { action a; decide; decide; action c; } }";
+      const d = diagram("actionFlow", "P::A", [
+        { id: "n1", ref: "P::A" },
+        { id: "n2", locator: { owner: "P::A", kind: "decide", ends: [], index: 0 }, parent: "n1" },
+        { id: "n3", locator: { owner: "P::A", kind: "decide", ends: [], index: 1 }, parent: "n1" },
+      ]);
+      const { host, svc, q } = setup(model, d);
+      const [x, y] = q("P::A").members.filter((m) => m.kind === "decide");
+      ok(await svc.addSuccession(q("P::A"), x!, y!, { diagram: D, placement: { diagram: D } }));
+      expect(host.disk.get(U)).toContain("first decide1 then decide2;");
+      const doc = host.diagramOnDisk(D);
+      expect(doc.nodes.find((n) => n.id === "n2")).toMatchObject({ ref: "P::A::decide1" });
+      expect(doc.nodes.find((n) => n.id === "n3")).toMatchObject({ ref: "P::A::decide2" });
+    });
+    test("an end with a short name is used by it and not renamed", async () => {
+      const { host, svc, q } = setup("package P { action def A { action a; action b; then fork <f1>; action c; } }");
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!));
+      expect(host.disk.get(U)).toContain("first a then f1;");
+      expect(host.disk.get(U)).not.toContain("fork1");
+    });
+    test("the new name avoids inherited names", async () => {
+      const { host, svc, q } = setup("package P { action def B { action fork1; } action def A :> B { action a; action b; then fork; action c; } }");
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!));
+      expect(host.disk.get(U)).toContain("fork fork2;");
+    });
+    test("nothing is written into a definition from a usage's diagram", async () => {
+      const { host, svc, q } = setup("package P { action def A { action a; action b; } action x : A; }");
+      const before = host.disk.get(U);
+      const r = await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A::b"), { context: q("P::x") });
+      expect(r.ok).toBe(false);
+      expect((r as { reason: string }).reason).toMatch(/inherited|Change it in/);
+      expect(host.disk.get(U)).toBe(before);
+    });
+  });
 });

@@ -696,10 +696,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       r = await actions.service.addMessage(owner, from, to, typed.trim() === "" ? {} : { name: typed.trim() }, { ...origin, placement: { diagram: origin.diagram } });
     } else {
       const owner = isSynthetic(a.element) ? a.element.owner : isSynthetic(b.element) ? b.element.owner : a.element.owner === b.element.owner ? a.element.owner : commonOwner(a.element, b.element);
+      const root = resolveReference({ ref: d.root }, d, index, this.opts(doc));
       if (!owner) return this.notice(doc, "These two elements have no common owner on this diagram, so there is nowhere to put the statement.");
       r = relation === "succession"
-        ? await actions.service.addSuccession(owner, a.element, b.element, { ...origin, placement: { diagram: origin.diagram } })
-        : await actions.service.addTransition(owner, a.element, b.element, {}, { ...origin, placement: { diagram: origin.diagram } });
+        ? await actions.service.addSuccession(owner, a.element, b.element, { ...origin, ...(root ? { context: root } : {}), placement: { diagram: origin.diagram } })
+        : await actions.service.addTransition(owner, a.element, b.element, {}, { ...origin, ...(root ? { context: root } : {}), placement: { diagram: origin.diagram } });
     }
     const shown = await actions.report(r, `Added ${relation}`);
     if (!shown.ok) return this.notice(doc, shown.reason);

@@ -8,7 +8,7 @@
  *   message     `message [name] [of T] from a to b;`, written as `then message ...;` directly after the last
  *               message in time order when there is one, which orders it after that message
  */
-import { analyze, interactionOf, isActionNode, isControlNode, isStateNode, isSynthetic, parseTransition, quoteName, type Element, type ModelIndex } from "../model/index.js";
+import { analyze, inheritedMembers, interactionOf, isActionNode, isControlNode, isStateNode, isSynthetic, parseTransition, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { insertDecls } from "./body.js";
 import { deleteEdit, referencesAfterDelete } from "./delete.js";
 import { checkElement, describeElement } from "./guard.js";
@@ -64,6 +64,10 @@ const nodeName = (e: Element, what: string, owner?: Element, newName?: string): 
       names.push(newName);
       continue;
     }
+    if (x.name === undefined && x.shortName !== undefined) {
+      names.push(quoteName(x.shortName));
+      continue;
+    }
     if (x.name === undefined) {
       return fail(i === chain.length - 1
         ? `The ${what} is an unnamed ${e.kind}; give it a name before connecting it (a statement can only refer to a node by name).`
@@ -84,9 +88,11 @@ function nameEnds(index: ModelIndex, ends: readonly Element[]): Map<Element, Nam
   const out = new Map<Element, Naming>();
   const used = new Map<Element, Set<string>>();
   for (const e of ends) {
-    if (isSynthetic(e) || !isControlNode(e) || e.name !== undefined || out.has(e)) continue;
+    // A node with a short name (`fork <f1>;`) is referred to by it and needs no new name.
+    if (isSynthetic(e) || !isControlNode(e) || e.name !== undefined || e.shortName !== undefined || out.has(e)) continue;
     if (!e.owner) return fail(`The unnamed ${e.kind} has no owner, so it cannot be named; give it a name by hand.`);
-    const taken = used.get(e.owner) ?? new Set(e.owner.members.flatMap((m) => [m.name, m.shortName].filter((x): x is string => x !== undefined)));
+    if (e.owner.qualifiedName === undefined) return fail(`The unnamed ${e.kind} lies in an unnamed ${e.owner.kind}, so a diagram could not follow its new name; give the ${e.owner.kind} a name first.`);
+    const taken = used.get(e.owner) ?? new Set([...e.owner.members, ...inheritedMembers(index, e.owner).map((i) => i.member)].flatMap((m) => [m.name, m.shortName].filter((x): x is string => x !== undefined)));
     let n = 1;
     while (taken.has(`${e.kind}${n}`)) n++;
     const name = `${e.kind}${n}`;

@@ -266,3 +266,12 @@ describe("edit tools: failed saves and kinds", () => {
     expect(host.applied).toHaveLength(0);
   });
 });
+
+import { dottedPath } from "./edit-tools.js";
+describe("dottedPath", () => {
+  it("reads quoted names that contain dots", () => {
+    expect(dottedPath("operating.high")).toEqual(["operating", "high"]);
+    expect(dottedPath("'a.b'.c")).toEqual(["a.b", "c"]);
+    expect(dottedPath("a..b")).toEqual([]);
+  });
+});
