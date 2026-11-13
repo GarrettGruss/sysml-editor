@@ -854,7 +854,7 @@ export function behaviorTests(c: Ctx): Test[] {
       }
     }],
 
-    ["An unsaved new diagram: a model edit from its palette is written at once and the diagram stays unsaved; a move makes it dirty; Ctrl+S writes the file at the intended path", async () => {
+    ["An unsaved new diagram: a palette add is written to the .sysml at once and makes the unsaved diagram dirty; a move keeps it dirty; Ctrl+S writes the file at the intended path", async () => {
       const file = vscode.Uri.joinPath(folder, "tmp-au-new2.sysml");
       writeFileSync(file.fsPath, "state def AuMach {\n  state idle;\n}\n");
       const f = "AuMach.sysmld";
@@ -872,7 +872,8 @@ export function behaviorTests(c: Ctx): Test[] {
         await gesture(f, { kind: "palette", item: "state", id: root.id, x: 30, y: 40 });
         await waitFor(() => onDisk("tmp-au-new2.sysml").includes("state running;"), 20000, "the state is written to the .sysml at once");
         assert.ok(!existsSync(uriOf(f).fsPath), "the diagram file still does not exist");
-        assert.strictEqual(api.diagram.state(uriOf(f)).dirty, true, "the new node is content only this unsaved diagram holds, so it is dirty");
+        // the text is saved first and the diagram change follows it, so wait for the change
+        await waitFor(() => dirty(f), 15000, "the new node is content only this unsaved diagram holds, so it becomes dirty");
         await c.eventually(async () => assert.ok((await metrics(f)).nodes.some((n) => n.text?.includes("running"))), "the new state is drawn");
         const idle = mem(f).nodes.find((n) => n.ref === "AuMach::idle")!;
         await api.diagram.gesture(uriOf(f), { kind: "flush" });
