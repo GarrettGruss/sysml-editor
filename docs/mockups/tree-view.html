@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Model Tree View</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div class="mock-note"><b>Model tree view</b> (spec: model-tree-view). Native VS Code TreeView, so styling comes from the theme. Elements view (default): workspace folder → folders → <code>.sysml</code> files → elements. Folders with no SysML file below them are dimmed, marked “no SysML files” and cannot be expanded; excluded folders (<code>files.exclude</code>, <code>sysml.exclude</code>, e.g. <code>node_modules</code>) are not shown. The filter button (⧉) in the title bar opens a pick list (Elements, Diagrams, All; the current one is marked) and switches to the Diagrams view (below) or the All view (last example), which keeps the folders but shows <code>.sysmld</code> files as leaves with their kind and dims folders with no diagrams. Also shows kind icons, type descriptions, a file with parse errors, the context menu, and selection synced from the text editor. A search box above the tree (a small webview with one input and a clear button; Escape clears) filters the active view to the names that match plus the folders, files and owners leading to them, expanded; nothing matching shows “No matches”. With no folder open a welcome message offers Open Folder. <a href="index.html">All mockups</a></div>
+<div class="wb">
+  <div class="activity"><span>📄</span><span>🔍</span><span class="on">◇</span><span>⎇</span></div>
+  <div class="sidebar" style="position:relative">
+    <h2><span>Search</span></h2>
+    <div class="search" style="padding:4px 8px"><div style="position:relative"><input type="text" value="" placeholder="Search" aria-label="Search the model tree" style="box-sizing:border-box;width:100%;padding:3px 22px 3px 6px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:2px;font:inherit"><span class="desc" title="Clear (Escape)" style="position:absolute;right:6px;top:3px">×</span></div></div>
+    <h2><span>SysML Model</span><span class="desc" title="Change View (Elements / Diagrams / All) · New SysML File · Refresh · Collapse All">⧉ ＋ ⟳ ⊟</span></h2>
+    <ul class="tree">
+      <li><div class="row"><span class="tw">▾</span><span class="ic fld">▤</span>sysml-editor</div>
+        <ul class="tree" style="padding-left:12px">
+          <li><div class="row dim"><span class="tw">▸</span><span class="ic fld empty">▤</span>.vscode<span class="desc">no SysML files</span></div></li>
+          <li><div class="row dim"><span class="tw">▸</span><span class="ic fld empty">▤</span>docs<span class="desc">no SysML files</span></div></li>
+          <li><div class="row"><span class="tw">▾</span><span class="ic fld">▤</span>models</div>
+            <ul class="tree" style="padding-left:12px">
+              <li><div class="row dim"><span class="tw">▸</span><span class="ic fld empty">▤</span>archive<span class="desc">no SysML files</span></div></li>
+              <li><div class="row"><span class="tw">▾</span><span class="ic fld">▤</span>vehicle</div>
+                <ul class="tree" style="padding-left:12px">
+                  <li><div class="row"><span class="tw">▾</span><span class="ic file">S</span>vehicle.sysml</div>
+                    <ul class="tree" style="padding-left:12px">
+                      <li><div class="row"><span class="tw">▾</span><span class="ic pkg">P</span>VehicleModel</div>
+                        <ul class="tree" style="padding-left:12px">
+                          <li><div class="row"><span class="tw">▾</span><span class="ic pdef">D</span>Vehicle<span class="desc">part def</span></div>
+                            <ul class="tree" style="padding-left:12px">
+                              <li><div class="row sel"><span class="tw"></span><span class="ic part">p</span>engine<span class="desc">: Engine</span></div></li>
+                              <li><div class="row"><span class="tw"></span><span class="ic part">p</span>transmission<span class="desc">: Transmission</span></div></li>
+                              <li><div class="row"><span class="tw"></span><span class="ic part">p</span>wheels<span class="desc">: Wheel [4]</span></div></li>
+                              <li><div class="row"><span class="tw"></span><span class="ic attr">a</span>mass<span class="desc">: MassValue</span></div></li>
+                              <li><div class="row"><span class="tw"></span><span class="ic conn">c</span>&lt;unnamed&gt;<span class="desc">connect engine.drive → transmission.input</span></div></li>
+                            </ul></li>
+                          <li><div class="row"><span class="tw">▸</span><span class="ic pdef">D</span>Engine<span class="desc">part def</span></div></li>
+                          <li><div class="row"><span class="tw">▸</span><span class="ic pdef">D</span>Transmission<span class="desc">part def</span></div></li>
+                          <li><div class="row"><span class="tw">▸</span><span class="ic port">⊡</span>DrivePort<span class="desc">port def</span></div></li>
+                        </ul></li>
+                    </ul></li>
+                  <li><div class="row"><span class="tw">▸</span><span class="ic file">S</span>requirements.sysml</div></li>
+                  <li><div class="row"><span class="tw">▸</span><span class="ic file">S</span>behaviors.sysml<span class="desc"><span class="err">⚠ 1 syntax error · showing last good parse</span></span></div></li>
+                </ul></li>
+            </ul></li>
+          <li><div class="row dim"><span class="tw">▸</span><span class="ic fld empty">▤</span>src<span class="desc">no SysML files</span></div></li>
+        </ul></li>
+    </ul>
+    <div class="menu" style="left:190px;top:250px">
+      <div><span>Go to Definition</span><span class="k">F12</span></div>
+      <div><span>Show in Diagram…</span></div>
+      <div class="hl"><span>Add to Active Diagram</span></div>
+      <div><span>New Diagram…</span></div>
+      <hr>
+      <div><span>Add Child ▸</span></div>
+      <div><span>Rename…</span><span class="k">F2</span></div>
+      <div><span>Delete from Model</span><span class="k">⌫</span></div>
+    </div>
+    <div class="note-small" style="position:absolute;left:190px;top:420px;font-size:11px;opacity:.8">On a <code>.sysml</code> file node the context menu offers <b>Delete File</b> (modal confirmation: file name, unsaved changes, references in other files that will no longer resolve).</div>
+  </div>
+  <div class="editor">
+    <div class="tabs"><div class="tab on">vehicle.sysml</div><div class="tab">vehicle-general.sysmld</div></div>
+<pre class="code" style="flex:1;border:0">package VehicleModel {
+    part def Vehicle {
+        <span style="background:var(--sel)">part engine : Engine;</span>        <span class="desc">// cursor here → tree selects "engine"</span>
+        part transmission : Transmission;
+        part wheels : Wheel[4];
+        attribute mass : MassValue;
+        connect engine.drive to transmission.input;
+    }
+    part def Engine { port drive : DrivePort; }
+    part def Transmission { port input : ~DrivePort; }
+    part def Wheel;
+    port def DrivePort;
+}</pre>
+  </div>
+</div>
+<div style="padding:16px;max-width:320px">
+  <div class="section" style="border:0;padding-left:0">Diagrams view (Change View ⧉)</div>
+  <div class="sidebar" style="border:1px solid var(--border)">
+    <h2><span>Search</span></h2>
+    <div class="search" style="padding:4px 8px"><div style="position:relative"><input type="text" value="state" placeholder="Search" aria-label="Search the model tree" style="box-sizing:border-box;width:100%;padding:3px 22px 3px 6px;background:var(--panel);color:var(--fg);border:1px solid var(--border);border-radius:2px;font:inherit"><span class="desc" title="Clear (Escape)" style="position:absolute;right:6px;top:3px">×</span></div></div>
+    <h2><span>SysML Model</span><span class="desc" title="Change View">⧉ ＋ ⟳ ⊟</span></h2>
+    <ul class="tree">
+      <li><div class="row"><span class="tw">▾</span><span class="ic fld">▤</span>sysml-editor</div>
+        <ul class="tree" style="padding-left:12px">
+          <li><div class="row dim"><span class="tw"></span><span class="ic fld empty">▤</span>docs<span class="desc">no diagrams</span></div></li>
+          <li><div class="row"><span class="tw">▾</span><span class="ic fld">▤</span>models</div>
+            <ul class="tree" style="padding-left:12px">
+              <li><div class="row"><span class="tw">▾</span><span class="ic fld">▤</span>vehicle</div>
+                <ul class="tree" style="padding-left:12px">
+                  <li><div class="row"><span class="tw"></span>▦ vehicle-general.sysmld<span class="desc">General</span></div></li>
+                  <li><div class="row"><span class="tw"></span>▦ vehicle-ibd.sysmld<span class="desc">Interconnection</span></div></li>
+                  <li><div class="row"><span class="tw"></span>▦ requirements.sysmld<span class="desc">Requirements</span></div></li>
+                </ul></li>
+            </ul></li>
+          <li><div class="row dim"><span class="tw"></span><span class="ic fld empty">▤</span>src<span class="desc">no diagrams</span></div></li>
+        </ul></li>
+    </ul>
+  </div>
+</div>
+<div style="padding:16px;max-width:320px">
+  <div class="section" style="border:0;padding-left:0">All view (Change View ⧉)</div>
+  <div class="sidebar" style="border:1px solid var(--border)">
+    <h2><span>SysML Model</span><span class="desc" title="Change View">⧉ ＋ ⟳ ⊟</span></h2>
+    <ul class="tree">
+      <li><div class="row"><span class="tw">▾</span><span class="ic fld">▤</span>vehicle</div>
+        <ul class="tree" style="padding-left:12px">
+          <li><div class="row dim"><span class="tw"></span><span class="ic fld empty">▤</span>notes<span class="desc">no SysML files or diagrams</span></div></li>
+          <li><div class="row"><span class="tw">▸</span>▤ vehicle.sysml</div></li>
+          <li><div class="row"><span class="tw"></span>▦ vehicle-general.sysmld<span class="desc">General</span></div></li>
+        </ul></li>
+    </ul>
+  </div>
+</div>
+<div style="padding:16px;max-width:300px">
+  <div class="section" style="border:0;padding-left:0">Empty workspace (welcome view)</div>
+  <div class="sidebar" style="padding:12px;border:1px solid var(--border)">
+    <p class="desc" style="margin-top:0">No SysML files found in this workspace.</p>
+    <button class="btn primary" style="width:100%">Create SysML File</button>
+  </div>
+</div>
+</body></html>

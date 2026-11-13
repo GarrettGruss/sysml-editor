@@ -1,0 +1,60 @@
+html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--vscode-editor-background, #ffffff); color: var(--vscode-editor-foreground, #1f2328); font-family: var(--vscode-font-family); }
+.diagram { width: 100vw; height: 100vh; display: block; cursor: default; outline: none; }
+.diagram:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: -2px; }
+.diagram .sel-line { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); fill: none; }
+.diagram .sel-fill { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
+.diagram .band { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
+.diagram .overlay { pointer-events: none; }
+.toolbar { position: fixed; top: 8px; left: 8px; display: flex; gap: 4px; z-index: 2; }
+.toolbar button { background: var(--vscode-button-secondaryBackground, var(--vscode-editorWidget-background)); color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-contrastBorder, var(--vscode-button-border, transparent)); padding: 3px 9px; cursor: pointer; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground)); }
+.toolbar button:focus-visible, .ctx-menu button:focus-visible { outline: 1px solid var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: 1px; }
+.ctx-menu { position: fixed; z-index: 10; display: flex; flex-direction: column; min-width: 180px; padding: 4px 0; background: var(--vscode-menu-background, var(--vscode-editorWidget-background)); color: var(--vscode-menu-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-menu-border, var(--vscode-contrastBorder, var(--vscode-editorWidget-border, transparent))); box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent); }
+.ctx-menu button { background: none; color: inherit; border: none; text-align: left; padding: 4px 14px; cursor: pointer; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.ctx-menu button:hover, .ctx-menu button:focus { background: var(--vscode-menu-selectionBackground, var(--vscode-list-activeSelectionBackground)); color: var(--vscode-menu-selectionForeground, var(--vscode-list-activeSelectionForeground, inherit)); }
+.diagram .f-none { fill: none; }
+.diagram .s-none { stroke: none; }
+.diagram .f-bg { fill: var(--vscode-editor-background, #ffffff); }
+.diagram .f-node { fill: var(--vscode-editorWidget-background, var(--vscode-editor-background, #ffffff)); }
+.diagram .f-inherited { fill: var(--vscode-editor-inactiveSelectionBackground, var(--vscode-editorWidget-background, #e9edf1)); }
+.diagram .s-inherited { stroke: none; }
+.diagram .f-line, .diagram .f-edge { fill: var(--vscode-editor-foreground, #1f2328); }
+.diagram .f-text { fill: var(--vscode-editor-foreground, #1f2328); }
+.diagram .f-subtext { fill: var(--vscode-descriptionForeground, var(--vscode-editor-foreground, #1f2328)); }
+.diagram .f-warn { fill: var(--vscode-editorWarning-foreground, #bf8700); }
+.diagram .s-line, .diagram .s-edge { stroke: var(--vscode-contrastBorder, var(--vscode-editor-foreground, #1f2328)); }
+.diagram .s-warn { stroke: var(--vscode-editorWarning-foreground, #bf8700); }
+.diagram .s-text, .diagram .s-subtext, .diagram .s-bg, .diagram .s-node { stroke: none; }
+.diagram text { font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; stroke: none; }
+.vscode-high-contrast .diagram .s-line, .vscode-high-contrast .diagram .s-edge, .vscode-high-contrast-light .diagram .s-line, .vscode-high-contrast-light .diagram .s-edge { stroke-width: 2; }
+.vscode-high-contrast .diagram g[data-selected] rect, .vscode-high-contrast-light .diagram g[data-selected] rect { stroke-width: 3; }
+.error-page { padding: 24px; max-width: 760px; font-family: var(--vscode-font-family); }
+.error-page h1 { font-size: 1.3em; }
+.error-page code { font-family: var(--vscode-editor-font-family); }
+.error-page button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid var(--vscode-button-border, transparent); padding: 6px 14px; cursor: pointer; }
+.error-page li { margin: 4px 0; }
+.palette { position: fixed; top: 44px; left: 8px; z-index: 2; display: flex; flex-direction: column; gap: 3px; width: 128px; padding: 6px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); color: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-contrastBorder, transparent)); box-shadow: 0 2px 6px var(--vscode-widget-shadow, transparent); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.panel-title, .props-title { margin: 0 0 4px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vscode-descriptionForeground, inherit); }
+.palette-item { text-align: left; background: var(--vscode-button-secondaryBackground, transparent); color: var(--vscode-button-secondaryForeground, inherit); border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, transparent)); padding: 2px 8px; cursor: pointer; font-family: inherit; font-size: inherit; }
+.palette-item:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground)); }
+.palette-item.active, .palette-item[aria-pressed="true"] { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.palette-item:focus-visible, .props input:focus-visible, .props textarea:focus-visible, .props button:focus-visible { outline: 1px solid var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: 1px; }
+.diagram.tool-active { cursor: crosshair; }
+.props { position: fixed; top: 8px; right: 8px; z-index: 2; width: 250px; max-height: calc(100vh - 16px); overflow: auto; box-sizing: border-box; padding: 8px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); color: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-contrastBorder, transparent)); box-shadow: 0 2px 6px var(--vscode-widget-shadow, transparent); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.props-row { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.props-row label { font-size: 0.85em; color: var(--vscode-descriptionForeground, inherit); }
+.props input, .props textarea { box-sizing: border-box; width: 100%; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border, var(--vscode-contrastBorder, transparent)); padding: 2px 4px; font-family: inherit; font-size: inherit; }
+.props input:disabled, .props textarea:disabled { opacity: 0.6; }
+.props-ro { font-family: var(--vscode-editor-font-family, monospace); word-break: break-all; font-size: 0.92em; }
+.props-hint, .props-reason, .props-notice { margin: 4px 0; color: var(--vscode-descriptionForeground, inherit); }
+.props-reason { color: var(--vscode-editorWarning-foreground, inherit); }
+.props-notice { color: var(--vscode-errorForeground, inherit); }
+.props-goto { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid var(--vscode-button-border, transparent); padding: 3px 10px; cursor: pointer; font-family: inherit; font-size: inherit; }
+.inline-editor { position: fixed; z-index: 11; box-sizing: border-box; height: 22px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, currentColor)); padding: 1px 4px; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); font-weight: bold; }
+
+/* No text selection while dragging, panning, resizing or connecting on the canvas. */
+svg, svg * { -webkit-user-select: none; user-select: none; }
+.diagram [data-route-handle], .diagram [data-label-handle] { cursor: move; }
+.diagram [data-label-handle="resize"] { cursor: nwse-resize; }
+.ctx-menu button[aria-checked="true"]::before { content: "\2713"; margin-right: 6px; }
+.ctx-menu button[aria-checked="false"]::before { content: ""; display: inline-block; width: 1em; margin-right: 6px; }

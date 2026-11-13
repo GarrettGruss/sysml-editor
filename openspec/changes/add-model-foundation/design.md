@@ -1,0 +1,179 @@
+# Design
+
+## Context
+
+This is change 1 of 4 for the VS Code SysML v2 editor: `add-model-foundation`, `add-diagram-viewing`, `add-model-editing`, `add-requirements-editor`, implemented in that order. The feasibility analysis behind the split is in the [trade study](../../../docs/trade-study.md) and UI mockups are in [docs/mockups](../../../docs/mockups/index.html).
+
+The repo is a fresh TypeScript project scaffolded with Bun (an `index.ts` stub), which this change moves to Node (D9). The official SysML v2 release 2026-09.1 (grammars, standard library, examples) and the GfSE community models are checked in under `fixtures/`. The product runs only inside VS Code: the extension host holds all logic, including the MCP server it hosts. Webviews, added in later changes, run in a browser sandbox and talk to the host only via `postMessage`.
+
+## Goals / Non-Goals
+
+**Goals:**
+- A parser that accepts the whole SysML v2 and KerML textual notation and keeps exact source positions.
+- One in-memory model service in the extension host, shared by every view and by agent tools.
+- A read-only model tree and read-only agent tools, usable on real models from day one.
+
+**Non-Goals:**
+- Changing the model: no text edits in this change.
+- Diagrams and the requirements editor (later changes).
+- Full semantic validation, implied relationships, or expression evaluation.
+- Text-editing features such as highlighting, completion, and diagnostics beyond syntax-error markers.
+- Operation without VS Code: a standalone MCP server, cloud agents, and CI pipelines. Deferred until the core use case (a person and an agent working on one architecture in VS Code) is verified.
+- A `@sysml` chat participant, or hosting an LLM or agent loop inside the extension.
+- Deferred: project boundaries beyond "all files in the workspace" (multi-root rules, KPAR projects, several library versions), support for the browser version of VS Code, and a process for moving to a new SysML release.
+- Deferred: start-up time, memory, and file-count targets. They are measured in this change and set later.
+
+## Decisions
+
+Decision numbers are shared across the four changes that make up the editor, so they are not consecutive here.
+
+### D1: Architecture — one model service in the extension host
+```
+ .sysml ──► Parser → ModelIndex → ModelService (ops) → EditPlanner ──► WorkspaceEdit
+ .sysmld ─► DiagramDocument (CustomEditorProvider)                         ▲
+                     │                                                     │
+   TreeDataProvider ◄┤   commands, webview intents, agent tools ───────────┘
+   Webviews (diagram canvas, requirements) ◄─ view models / intents ─►
+   Agent tools ─► LM tools (vscode.lm.registerTool)  and  MCP server hosted by the extension
+```
+All logic runs in the extension host. One `ModelService` operation set (`addElement`, `deleteElement`, `rename`, `setProperty`, `createRelationship`, `createDiagram`, `addToDiagram`, …) serves commands, webview intents, and agent tools, and every change is applied as a `WorkspaceEdit` plus a diagram edit. Parser, model index, edit planner, and diagram serialization stay in modules that do not import `vscode`, so they can be unit tested without VS Code; this is for testability, not a second runtime. Webviews receive serialized view models and send intent messages, and they own layout and drawing (D7).
+
+Alternatives: a VS Code-free core shared with a standalone MCP server (the previous design) — dropped because it required a second renderer, a rasterizer, a change journal, and conflict handling for unsaved buffers, all for use cases outside the core one; model logic in the webview — rejected because the tree and multiple editors need one model.
+
+### D2: Parser — third-party ANTLR4 grammar, with our own TypeScript parser as fallback
+Use the open-source ANTLR4 grammar for the SysML v2 textual notation (`daltskin/sysml-v2-grammar`, MIT, pinned to OMG release 2026-09.1) with the `antlr4ng` TypeScript runtime. The grammar files are vendored into the repo with their licence notice and the upstream commit, and the parser is generated at build time. We build our own model layer on the parse tree (elements, ownership, qualified names, exact source ranges); the upstream language server is not used, because its npm package exposes only a bundled server, not a parser API.
+
+The parser must cover the whole language, not a subset: only 13% of the fixture files stay inside the subset planned earlier, and editing is blocked on files with syntax errors (see [trade study](../../../docs/trade-study.md), sections 3 and 5.1). KerML is out of scope for this parser: the 36 `.kerml` files of the standard library are read by a small outline indexer (task 2.6), and user-written `.kerml` files are not supported in this change.
+
+Acceptance gate (task 2.2), run before anything is built on the parser:
+- at least 99% of the gated fixture `.sysml` files (release examples, standard library, community models) parse without syntax errors; community files that use pre-release syntax are expected-invalid and are not counted (`scripts/expected-invalid.json`); `.kerml` files are not parsed by this parser;
+- re-joining the tokens of each file, including whitespace and comments, reproduces it byte for byte, which the edit planner needs;
+- the standard library loads in a measured, acceptable time.
+
+Fallback: if the gate fails and the gaps cannot be fixed by patching the vendored grammar, write our own full-grammar parser in TypeScript from the official grammar files in `fixtures/sysml-v2-release/bnf`, and hold it to the same gate. The model layer sits behind an interface that hides which parser produced the tree, so the fallback does not change later work.
+
+Alternatives considered: a hand-written Langium grammar for a subset (the earlier decision; rejected on coverage, and the Langium-based `sysml-2ls` was archived in favour of a faster rewrite); the OMG Pilot Implementation as a Java server (needs a JVM, no syntax tree access from TypeScript); `tree-sitter-sysml` and Rust parsers compiled to WebAssembly (early releases, unverified coverage).
+
+#### Gate results (2026-11-11)
+
+Grammar: `daltskin/sysml-v2-grammar` tag v2026.09.1 (commit 27a1344), MIT, vendored in `vendor/sysml-v2-grammar/` with one local lexer patch (see its README). Run with `npm run gate:parser` (details in `scripts/parser-gate-result.json`). Result: **PASS**.
+
+| Group | Ext | Files | Expected invalid | With errors | Clean |
+|---|---|---|---|---|---|
+| Release examples | .sysml | 252 | 0 | 0 | 100% |
+| Standard library | .sysml | 58 | 0 | 0 | 100% |
+| Community models | .sysml | 36 | 9 | 0 | 100% |
+
+- Gated: 337 of 337 gated `.sysml` files clean (346 minus 9 expected-invalid), 100%, against the 99% criterion.
+- 94 `.kerml` files are not parsed by this parser (handled by the KerML outline indexer) and are not counted.
+- Expected invalid (pre-release syntax): 9 community files, a hand-maintained list in `scripts/expected-invalid.json` that the gate only reads. Each fails because it uses syntax the official 2026-09.1 grammar rejects: 8 bare `import`, 1 package-level `actor` (`EIT_System_Use_Cases.sysml`), and three of them (`EIT_System_Use_Cases.sysml`, `HVACSystemRequirements.sysml`, `VehicleModel.sysml`) also have further outdated constructs. The gate fails if a listed file does not exist, now parses clean (stale entry), or if an unlisted file has errors beyond the 99% threshold.
+- Token re-join: 0 failures in 346 `.sysml` files after the lexer patch.
+- Standard library parse time (58 `.sysml` files, one Node process, including the re-join check): about 19.7 s with single-stage full-LL parsing; about 17.7 s with two-stage parsing (SLL with bail, then full LL on failure). Both exceed the 5 s target; a few large files (`ShapeItems.sysml`, `MeasurementReferences.sysml`) dominate. A cached index (task 2.6) is required, and the parse time needs more work.
+
+#### Parser performance
+
+Measured with `npm run bench:parser` (one process, Node 24, ms). Root cause: the cost was ANTLR's lazily built prediction DFA, not grammar ambiguity. `parse.ts` was not defeating the cache (the DFA array is a static on the generated parser class and is shared across instances); warm parses were already fast. Cold cost was dominated by decision 278 (`usageDeclaration`, about 6.8 s of 10.6 s), then 133 (`featureSpecializationPart`, 1.5 s), 20 (`identification`, 0.8 s), 139 (`multiplicityPart`, 0.6 s) and 135 (`featureSpecializationPart`, 0.6 s), measured on the cold Annex A parse.
+
+| Measurement | Before | After |
+|---|---|---|
+| Annex A, 1st parse in process (cold) | 10916 | 62 |
+| Annex A, parses 2-4 (warm) | 39 / 18 / 15 | 28 / 26 / 21 |
+| ShapeItems, 1st (after Annex A) / 2nd / 3rd | 5159 / 11 / 9 | 16 / 13 / 22 |
+| Library, 58 files, pass 1 (cold) / pass 2 (warm) | 19961 / 279 | 296 / 218 |
+| Annex A lex only (warm) / full parse (warm) | 3 / 28 | 3 / 15 |
+
+Upstream `daltskin/sysml-v2-lsp` (MIT) reaches its speedup with a build-time DFA snapshot of the parser's static DFAs loaded at startup, SLL with bail then LL fallback, shared parser/lexer singletons, and a parse worker. This change adopts the snapshot and keeps the existing two-stage parse.
+
+Changes: `src/parser/dfa-snapshot.ts` (extract/load), `src/parser/dfa-snapshot.json` (see the soundness section below for its current size, trained on all `.sysml` fixtures plus the generated snippets in `scripts/dfa-training/` by `npm run generate:dfa`, under 1 min, regenerate whenever the grammar or the prediction shortcuts in `parse-core.ts` change; see "Fast-path gaps" below; a snapshot whose ATN hash does not match is ignored), and `parse()` loads it at import. Set `SYSML_DFA_SNAPSHOT=off` to disable. Gate unchanged (337 of 337 gated files clean, 0 re-join failures).
+
+Task 2.9, parse worker. Restored DFA states have empty ATN config sets, so they cannot grow new edges, and a path the snapshot lacks looks like a syntax error. A parser with a normally built cache gives the right answer but costs about 10 s of CPU for a cold 1,581-line file. An earlier attempt ran that fallback on the main thread with a background warm-up; it blocked the extension host for up to 12 s on the first error and in bursts of up to 1.6 s during warm-up, and was replaced by this design:
+
+- Main thread, fast path only (`tryFastParse` in `parse.ts`, `antlrDocumentParser` with `fastOnly`): SLL with bail on the snapshot-backed static DFAs; then, for library texts and texts up to 32,000 characters (about 800 lines), full LL with bail on the same DFAs (some valid files need full-context prediction; the retry costs about three times the SLL attempt, so it is skipped for long texts to bound main-thread time). Success: model as before. Failure: `ModelIndex` keeps the last good model, marks the document stale and `detailsPending`, records one provisional error at the bail position ("Syntax error (details pending)"), and asks its `DetailsProvider`.
+- Parse worker (`src/parse-worker.ts`, bundled to `dist/parse-worker.js`, `node:worker_threads`): imports only `parse-core.ts`, never the snapshot (`esbuild.mjs` fails the build if the snapshot ends up in it), so its static DFAs are built normally, grow and stay warm for the session. It answers `{ uri, version, text }` with a full parse (SLL then LL with recovery): precise errors, or, when the text is valid (a snapshot gap), the model as a plain tree (`serializeModel` / `deserializeModel` in `src/model/serialize.ts` drop and rebuild owner links). After start-up it warms itself on its own thread by parsing the library `.sysml` files plus a broken variant of every fourth one, one file per step; requests are served between steps. Correct results never depend on warm-up.
+- `ParseWorkerClient` (`src/workspace/parse-worker-client.ts`, no `vscode`) implements `DetailsProvider`: one request in the worker at a time; waiting requests are kept per URI and only the newest version is sent (older ones resolve as superseded); every request carries a version, and the index ignores replies older than the document's current version. The worker starts 2 s after activation or on the first request, is restarted once after a crash (outstanding work is resent), after a second crash requests resolve as unavailable and the index shows "Syntax error (details unavailable)" (logged), and it is terminated on dispose. The worker path is `__dirname/parse-worker.js` (next to `dist/extension.js`); `check:vsix` requires it.
+- When details arrive the index fires its normal change event for the URI, so the tree tooltip and `sysml_validate` show the precise errors. While details are pending, `sysml_validate` returns `detailsPending` (file paths) and a `pendingNote`.
+- Without a provider (unit tests, gate, scripts) `ModelIndex` parses synchronously with `parse()`: the fast path with LL retry, then, only if both fail, a same-thread parser with its own normally built cache (correct, but seconds when cold; the extension never takes this path unless `dist/parse-worker.js` is missing).
+
+Fast-path gaps (valid text that fell back). Reported: valid text in which a short-named declaration is followed by another member, the normal shape of a requirements file, failed the fast path every time (`package P { requirement <'R1'> a; part def T; }`), so requirement models showed "details pending" and waited seconds for the worker. Findings:
+- Failing shapes (measured through `tryFastParse`): every declaration with a short name, quoted or not (`<'R1'>`, `<R1>`), of any kind (`requirement`, `requirement def`, `part`, `part def`, ...), with or without typing, body, or a following member, and also when it is the last member. Without a short name, and `requirement <'R1'> a { doc ... }` directly followed by another short-named requirement, passed. Both SLL and the LL retry failed.
+- Root cause: grammar decision 20, rule `identification` (`LT name GT name | LT name GT | name`), and then decision 278, `usageDeclaration`'s optional `featureSpecializationPart` (numbers as in the generated parser at the time). It is not a shallow training gap. Under SLL there is no calling context; the alternative "short name only" stays viable through phantom callers whose follow set can start with a name (`comment`, `doc`, a usage followed by a keyword-named specialization), and the two alternatives only merge at the end of the input (profiled: lookahead of 12 to 35 tokens, to the end of a small file). The DFA path therefore depends on the whole rest of the file, which no snapshot can cover. The fixtures contain two short-named declarations ending in `;` out of dozens followed by `{` or `:`, so the snapshot never saw the shape; and training on 11,000 generated snippets did not help (28.8% of held-out snippets, with the original grammar decision unchanged) because each different continuation is a different DFA path.
+- Fix (`src/parser/parse-core.ts`, fast path only; the exact parser used by the worker and the same-thread fallback is unchanged): exact LL(1) prediction shortcuts that use the real calling context. For `identification`, after `< name >` a following name token that cannot follow the identification in the actual rule stack means "second name present"; for the optional parts of `usageDeclaration` and `featureSpecializationPart`, a token that can start the part and cannot follow it in context means "enter". They are taken only when one token separates the alternatives in the actual context (the follow set comes from `atn.nextTokens(state, ctx)`, cached in a trie keyed by the invoking-state chain), so they return what ALL(*) returns; otherwise ordinary prediction runs. A first, greedy version (enter whenever LA(1) fits) was rejected: it failed 37 of 154 library and example files (`end : T[1];`, `then` in action bodies, expressions). Checked: on 1,600 valid texts (1,500 generated with another seed, the integration fixtures, all library examples, 60 community models) the shortcut parse tree equals the exact parse tree and every invalid text is still rejected on the fast path.
+- Training corpus: `scripts/dfa-training/snippets.ts` generates small snippets (every declaration kind with and without short name, typing, specialization, multiplicity, body, `doc`, visibility, `abstract`, followed by or preceded by other members, nested packages, plus requirements-file shapes: satisfy, verification with objective, `#derivation connection`); `build-snippets.ts` keeps only those the exact parser accepts and writes `training-snippets.json` (3,657 snippets) and a held-out set `heldout-snippets.json` (386 snippets, random combinations with different names, never in the training set). `generate:dfa` trains on the fixtures plus the training snippets and fails if a snippet is not valid or a fixture directory is missing. `scripts/dfa-training/measure.ts` prints the hit rates.
+- Measured (main-thread fast path, SLL then LL retry, snapshot active; held-out set of 386 valid snippets): before 7 of 386 (1.8%), after 386 of 386 (100%); the 3,657 training snippets 100%. The regression test `src/parser/fast-path.test.ts` asserts the reported snippets, requirements-file shapes and 150 held-out snippets all take the fast path, and a hit rate of at least 98% over the held-out set. Library and example files: 154 of 154 on the fast path (after the greedy attempt, 117 of 154; before the work, 154 of 154).
+- Integration fixtures `test/fixtures/workspace-basic/*.sysml`: `notes`, `ports`, `requirements`, `vehicle` take the fast path (SLL) before and after; `broken.sysml` is invalid on purpose and falls back before and after. These fixtures never hit the gap (`requirement def <'R1'> X { doc ... }` is followed by `{`), so the gap affects edits made during the tests (for example a created `requirement <'ID'> name;`), not the initial load.
+
+Soundness of the prediction shortcuts and the rules that guard it. Argument: a shortcut fires only when one token (LA(1), or LA(4) after `< name >`, valid because `name` is exactly one token) is in the first set of one alternative and, using the real rule stack (`atn.nextTokens(state, ctx)`), cannot belong to any other alternative; the alternative it picks is therefore the only one ALL(*) could have chosen, and a wrong choice could only make the parse bail (fallback), never produce an accepted different tree. Independence rule: the shortcuts run only on the main-thread fast path (`fastParse(..., shortcuts = true)`, set by `tryFastParse`); the parse worker, the same-thread exact fallback (`twoStage`), snippet validation (`build-snippets.ts`) and the snapshot generator never install them, so the exact parser is the unmodified generated parser. Consequence: the snapshot is trained without the shortcuts and again holds the DFA states of those decisions (57 KB / 3.5k states before, 395 KB / 21k states and about 78 s to generate after; fast-path hit rate on the held-out set stays 100%, 386 of 386); the shortcut still decides first when it fires. Guards: (1) the gate compares the fast path with an exact reference parser (no snapshot, no shortcuts) on every gated fixture and all snippets, tree for tree (`src/parser/exact-reference.ts`); (2) a negative corpus (seeded invalid variants of the held-out snippets and 300 fixture texts: last token dropped, one token deleted, two adjacent swapped, one duplicated, `;` replaced by `}`) where every text the exact parser rejects must be declined and every accepted one must have the identical tree, in the gate and in `shortcut-soundness.test.ts`; (3) load-time assertions (`checkShortcutFacts`): the identification decision and the optional-part decisions are located, `identification` has exactly the alternatives `LT name GT name | LT name GT | name`, `name` consumes exactly one token; they throw in tests and in the gate, and in the extension log once and continue without the shortcuts; a test-only fault switch (`setShortcutFault`) proves the comparison can fail; (4) `npm run check:dfa` regenerates the snapshot into a temporary file and fails if it differs from the checked-in one (byte-for-byte reproducible, about 80 s, run in CI after the gate). The follow cache is bounded (cleared above 50,000 trie nodes). Known gap, unrelated to soundness: short-named `doc`/`comment` (`doc <s> /* c */`) is declined by the fast path (the snapshot never saw it) and goes to the worker.
+- Snapshot size: 377,441 bytes (about 20k states) before, 57,155 bytes (3,467 states) after (the shortcut decisions no longer need DFA states). Clean-file timings (`npm run bench:parser clean`, this machine, ms): Annex A first parse 62 to 124 before (varies between runs) and 80 to 98 after; library 58 files pass 1 / pass 2: 247 to 300 / 211 to 248 before, 300 to 328 / 222 to 259 after; Annex A warm full parse 15 to 17 before, 16 to 18 after. Warm parsing did not regress; the first parse and the library pass 1 cost about 10 to 20 ms more, the start-up cost of building the shortcut tables. (`gate:parser`: 337 of 337 clean, 0 re-join failures.)
+- What remains. Valid text still falls back when it needs a snapshot state the training never produced: the held-out vocabulary (declaration kinds above, `doc`, bodies, multiplicities, typings, visibility, nesting) is covered, but shapes outside it (expressions in the shapes used here, state machines and transitions, `perform` / `exhibit` / `allocate` chains, enum bodies with values, metadata annotations on members) are covered only by the fixture corpus, and were not generated systematically. Valid text where the exact answer needs more than one token of context at these three decisions (`doc <s> locale "x" /* c */`, where a keyword-like word could be a name) also takes the slow path. Restored states still cannot grow; the real remaining fix is serializing full ATN configs.
+
+Failure handling. Details (`undefined` from the provider) are only an optimisation, so every failure ends in the exact result:
+- Poison text: if the worker dies, the job it was running is not resent (the text may be what killed it) and resolves unavailable; jobs still waiting go to the restarted worker. The crash counter resets when a restarted worker answers or reports warmed, and more than 3 crashes within 60 s without a success mark the client dead (tight-loop guard).
+- Timeout and size cap: a request running longer than 60 s terminates the worker and counts as a crash; texts above 2,000,000 characters are not sent. A worker that cannot be constructed marks the client dead at once. A reply that cannot be deserialised resolves unavailable and the queue keeps moving.
+- Last resort: when details are unavailable (undefined reply, rejected provider, dead or missing worker) `ModelIndex` parses that one document synchronously on the main thread, logs it, and applies the result, so a valid long file never shows a false error. The result is remembered per URI and text so it is not parsed again. This is a one-off slow path (seconds when cold), not the normal route.
+
+Measured with `npm run bench:parser`, each scenario in a fresh Node 24 process, this machine (ms):
+
+| Measurement | ms |
+|---|---|
+| (a) first erroring parse of a session, 1,581-line Annex A with one syntax error at line 1572, main-thread time, after the library load (as in the extension) | 22 to 24 |
+| (a) same, in a fresh process with nothing parsed before (cold JIT, worst case), five runs | 72 to 108 (typically about 80) |
+| (b) time until precise details arrive, cold worker | about 11,000 |
+| (b) same, worker that has finished warming (warm-up took about 30 s of worker time) | about 5,900 |
+| (c) repeated erroring edits (typing case): main-thread time / time to details | 15 to 41 / 117 to 166 |
+| (d) clean: Annex A first parse / library 58 files pass 1 / `loadLibraryChunked` 94 files | 97 / 257 / 535 (before 62 to 83 / 296 / about 580) |
+| (d) 5,000-line edit round trip (`perf.test.ts`): median / max | 101 / 146 (before 221 / 261) |
+| (e) scripted session, longest event-loop block (`monitorEventLoopDelay`): library load / workspace load (96 example files) / 30 edits alternating valid and invalid | 84 / 69 / 54 |
+
+Limits, stated plainly. The extension host is no longer blocked by the slow parse, but precise error details for the first error of a session still take about 11 s with a cold worker and about 6 s after warm-up, because library warm-up does not cover the lookahead paths of other models (Annex A uses views, satisfy, and so on); until then the user sees the provisional error at the bail position, which is usually the right line. The worker uses one extra CPU core for about 30 s after activation while warming, and holds its own parser and DFA cache in memory. Long files (over 32,000 characters) that are valid but need full-context prediction show a provisional error until the worker replies (typically a few hundred ms when warm). Only one request is parsed at a time, so details for a second file wait behind a slow first one. The (a) target of under 100 ms holds after start-up; in a completely fresh process with a cold JIT it was exceeded in one of five runs (108 ms). The event-loop measure uses a 10 ms sampling resolution. Remaining ideas: serialize full ATN configs so the snapshot can grow, a broader warm-up corpus, and grammar rewrites of `usageDeclaration` / `featureSpecializationPart`.
+
+Performance of edits and activation (task 5.2, this machine, Node 24). `src/model/perf.test.ts` generates a valid 5,035-line model (nested packages, part defs with attributes and values, typed usages, connections), loads it with the standard library, applies 20 single-line inserts and measures `setDocument` (full re-parse) plus the folder-node refresh computation (`affectedFolderNodes`) plus the children of the changed node: median 221 ms, maximum 261 ms (asserted under 300 ms and 1,000 ms). The 5,000-line target is met, but with limited headroom on the median, so a slow CI machine could approach 300 ms. The re-parse is of the whole file; the cost is the parser, about 40 ms per 1,000 lines. Activation cost: `loadLibraryChunked` over the bundled library (94 files) takes about 580 ms in the bench (`npm run bench:parser`, mode `activation`), in chunks of 25 files with yields, after the activation function has returned.
+
+Library load (task 2.6), measured in a fresh Node 24 process with the DFA snapshot active (`loadLibrary` over all 94 library files: 58 `.sysml` through ANTLR, 36 `.kerml` through the outline indexer): 530 to 610 ms for the load itself, plus 150 to 290 ms to import the modules and the snapshot. That is well under the 1.5 s budget, so the cached library index mentioned earlier is not needed and is not built; the library is parsed at activation. With `SYSML_DFA_SNAPSHOT=off` the same load takes about 29 s, so the snapshot is a hard requirement for this decision.
+
+Decisions taken from the gate: (1) the gate counts `.sysml` files that are valid under the official grammar; community files using pre-release syntax (bare `import`, package-level `actor`) are expected-invalid test cases. (2) The vendored lexer is patched to keep whitespace and line notes on a hidden channel. (3) KerML is not parsed by this parser: the standard library's `.kerml` files are read by a small outline indexer (task 2.6), and user-written `.kerml` files are not supported in this change. Task 2.3 (own full parser) is not needed.
+
+### D8: Tree view
+`TreeDataProvider<ModelNode>` driven by ModelIndex change events with per-node `onDidChangeTreeData` firing to preserve expansion. Uses `TreeDragAndDropController` to support drag into diagram webviews (`application/vnd.code.tree.sysmlModel` mime).
+
+### D9: Build & test
+Toolchain is Node-only: Node 22 LTS, npm, esbuild, Vitest, `tsc --noEmit`.
+- esbuild bundles `src/extension.ts` (platform node, format cjs, external `vscode`), the MCP bridge script (`dist/mcp-bridge.js`, platform node), and webviews (platform browser).
+- Vitest unit tests cover the `vscode`-free modules (parser, model index, edit planner, diagram serialization, agent tool handlers).
+- `@vscode/test-electron` runs integration tests for tree/editor wiring, rendering, and both agent channels (an MCP client connects to the running extension).
+- The ANTLR parser is generated from the vendored grammar as a build step (D2).
+- `tsc --noEmit` type checks; `engines.node` is `>=22`.
+- Code must use Node APIs only (no `Bun.*`), so tests exercise the production runtime.
+
+Alternative: Bun for building, testing, and package management (the original scaffold). Rejected because tests would run on a different runtime than production, hiding Node incompatibilities (Bun-only APIs, ESM/CJS interop, Node-API native modules such as resvg); `@vscode/test-electron` needs Node/Electron anyway; and VS Code extension tooling (`vsce` dependency checks via `npm list`, the esbuild extension template, debug configurations) assumes npm and Node. Bun's speed advantage is small at this project's size.
+
+### D10: MCP server hosted by the extension
+On activation the extension starts an MCP server (official MCP TypeScript SDK, streamable HTTP) bound to `127.0.0.1` on a free port and protected by a per-session token. It registers the server with VS Code through an MCP server definition provider, so in-editor agents find it. For harnesses outside VS Code, the extension ships a small stdio bridge (`dist/mcp-bridge.js`, run with `node`) that takes the workspace path, reads the port and token the extension wrote to its storage for that workspace, and forwards to the running server; if none is running it exits with "VS Code must be open on this workspace". A harness therefore needs one static config entry.
+
+Tools (snake_case with a `sysml_` prefix, because VS Code tool names are global across extensions, JSON-schema inputs): `sysml_validate`, `sysml_list_files`, `sysml_list_diagrams`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_read_diagram` (`includeImage`), `sysml_read_requirements_document`, `sysml_create_diagram`, `sysml_add_to_diagram`, `sysml_remove_from_diagram`, `sysml_layout_diagram`, `sysml_create_element` (optional `diagram` placement), `sysml_delete_element`, `sysml_rename_element`, `sysml_set_element_properties`, `sysml_create_relationship`, `sysml_create_requirement`. The read tools for the model arrive in this change; diagram tools, write tools, and requirement tools arrive in the later changes. Tool descriptions are written for agents, and errors are returned as tool errors with actionable text (e.g. parse-error location).
+
+Alternative: a standalone stdio server working on files without VS Code — deferred (see Non-Goals).
+
+### D13: One tool definition, two channels
+Tool definitions (name, agent-facing description, JSON input schema, handler returning `{ text: json, image?: png }`) live once in an `agent-tools` module that knows nothing about transports. Each channel is a small adapter:
+- **MCP adapter** (D10): registers each definition with the MCP SDK server hosted by the extension.
+- **LM tools adapter**: each tool is declared in `contributes.languageModelTools` (generated from the definitions at build time so schemas cannot drift) and registered with `vscode.lm.registerTool`. Images are returned as `LanguageModelDataPart.image(png, "image/png")`.
+Both adapters call the same handlers against the same `ModelService`, so reads see unsaved buffers and writes follow D11 on either channel. A contract test runs every tool through both adapters and asserts identical results. Users choose the channel through their agent; both are on by default, and a setting can disable either to avoid agents seeing duplicate tools. Alternatives: MCP only (rejected: in-editor agents should not need MCP configuration); LM tools only (rejected: agents that are not built into VS Code's chat, such as terminal-based harnesses, cannot call them).
+
+## Risks / Trade-offs
+
+- [Third-party grammar is maintained by one person and may accept or reject text differently from the reference] → Vendored and pinned, so we can patch it; acceptance gate on all fixtures before building on it; own TypeScript parser as fallback (D2).
+- [Standard library start-up cost: 94 files, 28,603 lines] → Measure in task 2.2; parse once and cache the index keyed by library version.
+- [Extension licence undecided: `package.json` carries no `license` field and the repository has no `LICENSE` file; `vsce package` runs with `--skip-license`. The vendored grammar (MIT) and standard library (EPL-2.0) notices are shipped in the `.vsix`.] → Choose the extension's own licence, add `LICENSE` and the `license` field, and drop `--skip-license` before publishing.
+- [Large models/performance] → Incremental re-parse per document, debounce 200 ms, lazy tree children.
+- [Duplicate tools when an in-editor agent sees both the registered MCP server and LM tools] → Setting `sysml.agent.channels` (`both` | `mcp` | `lmTools`); with `both`, the extension skips registering the MCP server definition with VS Code, so in-editor agents see the LM tools only, and the hosted server remains available to external harnesses through the bridge.
+- [Local MCP port reachable by other local processes] → Bind to loopback only and require the per-session token.
+- [Agents cannot be used without VS Code open] → Accepted; a standalone server can be added later on the same tool definitions.
+
+## Migration Plan
+
+Greenfield. `package.json` becomes an extension manifest, the `index.ts` stub is replaced by `src/extension.ts`, and `bun.lock` is replaced by `package-lock.json`.
+
+## Open Questions
+
+- Minimum VS Code version (resolved in task 4.5): `lm.registerMcpServerDefinitionProvider` and `lm.registerTool` are in the stable typings of `@types/vscode` 1.105, but `LanguageModelDataPart` (needed for image results from the later diagram tools) first appears in 1.106.0 (checked by diffing the published `@types/vscode` 1.105.0 and 1.106.0 typings). `engines.vscode` is therefore `^1.106.0` and `@types/vscode` is `~1.106.0`.
+- Whether to bundle a copy of the standard library or require a configured path (does not change the architecture).

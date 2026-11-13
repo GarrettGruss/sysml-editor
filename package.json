@@ -1,15 +1,1133 @@
 {
   "name": "sysml-editor",
-  "module": "index.ts",
-  "type": "module",
+  "displayName": "SysML Editor",
+  "description": "Graphical and model-aware editor for SysML v2",
+  "version": "0.0.1",
+  "publisher": "your-publisher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GarrettGruss/sysml-editor.git"
+  },
   "private": true,
+  "engines": {
+    "node": ">=22",
+    "vscode": "^1.106.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/*.sysml",
+    "workspaceContains:**/*.kerml",
+    "onCustomEditor:sysml.diagram",
+    "onWebviewPanel:sysml.requirements"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "sysml",
+          "title": "SysML",
+          "icon": "media/sysml.svg"
+        }
+      ]
+    },
+    "views": {
+      "sysml": [
+        {
+          "type": "webview",
+          "id": "sysmlSearch",
+          "name": "Search",
+          "initialSize": 1
+        },
+        {
+          "id": "sysmlModel",
+          "name": "SysML Model",
+          "initialSize": 12
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "sysmlModel",
+        "contents": "No folder is open.\n[Open Folder](command:workbench.action.files.openFolder)",
+        "when": "workspaceFolderCount == 0"
+      }
+    ],
+    "commands": [
+      {
+        "command": "sysml.goToDefinition",
+        "title": "Go to Definition",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.newFile",
+        "title": "New SysML File",
+        "category": "SysML",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "sysml.newDiagram",
+        "title": "New Diagram…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.showInDiagram",
+        "title": "Show in Diagram",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.addToActiveDiagram",
+        "title": "Add to Active Diagram",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.autoLayout",
+        "title": "Auto-layout Diagram",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.diagram.showElement",
+        "title": "Show Element on Diagram…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.addChild",
+        "title": "Add Child…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.rename",
+        "title": "Rename…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.delete",
+        "title": "Delete…",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.deleteFile",
+        "title": "Delete File",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.diagram.deleteFromModel",
+        "title": "Delete from Model…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.openRequirementsEditor",
+        "title": "Open Requirements Editor",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.copyDocumentAnnotations",
+        "title": "Copy Document Annotations Library to Workspace",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.tree.clearSearch",
+        "title": "Clear Search",
+        "category": "SysML",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "sysml.tree.changeView",
+        "title": "Change View",
+        "category": "SysML",
+        "icon": "$(list-filter)"
+      }
+    ],
+    "menus": {
+      "view/item/context": [
+        {
+          "command": "sysml.goToDefinition",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
+          "group": "navigation"
+        },
+        {
+          "command": "sysml.newDiagram",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
+          "group": "diagram@1"
+        },
+        {
+          "command": "sysml.showInDiagram",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
+          "group": "diagram@2"
+        },
+        {
+          "command": "sysml.addToActiveDiagram",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/ && sysml.diagramActive",
+          "group": "diagram@3"
+        },
+        {
+          "command": "sysml.tree.addChild",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "edit@1"
+        },
+        {
+          "command": "sysml.tree.rename",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "edit@2"
+        },
+        {
+          "command": "sysml.tree.delete",
+          "when": "view == sysmlModel && viewItem == sysmlElement",
+          "group": "edit@3"
+        },
+        {
+          "command": "sysml.tree.deleteFile",
+          "when": "view == sysmlModel && viewItem == sysmlFile",
+          "group": "edit@1"
+        },
+        {
+          "command": "sysml.openRequirementsEditor",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
+          "group": "requirements@1"
+        },
+        {
+          "command": "sysml.newFile",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/",
+          "group": "edit@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "sysml.goToDefinition",
+          "when": "false"
+        },
+        {
+          "command": "sysml.showInDiagram",
+          "when": "false"
+        },
+        {
+          "command": "sysml.addToActiveDiagram",
+          "when": "false"
+        },
+        {
+          "command": "sysml.diagram.autoLayout",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.showElement",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.tree.addChild",
+          "when": "false"
+        },
+        {
+          "command": "sysml.tree.rename",
+          "when": "false"
+        },
+        {
+          "command": "sysml.tree.delete",
+          "when": "false"
+        },
+        {
+          "command": "sysml.tree.deleteFile",
+          "when": "false"
+        },
+        {
+          "command": "sysml.diagram.deleteFromModel",
+          "when": "sysml.diagramActive"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "sysml.openRequirementsEditor",
+          "when": "resourceExtname == .sysml",
+          "group": "navigation@9"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "sysml.newFile",
+          "when": "view == sysmlModel && sysml.treeFilter != diagrams",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sysml.tree.clearSearch",
+          "when": "view == sysmlModel && sysml.searchActive",
+          "group": "navigation@0"
+        },
+        {
+          "command": "sysml.tree.changeView",
+          "when": "view == sysmlModel",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "SysML",
+      "properties": {
+        "sysml.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**"
+          ],
+          "description": "Glob patterns (relative to the workspace folder) of .sysml files that are not indexed. Applied together with files.exclude and search.exclude."
+        },
+        "sysml.tree.followCursor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reveal and select the tree node for the declaration under the text cursor."
+        },
+        "sysml.agent.channels": {
+          "type": "string",
+          "enum": [
+            "both",
+            "mcp",
+            "lmTools"
+          ],
+          "default": "both",
+          "enumDescriptions": [
+            "Language Model Tools for in-editor agents, plus an MCP server for external agents (not registered with VS Code, so no duplicate tools).",
+            "MCP server only, also registered with VS Code. No Language Model Tools.",
+            "Language Model Tools only. No MCP server."
+          ],
+          "description": "How AI agents reach the SysML tools. Changes apply without reloading."
+        }
+      }
+    },
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "sysml.mcpServer",
+        "label": "SysML Editor"
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "sysml_list_files",
+        "displayName": "SysML: List Files",
+        "modelDescription": "List the SysML v2 (.sysml) files of the workspace with their root package names and whether each has syntax errors. Standard library files are not listed. Use it first to find out what models exist; then use sysml_get_element_tree or sysml_get_element. Returns JSON: { files: [{ path, rootPackages, hasSyntaxErrors }] } with paths relative to the workspace root.",
+        "toolReferenceName": "sysmlListFiles",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_get_element_tree",
+        "displayName": "SysML: Get Element Tree",
+        "modelDescription": "Browse the ownership hierarchy of the SysML v2 model. Without `root` it starts at all root packages of the workspace; with `root` (a qualified name such as VehicleModel::Vehicle) it returns that subtree, which can also be a standard library element. `depth` is the number of levels returned (root level counts as 1; default 2, max 10). A node cut off by the depth limit has `truncated: true` and `childCount`; request that node's qualifiedName as `root` to go deeper. At most 500 nodes are returned; if that cap is hit the result says so, then request a subtree. Imports, comments and documentation are not shown. Elements without a name have a `locator` (owner, kind, ends) instead of a qualifiedName. Returns JSON: { nodes: [{ qualifiedName, kind, name, type?, children? }] }.",
+        "toolReferenceName": "sysmlGetElementTree",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string",
+              "description": "Qualified name of the element to start from. Default: all workspace root packages."
+            },
+            "depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 2,
+              "description": "Levels to return, root level = 1."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_get_element",
+        "displayName": "SysML: Get Element",
+        "modelDescription": "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, specializes/subsets/redefines, multiplicity, documentation, visibility, owner, owned members (name, kind, type), relationship statements it owns (connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",
+        "toolReferenceName": "sysmlGetElement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "qualifiedName": {
+              "type": "string",
+              "description": "Qualified name, segments separated by ::, quotes kept for names like 'My Part'."
+            }
+          },
+          "required": [
+            "qualifiedName"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_validate",
+        "displayName": "SysML: Validate",
+        "modelDescription": "Check SysML v2 files for problems and return them as a list; an empty list means clean. Call it after writing or editing a .sysml file. Reports (1) syntax errors and (2) unresolved names, limited to what can be judged reliably: the type after ':' of a usage, supertypes (:>) of definitions, and import targets. It does NOT check redefinitions, subsetting, feature chains, expressions, or semantic rules. A file with syntax errors is not checked for unresolved names. `file` is a workspace-relative path; without it the whole workspace is checked. Reflects unsaved editor content. Returns JSON: { problems: [{ file, line, column, severity, message }] } with 1-based line and column. If `detailsPending` lists files, their syntax errors are still being computed: the problem shown for them is provisional (\"details pending\"); call again shortly for the precise errors.",
+        "toolReferenceName": "sysmlValidate",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "Workspace-relative path of one file. Default: whole workspace."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_list_diagrams",
+        "displayName": "SysML: List Diagrams",
+        "modelDescription": "List the diagram files (.sysmld) of the workspace. A diagram is a view of the SysML model (general, interconnection, requirements, action flow, state transition or sequence view) that stores which elements are shown and where, never the model itself. Returns JSON: { diagrams: [{ path, kind, root, nodeCount, parses, open }] } with paths relative to the workspace root; `parses: false` marks a file that is not a valid diagram (it then has `problems` instead of kind, root and nodeCount). `open` is true when the diagram is open in an editor, in which case its in-memory content is listed. Use sysml_read_diagram to see one diagram's content.",
+        "toolReferenceName": "sysmlListDiagrams",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_read_diagram",
+        "displayName": "SysML: Read Diagram",
+        "modelDescription": "Read one diagram: its kind, root element, and every node and edge with the element it shows (name, qualified name, kind, types, relationship ends), containment (`parent`), stored positions (x, y, w, h, relative to the parent node, when known), edge routes and unresolved references (items whose element no longer exists). If the diagram is open in an editor, its in-memory content is described, including unsaved changes. Returns JSON { path, open, unsaved, kind, root, sources, nodes, edges, unresolved }. With `includeImage: true` the result also carries a PNG of the diagram (light theme, at most 1600 px wide) rendered by the diagram view as a second content item. If the diagram is not open, it is rendered in a short-lived editor tab beside the current one that is closed again at once (focus and the active editor stay as they are); if rendering fails or times out, the JSON is returned with an `image` note saying the image is unavailable and why. Large diagrams are truncated with a note.",
+        "toolReferenceName": "sysmlReadDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "includeImage": {
+              "type": "boolean",
+              "default": false,
+              "description": "Also return a PNG image of the diagram. Default false."
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_create_diagram",
+        "displayName": "SysML: Create Diagram",
+        "modelDescription": "Create a new diagram file for a model element and return its path and description. `root` is the qualified name of the element shown as the diagram's root (for example Vehicle::Car); the diagram is pre-populated with the root and its direct members (for a requirements view, the requirements and what the relationships tie them to). `kind` is general (definitions and usages with specialization, composition and typing; use cases with their actors and includes), interconnection (parts nested in a part, with ports and connections), requirements, actionFlow (root: an action or action def; its actions, start/done, fork/join/decide/merge nodes, successions with guards and flows), stateTransition (root: a state or state def; its states, entry/do/exit actions and transitions with trigger, guard and effect) or sequence (root: an occurrence, part or interaction that owns `message` usages; lifelines and the messages between them in time order). A root that does not fit the kind is refused with the reason. `elements` optionally restricts the members shown to those qualified names. `path` is workspace-relative and must end in .sysmld; by default the file is created beside the root's source file under the element's name, and an existing file is never overwritten (a numbered name is used, or an explicit existing path is rejected). The new diagram has no stored positions; the editor lays it out when it is opened. Changes the diagram file only, never the model. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlCreateDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the root element, e.g. Vehicle::Car."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "general",
+                "interconnection",
+                "requirements",
+                "actionFlow",
+                "stateTransition",
+                "sequence"
+              ],
+              "description": "general, interconnection, requirements, actionFlow, stateTransition or sequence."
+            },
+            "elements": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Qualified names of the members to show (at most 200). Default: all visible direct members."
+            },
+            "path": {
+              "type": "string",
+              "description": "Workspace-relative path of the new .sysmld file. Default: beside the root's source file."
+            }
+          },
+          "required": [
+            "root",
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_add_to_diagram",
+        "displayName": "SysML: Add To Diagram",
+        "modelDescription": "Add model elements to an existing diagram as nodes (relationship statements such as satisfy or connect become edges when both ends are on the diagram). `elements` are qualified names. Elements already on the diagram are left alone. Changes the diagram only, never the model, as one edit: if the diagram is open in an editor the change is applied to the open document as an undoable, unsaved edit (the tab shows it as modified); if it is not open the file is written. Returns JSON with `applied` (editor, file or none), what was added and the diagram as it is now. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlAddToDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "elements": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Qualified names of the elements to add (at most 200)."
+            }
+          },
+          "required": [
+            "path",
+            "elements"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_remove_from_diagram",
+        "displayName": "SysML: Remove From Diagram",
+        "modelDescription": "Remove nodes or edges from a diagram by their ids (from sysml_read_diagram). Removing a node also removes its child nodes and every edge attached to any of them. Only the diagram changes: the model and the .sysml files are never touched. One edit: applied as an undoable, unsaved edit when the diagram is open in an editor, written to the file otherwise. Returns JSON with `applied` (editor, file or none), `removed` and the diagram as it is now. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlRemoveFromDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "ids": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "Node or edge ids to remove (at most 200)."
+            }
+          },
+          "required": [
+            "path",
+            "ids"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_layout_diagram",
+        "displayName": "SysML: Layout Diagram",
+        "modelDescription": "Arrange all nodes and edges of a diagram again (automatic layout), discarding manual positions. If the diagram is open in an editor this runs the editor's Auto-layout command: the new layout is shown at once as an undoable, unsaved edit. If it is not open, the stored positions and routes are cleared in the file so that the layout is computed the next time the diagram is opened or rendered (the returned description then has no positions). Only the diagram changes. Returns JSON with `applied` (editor, file or none) and the diagram as it is now. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlLayoutDiagram",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_get_editor_context",
+        "displayName": "SysML: Get Editor Context",
+        "modelDescription": "Read what the user is looking at in the diagram editor right now: the active diagram, the node or line under the pointer, the selected elements and the other open diagrams. `focused` says whether that diagram is in the active tab; when the user is elsewhere (for example in the chat) it is the diagram they last used that is still visible. Use it to resolve \"this\", \"here\" or \"the selected part\" in the user's request. Returns JSON { activeDiagram: { path, kind, root, focused } | null, hovered: item | null, selected: item[], openDiagrams: string[] }. `activeDiagram` is null when no diagram is visible (then `hovered` is null and `selected` is empty). Each item is { id, type: node | edge, element?, resolved } as in sysml_read_diagram (a line the view derives from the model, such as typing or composition, has `derived: true` with its relationship and end node ids instead of an element): `id` is the diagram node or edge id; `element` has the qualified name (or, for an unnamed statement such as a succession, a locator) to use with the other tools. `hovered` is cleared when the pointer leaves the diagram or the diagram is hidden. `openDiagrams` lists the other diagrams open in editors. Read-only.",
+        "toolReferenceName": "sysmlGetEditorContext",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_create_element",
+        "displayName": "SysML: Create Element",
+        "modelDescription": "Create a new element in the model by inserting its declaration into the owner's .sysml source, exactly as the diagram palette and the tree's Add Child do (minimal text edit, indentation copied, a body created when the owner ends in `;`). `owner` is the qualified name of the package, definition or usage to add it to (a feature a usage only inherits cannot be the owner; add to the usage itself). `kind` is one of: package, part def, port def, attribute def, item def, action def, state def, requirement def, verification def, part, port, attribute, item, action, state, requirement, verification, fork, join, decide, merge. `state` and `state def` add states (inside a state or state definition they are nested states); `fork`, `join`, `decide` and `merge` add control nodes and are only allowed inside an action or action definition: give them a name, because successions refer to nodes by name. Optional `type` (qualified name or name of a definition of the matching kind; an import is added when needed), `multiplicity` (e.g. 0..1 or *), `shortName` and `documentation`. With `diagram`, a node for the new element is also placed on that diagram. The edit is applied directly, the file is saved, and the user can undo it in one step. Returns JSON with the new element's qualifiedName, the files changed and (with `diagram`) the placement. Refused for files with syntax errors, in an untrusted workspace and for names that already exist in the owner. Not for deleting (sysml_delete_element) or changing (sysml_set_element_properties).",
+        "toolReferenceName": "sysmlCreateElement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element to add to, e.g. VehicleModel::Vehicle."
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "package",
+                "part def",
+                "port def",
+                "attribute def",
+                "item def",
+                "action def",
+                "state def",
+                "requirement def",
+                "verification def",
+                "part",
+                "port",
+                "attribute",
+                "item",
+                "action",
+                "state",
+                "requirement",
+                "verification",
+                "fork",
+                "join",
+                "decide",
+                "merge"
+              ],
+              "description": "What to create."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Name of the new element (quoted automatically when it needs quotes)."
+            },
+            "type": {
+              "type": "string",
+              "description": "Type of a usage: qualified name or name of a definition, e.g. Engine or Powertrain::Engine."
+            },
+            "multiplicity": {
+              "type": "string",
+              "description": "Multiplicity of a usage, e.g. 4, 0..1 or *."
+            },
+            "shortName": {
+              "type": "string",
+              "description": "Short name, written as <shortName>."
+            },
+            "documentation": {
+              "type": "string",
+              "description": "Documentation text, written as a doc comment."
+            },
+            "diagram": {
+              "type": "string",
+              "description": "Optional workspace-relative path of a .sysmld diagram to place the new element on (as a node, or an edge for a relationship). The diagram file is updated on top of its last saved state; pending layout in an open diagram stays unsaved."
+            }
+          },
+          "required": [
+            "owner",
+            "kind",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_delete_element",
+        "displayName": "SysML: Delete Element",
+        "modelDescription": "Delete an element from the MODEL: its whole declaration (with its body, owned members and attached documentation) is removed from the .sysml source and saved, and nodes for it are removed from every diagram file. This is different from sysml_remove_from_diagram, which only removes a node from a diagram and leaves the model untouched. References to the deleted element elsewhere are not rewritten and will no longer resolve (check with sysml_validate); the result reports how many remain (`remainingReferences`) and where. `element` is the qualified name; an unnamed succession, transition or message (they have no qualified name) is given as `statement`, the `locator` that sysml_read_diagram lists for it ({ owner, kind, ends, index? }). Deleting an action, state, control node or message also deletes the successions, transitions and flows that connect it, in the same edit (listed in `alsoDeleted`). A succession written as `then x;` inside a node declaration cannot be deleted on its own. A feature that a usage only inherits from its definition (for example Model::vehicle1::engine, declared in Vehicle) cannot be deleted from the usage: the error names the declaring definition. Applied directly; the user can undo it in one step. Refused for files with syntax errors and in an untrusted workspace.",
+        "toolReferenceName": "sysmlDeleteElement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element to delete."
+            },
+            "statement": {
+              "type": "object",
+              "description": "An unnamed succession, transition or message: its locator.",
+              "properties": {
+                "owner": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "ends": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "description": "The `fingerprint` that sysml_read_diagram lists with the locator; the call is refused when the statement is no longer the one that was read."
+                }
+              },
+              "required": [
+                "owner",
+                "kind",
+                "ends"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_rename_element",
+        "displayName": "SysML: Rename Element",
+        "modelDescription": "Rename an element: its declaration and every reference to it that resolves in the workspace (qualified references change only the matching segment; names are quoted when needed), and every diagram file that refers to it. `element` is the qualified name, `newName` the new name. Returns JSON with the new qualifiedName, `referencesUpdated`, and `couldNotJudge` (mentions of the old name that the tool could not decide about, with a few locations: check them). Refused when the new name clashes with another member, for inherited features (rename them in their definition), for files with syntax errors and in an untrusted workspace. Applied directly; one undo step for the user.",
+        "toolReferenceName": "sysmlRenameElement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element to rename."
+            },
+            "newName": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The new name."
+            }
+          },
+          "required": [
+            "element",
+            "newName"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_set_element_properties",
+        "displayName": "SysML: Set Element Properties",
+        "modelDescription": "Change properties of an element in its .sysml source: `name`, `shortName`, `type` (of a usage: qualified name or name of a definition; an import is added when needed), `multiplicity` and `documentation`. Give only the properties to change; an empty string removes shortName, type, multiplicity or documentation. All changes are one edit. A feature that a usage only inherits cannot be changed from the usage (the error names the declaring definition). Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed and the qualifiedName after the edit.",
+        "toolReferenceName": "sysmlSetElementProperties",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of the element."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "New name (same as sysml_rename_element)."
+            },
+            "shortName": {
+              "type": "string",
+              "description": "Short name; empty removes it."
+            },
+            "type": {
+              "type": "string",
+              "description": "Type of a usage; empty removes it."
+            },
+            "multiplicity": {
+              "type": "string",
+              "description": "Multiplicity, e.g. 4, 0..1 or *; empty removes it."
+            },
+            "documentation": {
+              "type": "string",
+              "description": "Documentation text; empty removes it."
+            }
+          },
+          "required": [
+            "element"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_create_relationship",
+        "displayName": "SysML: Create Relationship",
+        "modelDescription": "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. `kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. `kind: \"verify\"` adds `verify <requirement>;` to the objective of a verification case (SysML v2 allows verify only there): give `verificationCase` (qualified name of an existing verification case; its objective is created when missing) or `newVerificationCase` (a name; a new `verification` containing the objective is created in `owner`, default the package of the requirement). `kind: \"derivation\"` adds `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; ... }` (derivation is not a keyword) to `owner` (default: the package of the first derived requirement) and `private import RequirementDerivation::*;` when missing; `original` and `derived` (a list) are qualified names of requirements. `kind: \"succession\"` adds `first <source> then <target>;` (with `guard`: `first <source> if <guard> then <target>;`) to `owner`, an action or action definition, after the two nodes; `source` and `target` are member names or qualified names of its actions or control nodes, or `start` and `done`; a succession that already exists is refused. `kind: \"transition\"` adds `transition first <source> [accept <trigger>] [if <guard>] [do <effect>] then <target>;` to `owner`, a state or state definition; `source` and `target` are its states (`trigger`, `guard` and `effect` are source text, parsed before anything is changed and refused with the syntax error when invalid). `kind: \"message\"` adds `message [name] [of <itemType>] from <from> to <to>;` to `owner`, an occurrence, part or interaction, written as `then message ...;` right after its last message so it comes last in time order; `from` and `to` are names of the parts taking part. With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
+        "toolReferenceName": "sysmlCreateRelationship",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "connection",
+                "satisfy",
+                "verify",
+                "derivation",
+                "succession",
+                "transition",
+                "message"
+              ],
+              "description": "connection, satisfy, verify, derivation, succession, transition or message."
+            },
+            "owner": {
+              "type": "string",
+              "description": "Qualified name of the element that receives the statement. Required for a connection."
+            },
+            "source": {
+              "type": "string",
+              "description": "connection: qualified name of the first end."
+            },
+            "target": {
+              "type": "string",
+              "description": "connection: qualified name of the second end."
+            },
+            "requirement": {
+              "type": "string",
+              "description": "satisfy: qualified name of the requirement."
+            },
+            "by": {
+              "type": "string",
+              "description": "satisfy: qualified name of the satisfying element."
+            },
+            "verificationCase": {
+              "type": "string",
+              "description": "verify: qualified name of an existing verification case (def or usage)."
+            },
+            "newVerificationCase": {
+              "type": "string",
+              "description": "verify: name of a new verification case to create."
+            },
+            "original": {
+              "type": "string",
+              "description": "derivation: qualified name of the original requirement."
+            },
+            "derived": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "description": "derivation: qualified names of the derived requirements."
+            },
+            "guard": {
+              "type": "string",
+              "description": "succession or transition: the guard as source text, e.g. level > 3."
+            },
+            "trigger": {
+              "type": "string",
+              "description": "transition: the trigger as source text, e.g. TurnOn (written after accept)."
+            },
+            "effect": {
+              "type": "string",
+              "description": "transition: the effect as source text, e.g. action logEvent (written after do)."
+            },
+            "from": {
+              "type": "string",
+              "description": "message: name of the sending part."
+            },
+            "to": {
+              "type": "string",
+              "description": "message: name of the receiving part."
+            },
+            "name": {
+              "type": "string",
+              "description": "message: optional name of the message."
+            },
+            "itemType": {
+              "type": "string",
+              "description": "message: optional item type (qualified name or name of a definition)."
+            },
+            "diagram": {
+              "type": "string",
+              "description": "Optional workspace-relative path of a .sysmld diagram to place the new element on (as a node, or an edge for a relationship). The diagram file is updated on top of its last saved state; pending layout in an open diagram stays unsaved."
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_set_transition",
+        "displayName": "SysML: Set Transition",
+        "modelDescription": "Change the trigger, guard and effect of an existing transition. The whole transition statement is written again from its parts as `transition [name] first <source> [accept <trigger>] [if <guard>] [do <effect>] then <target>;`, exactly as the State Transition View's properties panel does (a shorthand transition inside a state is rewritten in this explicit form). Identify the transition by `element` (qualified name, when it is named) or by `statement` (the locator sysml_read_diagram lists: { owner, kind: \"transition\", ends, index? }). Give only the parts to change; an empty string removes a part. The text is parsed before anything is applied; invalid text is refused with the syntax error and nothing changes. Applied directly, saved, one undo step. Refused in an untrusted workspace.",
+        "toolReferenceName": "sysmlSetTransition",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "element": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Qualified name of a named transition."
+            },
+            "statement": {
+              "type": "object",
+              "description": "Locator of an unnamed transition.",
+              "properties": {
+                "owner": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "transition"
+                  ]
+                },
+                "ends": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "index": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "fingerprint": {
+                  "type": "string",
+                  "description": "The `fingerprint` that sysml_read_diagram lists with the locator; the call is refused when the statement is no longer the one that was read."
+                }
+              },
+              "required": [
+                "owner",
+                "kind",
+                "ends"
+              ],
+              "additionalProperties": false
+            },
+            "trigger": {
+              "type": "string",
+              "description": "Trigger text (after accept); empty removes it."
+            },
+            "guard": {
+              "type": "string",
+              "description": "Guard text (after if); empty removes it."
+            },
+            "effect": {
+              "type": "string",
+              "description": "Effect text (after do); empty removes it."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_read_requirements_document",
+        "displayName": "SysML: Read Requirements Document",
+        "modelDescription": "Read a package as a specification document, the same projection the requirements editor's Document view shows, as Markdown: the title (from a @DocumentRoot annotation, else the package name), a table of contents, numbered sections (1, 1.1, ...; nested packages), their paragraphs (doc and comment text), requirement items (id, name, text, satisfied by / verified by / derived from) and appendices (packages annotated @Appendix, lettered A, B, ...). Section numbers are generated from the nesting and source order and are not stored in the model. Each heading and each requirement is followed by a marker such as `<!-- qn: VehicleSpec::Performance::accel -->` with the qualified name to pass to the edit tools (sysml_set_element_properties, sysml_create_requirement, sysml_create_relationship, ...). `package` is the qualified name of the root package (a nested package reads just that part). Output is limited to 60000 characters; the end then says it was truncated. Read-only.",
+        "toolReferenceName": "sysmlReadRequirementsDocument",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "package": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Qualified name of the package, e.g. VehicleSpec."
+            }
+          },
+          "required": [
+            "package"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_create_requirement",
+        "displayName": "SysML: Create Requirement",
+        "modelDescription": "Create a requirement in a package: `requirement <'ID'> name;` (or `requirement def` with `definition: true`), with optional documentation as a doc comment, exactly as the requirements editor's Add Requirement does. `owner` is the qualified name of the package (or definition) to add it to. Text containing the comment terminator star-slash is stored as star-backslash-slash. Applied directly, saved, one undo step. Refused for files with syntax errors, existing names and in an untrusted workspace. Returns JSON with the new element's qualifiedName and the files changed.",
+        "toolReferenceName": "sysmlCreateRequirement",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-model"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "owner": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Qualified name of the package to add the requirement to."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "description": "Name of the requirement."
+            },
+            "id": {
+              "type": "string",
+              "maxLength": 1000,
+              "description": "Requirement id, written as the short name <'id'>."
+            },
+            "documentation": {
+              "type": "string",
+              "maxLength": 100000,
+              "description": "The requirement text, written as a doc comment."
+            },
+            "definition": {
+              "type": "boolean",
+              "description": "Create a requirement def instead of a requirement usage."
+            }
+          },
+          "required": [
+            "owner",
+            "name"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "sysml.diagram",
+        "displayName": "SysML Diagram",
+        "selector": [
+          {
+            "filenamePattern": "*.sysmld"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "sysml.tree.rename",
+        "key": "f2",
+        "when": "focusedView == sysmlModel"
+      }
+    ]
+  },
   "scripts": {
-    "typecheck": "bun check"
+    "typecheck": "npm run generate:parser && tsc --noEmit",
+    "build": "npm run generate:parser && node esbuild.mjs",
+    "test": "npm run generate:parser && vitest run",
+    "test:integration": "npm run build && tsc -p tsconfig.integration.json && node out/test/integration/runTest.js",
+    "generate:parser": "antlr-ng -Dlanguage=TypeScript -v -o src/parser/generated --lib vendor/sysml-v2-grammar vendor/sysml-v2-grammar/SysMLv2Lexer.g4 vendor/sysml-v2-grammar/SysMLv2Parser.g4",
+    "generate:dfa": "npm run generate:parser && tsx scripts/generate-dfa-snapshot.ts",
+    "bench:parser": "npm run generate:parser && tsx scripts/parser-bench.ts",
+    "check:dfa": "npm run generate:parser && tsx scripts/check-dfa-snapshot.ts",
+    "gate:parser": "npm run generate:parser && tsx scripts/parser-gate.ts",
+    "gate:parser:record": "npm run generate:parser && tsx scripts/parser-gate.ts --write",
+    "generate:manifest": "tsx scripts/generate-manifest.ts",
+    "package": "npm run build && vsce package --no-dependencies --skip-license",
+    "check:vsix": "tsx scripts/check-vsix.ts"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/node": "^26.6.6",
+    "@types/vscode": "~1.106.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "antlr-ng": "^1.0.10",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
   },
-  "peerDependencies": {
-    "typescript": "^7"
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "antlr4ng": "^3.0.16",
+    "elkjs": "^0.12.1",
+    "zod": "^4.6.7"
   }
 }

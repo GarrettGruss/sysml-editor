@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>General View Editor</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div class="mock-note"><b>Diagram editor: General View</b> (specs: diagram-editor, diagram-files). Custom editor for <code>vehicle-general.sysmld</code>. Shows the palette, definitions with compartments, composition/specialization/typing edges, a selected node with resize handles, an unresolved reference, the context menu distinguishing Remove from Diagram vs Delete from Model, and the properties panel. <a href="index.html">All mockups</a></div>
+<div class="wb no-side">
+  <div class="activity"><span>📄</span><span>🔍</span><span class="on">◇</span><span>⎇</span></div>
+  <div class="editor">
+    <div class="tabs"><div class="tab">vehicle.sysml</div><div class="tab on">● vehicle-general.sysmld</div></div>
+    <div class="toolbar">
+      <span class="chip">General View</span><span class="desc">root: VehicleModel</span>
+      <span class="sp"></span>
+      <button class="btn">Auto-layout</button><button class="btn">Show element…</button><button class="btn">Fit</button>
+      <button class="btn">↶</button><button class="btn">↷</button><span class="desc">100%</span>
+    </div>
+    <div class="canvas-wrap">
+      <div class="palette">
+        <h3>Definitions</h3>
+        <div class="pal-item"><span class="ic pdef">D</span>Part Def</div>
+        <div class="pal-item"><span class="ic port">⊡</span>Port Def</div>
+        <div class="pal-item"><span class="ic attr">a</span>Attribute Def</div>
+        <div class="pal-item"><span class="ic act">A</span>Action Def</div>
+        <h3>Usages</h3>
+        <div class="pal-item"><span class="ic part">p</span>Part</div>
+        <div class="pal-item"><span class="ic attr">a</span>Attribute</div>
+        <div class="pal-item"><span class="ic port">⊡</span>Port</div>
+        <h3>Relationships</h3>
+        <div class="pal-item">◆— Composition</div>
+        <div class="pal-item">—▷ Specialization</div>
+        <div class="pal-item">┄▷ Typing</div>
+        <h3>Annotation</h3>
+        <div class="pal-item">▭ Comment</div>
+      </div>
+      <div class="canvas">
+        <svg viewBox="0 0 760 520" preserveAspectRatio="xMinYMin meet">
+          <defs>
+            <marker id="tri" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--canvas)" stroke="var(--edge)"/></marker>
+            <marker id="dia" viewBox="0 0 12 8" refX="0" refY="4" markerWidth="12" markerHeight="8" orient="auto"><path d="M0,4 L6,0 L12,4 L6,8 z" fill="var(--edge)"/></marker>
+          </defs>
+          <!-- Vehicle -->
+          <rect class="n-def" x="250" y="30" width="230" height="150" rx="2"/>
+          <rect class="n-head" x="251" y="31" width="228" height="38"/>
+          <text class="kw" x="365" y="46" text-anchor="middle">«part def»</text>
+          <text class="nm" x="365" y="63" text-anchor="middle">Vehicle</text>
+          <line x1="250" y1="69" x2="480" y2="69" stroke="var(--node-border)"/>
+          <text class="cmp-h" x="365" y="83" text-anchor="middle">parts</text>
+          <text class="cmp" x="262" y="100">engine : Engine</text>
+          <text class="cmp" x="262" y="116">transmission : Transmission</text>
+          <text class="cmp" x="262" y="132">wheels : Wheel [4]</text>
+          <line x1="250" y1="140" x2="480" y2="140" stroke="var(--node-border)"/>
+          <text class="cmp-h" x="365" y="154" text-anchor="middle">attributes</text>
+          <text class="cmp" x="262" y="171">mass : MassValue</text>
+          <!-- Engine (selected) -->
+          <rect class="n-def" x="40" y="300" width="160" height="80" rx="2"/>
+          <rect class="n-head" x="41" y="301" width="158" height="38"/>
+          <text class="kw" x="120" y="316" text-anchor="middle">«part def»</text>
+          <text class="nm" x="120" y="333" text-anchor="middle">Engine</text>
+          <line x1="40" y1="339" x2="200" y2="339" stroke="var(--node-border)"/>
+          <text class="cmp-h" x="120" y="353" text-anchor="middle">ports</text>
+          <text class="cmp" x="52" y="370">drive : DrivePort</text>
+          <rect class="n-sel" x="36" y="296" width="168" height="88"/>
+          <rect class="handle" x="32" y="292" width="7" height="7"/><rect class="handle" x="201" y="292" width="7" height="7"/>
+          <rect class="handle" x="32" y="381" width="7" height="7"/><rect class="handle" x="201" y="381" width="7" height="7"/>
+          <!-- Transmission -->
+          <rect class="n-def" x="285" y="300" width="160" height="80" rx="2"/>
+          <rect class="n-head" x="286" y="301" width="158" height="38"/>
+          <text class="kw" x="365" y="316" text-anchor="middle">«part def»</text>
+          <text class="nm" x="365" y="333" text-anchor="middle">Transmission</text>
+          <line x1="285" y1="339" x2="445" y2="339" stroke="var(--node-border)"/>
+          <text class="cmp-h" x="365" y="353" text-anchor="middle">ports</text>
+          <text class="cmp" x="297" y="370">input : ~DrivePort</text>
+          <!-- Wheel -->
+          <rect class="n-def" x="530" y="300" width="140" height="44" rx="2"/>
+          <text class="kw" x="600" y="316" text-anchor="middle">«part def»</text>
+          <text class="nm" x="600" y="333" text-anchor="middle">Wheel</text>
+          <!-- ElectricEngine specializes Engine -->
+          <rect class="n-def" x="40" y="440" width="160" height="44" rx="2"/>
+          <text class="kw" x="120" y="456" text-anchor="middle">«part def»</text>
+          <text class="nm" x="120" y="473" text-anchor="middle">ElectricEngine</text>
+          <line class="e" x1="120" y1="440" x2="120" y2="384" marker-end="url(#tri)"/>
+          <!-- Unresolved -->
+          <rect class="n-unres" x="530" y="430" width="180" height="56" rx="2"/>
+          <text class="kw" x="620" y="450" text-anchor="middle">⚠ unresolved</text>
+          <text class="cmp" x="620" y="468" text-anchor="middle">VehicleModel::Brake</text>
+          <!-- composition edges from Vehicle -->
+          <path class="e" d="M300,180 L300,240 L120,240 L120,296" marker-start="url(#dia)"/>
+          <text class="lbl" x="128" y="290">engine</text>
+          <path class="e" d="M365,180 L365,296" marker-start="url(#dia)"/>
+          <text class="lbl" x="372" y="290">transmission</text>
+          <path class="e" d="M430,180 L430,240 L600,240 L600,296" marker-start="url(#dia)"/>
+          <text class="lbl" x="608" y="290">wheels [4]</text>
+        </svg>
+        <div class="menu" style="left:212px;top:330px">
+          <div><span>Rename</span><span class="k">F2</span></div>
+          <div><span>Go to Definition</span><span class="k">F12</span></div>
+          <div><span>Reveal in Model Tree</span></div>
+          <hr>
+          <div class="hl"><span>Remove from Diagram</span><span class="k">Del</span></div>
+          <div><span>Delete from Model…</span><span class="k">⇧Del</span></div>
+        </div>
+        <div class="menu" style="left:540px;top:500px;min-width:180px">
+          <div><span>Re-link…</span></div>
+          <div><span>Remove from Diagram</span></div>
+        </div>
+        <div class="zoom"><button class="btn">−</button><button class="btn">＋</button></div>
+        <div class="minimap"></div>
+      </div>
+      <div class="props">
+        <h3>Properties · Engine</h3>
+        <div class="field"><label>Kind</label><input value="part def" disabled></div>
+        <div class="field"><label>Name</label><input value="Engine"></div>
+        <div class="field"><label>Short name</label><input placeholder="e.g. ENG"></div>
+        <div class="field"><label>Specializes</label><input placeholder="Qualified name…"></div>
+        <div class="field"><label>Documentation</label><textarea>Internal combustion or electric drive unit.</textarea></div>
+        <div class="field"><label>Qualified name</label><input value="VehicleModel::Engine" disabled></div>
+        <h3>Layout</h3>
+        <div class="field"><label>Position / size</label><input value="40, 300 · 160 × 80" disabled></div>
+        <div class="field"><label>Compartments</label><select><option>parts, ports</option></select></div>
+        <p class="desc" style="padding:0 10px">Model fields edit <code>vehicle.sysml</code>. Layout fields edit only the diagram file.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

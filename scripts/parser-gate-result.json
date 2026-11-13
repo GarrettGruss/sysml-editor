@@ -1,0 +1,90 @@
+{
+  "date": "2026-11-12T02:57:00.200Z",
+  "groups": {
+    "release examples": {
+      ".sysml": {
+        "files": 252,
+        "withErrors": 0,
+        "expectedInvalid": 0,
+        "percentClean": 100
+      }
+    },
+    "kerml examples": {},
+    "standard library": {
+      ".sysml": {
+        "files": 58,
+        "withErrors": 0,
+        "expectedInvalid": 0,
+        "percentClean": 100
+      }
+    },
+    "community models": {
+      ".sysml": {
+        "files": 36,
+        "withErrors": 0,
+        "expectedInvalid": 9,
+        "percentClean": 100
+      }
+    }
+  },
+  "sysmlFiles": 346,
+  "expectedInvalid": 9,
+  "expectedInvalidByClass": {
+    "import without visibility": 8,
+    "actor outside a use case or requirement": 1
+  },
+  "gatedFiles": 337,
+  "filesWithErrors": 0,
+  "overallPercentClean": 100,
+  "rejoinChecked": 346,
+  "rejoinFailures": 0,
+  "rejoinFailingFiles": [],
+  "standardLibrarySysmlParseMs": 288,
+  "kermlFilesNotParsed": 94,
+  "gateProblems": [],
+  "pass": true,
+  "otherFailures": [],
+  "stragglerErrorsInExpectedFiles": [],
+  "topErrors": [
+    {
+      "message": "mismatched input '::' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 55
+    },
+    {
+      "message": "extraneous input 'import' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}",
+      "count": 41
+    },
+    {
+      "message": "extraneous input '[' expecting {'behavior', 'crosses', 'feature', 'function', 'interaction', 'language', 'locale', 'member', 'metaclass', 'multiplicity', 'predicate', 'step', 'type', 'var', '$', IDENTIFIER, STRING}",
+      "count": 13
+    },
+    {
+      "message": "extraneous input ']' expecting {';', '{'}",
+      "count": 11
+    },
+    {
+      "message": "mismatched input 'actor' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 6
+    },
+    {
+      "message": "mismatched input 'usecase' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 6
+    },
+    {
+      "message": "mismatched input ',' expecting {'default', ':=', ';', '=', '{'}",
+      "count": 5
+    },
+    {
+      "message": "extraneous input 'actor' expecting {'abstract', 'action', 'alias', 'allocate', 'allocation', 'analysis', 'assert', 'attribute', 'behavior', 'bind', 'binding', 'calc', 'case', 'comment', 'concern', 'connect', 'connection', 'constant', 'constraint', 'crosses', 'default', 'defined', 'dependency', 'derived', 'doc', 'end', 'enum', 'event', 'exhibit', 'feature', 'filter', 'first', 'flow', 'function', 'in', 'include', 'individual', 'inout', 'interaction', 'interface', 'item', 'language', 'library', 'locale', 'member', 'message', 'metaclass', 'metadata', 'multiplicity', 'nonunique', 'not', 'occurrence', 'ordered', 'out', 'package', 'part', 'perform', 'port', 'predicate', 'private', 'protected', 'public', 'redefines', 'ref', 'references', 'rendering', 'rep', 'requirement', 'satisfy', 'snapshot', 'standard', 'state', 'step', 'subsets', 'succession', 'timeslice', 'type', 'typed', 'use', 'var', 'variation', 'verification', 'view', 'viewpoint', '::>', ':>>', ':=', ':>', '=>', '#', ':', ';', '<', '=', '@', '[', '{', '}', IDENTIFIER, STRING, REGULAR_COMMENT}",
+      "count": 4
+    },
+    {
+      "message": "extraneous input '&' expecting {'all', 'as', 'behavior', 'crosses', 'false', 'feature', 'function', 'hastype', 'if', 'interaction', 'istype', 'language', 'locale', 'member', 'metaclass', 'multiplicity', 'new', 'not', 'null', 'predicate', 'step', 'true', 'type', 'var', '$', '(', '*', '+', '-', '@', '{', '~', IDENTIFIER, STRING, DOUBLE_STRING, INTEGER, REAL, REGULAR_COMMENT}",
+      "count": 3
+    },
+    {
+      "message": "mismatched input ',' expecting '}'",
+      "count": 2
+    }
+  ]
+}

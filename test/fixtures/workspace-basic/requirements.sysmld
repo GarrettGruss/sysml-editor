@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "kind": "requirements",
+  "root": "Design",
+  "sources": [
+    "requirements.sysml"
+  ],
+  "nodes": [
+    {
+      "id": "n1",
+      "ref": "Design"
+    },
+    {
+      "id": "n2",
+      "ref": "Design::vehicle",
+      "parent": "n1"
+    },
+    {
+      "id": "n3",
+      "ref": "Requirements::VehicleMass",
+      "parent": "n1"
+    },
+    {
+      "id": "n4",
+      "ref": "Requirements::EngineMass",
+      "parent": "n1"
+    },
+    {
+      "id": "n5",
+      "ref": "Design::MassTest",
+      "parent": "n1"
+    },
+    {
+      "id": "n6",
+      "ref": "Design::vehicle::engine",
+      "parent": "n2"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "locator": {
+        "owner": "Design",
+        "kind": "satisfy",
+        "ends": [
+          "VehicleMass",
+          "vehicle"
+        ]
+      },
+      "source": "n2",
+      "target": "n3"
+    },
+    {
+      "id": "e2",
+      "locator": {
+        "owner": "Design",
+        "kind": "satisfy",
+        "ends": [
+          "EngineMass",
+          "vehicle.engine"
+        ]
+      },
+      "source": "n2",
+      "target": "n4"
+    },
+    {
+      "id": "e3",
+      "locator": {
+        "owner": "Design",
+        "kind": "connection",
+        "ends": []
+      },
+      "source": "n4",
+      "target": "n3"
+    },
+    {
+      "id": "e4",
+      "locator": {
+        "owner": "Design::MassTest",
+        "kind": "verify",
+        "ends": [
+          "VehicleMass"
+        ]
+      },
+      "source": "n5",
+      "target": "n3"
+    }
+  ]
+}

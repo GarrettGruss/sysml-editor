@@ -1,0 +1,8 @@
+[submodule "fixtures/sysml-v2-release"]
+	path = fixtures/sysml-v2-release
+	url = https://github.com/Systems-Modeling/SysML-v2-Release.git
+	shallow = true
+[submodule "fixtures/sysml-v2-models"]
+	path = fixtures/sysml-v2-models
+	url = https://github.com/GfSE/SysML-v2-Models.git
+	shallow = true

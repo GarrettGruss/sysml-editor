@@ -1,0 +1,8 @@
+**
+!dist/**
+!media/**
+!package.json
+!README.md
+!LICENSE*
+!LICENCE*
+!vendor/sysml-v2-grammar/LICENSE

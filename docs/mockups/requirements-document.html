@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Requirements Document View</title><link rel="stylesheet" href="styles.css">
+<style>
+  .docwrap { display: grid; grid-template-columns: 220px 1fr 380px; flex: 1; min-height: 0; }
+  .toc { background: var(--panel); border-right: 1px solid var(--border); padding: 10px 0; overflow: auto; }
+  .toc a { display: block; padding: 3px 12px; color: var(--fg); text-decoration: none; }
+  .toc a:hover { background: var(--hover); }
+  .toc a.sub { padding-left: 26px; color: var(--muted); }
+  .toc a.on { background: var(--sel); }
+  .toc .grip { color: var(--muted); margin-right: 4px; }
+  .page { overflow: auto; padding: 28px 40px; }
+  .doc { max-width: 720px; margin: 0 auto; background: var(--bg); line-height: 1.55; }
+  .doc h1 { font-size: 24px; margin: 0 0 4px; }
+  .doc .meta { color: var(--muted); margin-bottom: 20px; }
+  .doc h2 { font-size: 18px; border-bottom: 1px solid var(--border); padding-bottom: 4px; margin-top: 28px; }
+  .doc h3 { font-size: 15px; margin-top: 20px; }
+  .doc h2:hover::after, .doc h3:hover::after { content: "  ✎ rename · ⋯"; color: var(--muted); font-size: 12px; font-weight: 400; }
+  .ritem { border-left: 3px solid var(--req); background: var(--panel); padding: 8px 12px; margin: 10px 0; }
+  .ritem .id { font-weight: 700; color: var(--req); margin-right: 8px; }
+  .ritem .rel { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .editing { outline: 1px solid var(--accent); background: var(--input); padding: 4px 6px; }
+  .melist { font-size: 12px; color: var(--muted); border: 1px dashed var(--border); padding: 6px 10px; }
+  .addbar { color: var(--muted); font-size: 12px; border-top: 1px dashed var(--border); margin: 14px 0; padding-top: 4px; text-align: center; }
+  .src { border-left: 1px solid var(--border); overflow: auto; }
+  .src pre { border: 0; height: 100%; }
+  .hl { background: var(--sel); }
+</style></head>
+<body>
+<div class="mock-note"><b>Requirements editor: Document view</b> (spec: requirements-editor). The same package as the table view, rendered as a specification. Numbers and the TOC are computed. Headings are package names, paragraphs are <code>doc</code>/<code>comment</code> bodies, and the appendix comes from <code>@Appendix</code>. The right pane shows the backing SysML for reference; the real view does not show it. <a href="index.html">All mockups</a></div>
+<div class="wb no-side">
+  <div class="activity"><span>📄</span><span>🔍</span><span class="on">◇</span><span>⎇</span></div>
+  <div class="editor">
+    <div class="tabs"><div class="tab on">Requirements: VehicleSpec</div></div>
+    <div class="toolbar">
+      <span class="btn">Table</span><span class="btn primary">Document</span>
+      <span class="sp"></span>
+      <button class="btn">＋ Section</button><button class="btn">＋ Appendix</button><button class="btn">＋ Requirement</button><button class="btn">Reveal in Tree</button>
+    </div>
+    <div class="docwrap">
+      <nav class="toc">
+        <div class="section" style="border:0">Contents</div>
+        <a href="#s1"><span class="grip">⋮⋮</span>1 Introduction</a>
+        <a class="sub" href="#s11">1.1 Scope</a>
+        <a href="#s2" class="on"><span class="grip">⋮⋮</span>2 Performance Requirements</a>
+        <a class="sub" href="#s21">2.1 Mass</a>
+        <a class="sub" href="#s22">2.2 Range</a>
+        <a href="#s3"><span class="grip">⋮⋮</span>3 Safety</a>
+        <a href="#a"><span class="grip">⋮⋮</span>Appendix A Glossary</a>
+      </nav>
+      <div class="page"><article class="doc">
+        <h1>Vehicle System Requirements Specification</h1>
+        <div class="meta">Version 1.2 · VehicleSpec</div>
+
+        <h2 id="s1">1 Introduction</h2>
+        <p>This document specifies the top-level requirements for the electric vehicle platform.</p>
+        <h3 id="s11">1.1 Scope</h3>
+        <p>Covers the <em>propulsion</em> and <em>chassis</em> subsystems. Excludes:</p>
+        <ul><li>infotainment</li><li>charging infrastructure</li></ul>
+
+        <h2 id="s2">2 Performance Requirements</h2>
+        <p class="editing">Performance requirements are verified on the standard test rig unless stated otherwise.|</p>
+        <h3 id="s21">2.1 Mass</h3>
+        <div class="ritem"><span class="id">R1</span><b>massLimit</b><div>Vehicle mass shall not exceed 2000 kg.</div><div class="rel">satisfied by vehicle · verified by weighVehicle · derives R1.1</div></div>
+        <div class="ritem"><span class="id">R1.1</span><b>chassisMass</b><div>Chassis mass shall not exceed 600 kg.</div><div class="rel" style="color:var(--warn)">not verified</div></div>
+        <h3 id="s22">2.2 Range</h3>
+        <div class="ritem"><span class="id">R2</span><b>rangeReq</b><div>Vehicle range shall be at least 500 km on a full charge.</div><div class="rel" style="color:var(--warn)">not satisfied · not verified</div></div>
+        <div class="melist">Model elements: part def TestRig · attribute def RangeValue</div>
+        <div class="addbar">＋ paragraph · ＋ requirement · ＋ subsection</div>
+
+        <h2 id="s3">3 Safety</h2>
+        <p class="desc"><i>No content yet.</i></p>
+
+        <h2 id="a">Appendix A Glossary</h2>
+        <p><b>SRS</b>: System Requirements Specification.</p>
+      </article></div>
+      <div class="src">
+<pre class="code">package VehicleSpec {
+    private import DocumentAnnotations::*;
+    @DocumentRoot {
+        title = "Vehicle System Requirements Specification";
+        version = "1.2";
+    }
+
+    package Introduction {
+        doc /* This document specifies the top-level
+             * requirements for the electric vehicle platform. */
+        package Scope {
+            doc /* Covers the *propulsion* and *chassis*
+                 * subsystems. Excludes:
+                 * - infotainment
+                 * - charging infrastructure */
+        }
+    }
+
+    package 'Performance Requirements' {
+<span class="hl">        doc /* Performance requirements are verified on the
+             * standard test rig unless stated otherwise. */</span>
+        package Mass {
+            requirement &lt;'R1'&gt; massLimit {
+                doc /* Vehicle mass shall not exceed 2000 kg. */
+            }
+            requirement &lt;'R1.1'&gt; chassisMass {
+                doc /* Chassis mass shall not exceed 600 kg. */
+            }
+        }
+        package Range {
+            requirement &lt;'R2'&gt; rangeReq {
+                doc /* Vehicle range shall be at least 500 km
+                     * on a full charge. */
+            }
+            part def TestRig;
+            attribute def RangeValue;
+        }
+    }
+
+    package Safety;
+
+    package Glossary {
+        @Appendix;
+        doc /* **SRS**: System Requirements Specification. */
+    }
+}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>
