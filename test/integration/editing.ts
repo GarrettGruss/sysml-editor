@@ -19,7 +19,8 @@ export function editingTests(c: Ctx): Test[] {
   const mem = (name: string) => api.diagram.state(uriOf(name)).doc as DiagramDoc;
   const metrics = (name: string) => api.diagram.metrics(uriOf(name));
   const nodeOf = (m: Metrics, id: string): MNode => m.nodes.find((n) => n.id === id)!;
-  const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g);
+  /** A palette gesture types the scripted name into the inline input (the quick input is gone). */
+  const gesture = (name: string, g: Gesture) => api.diagram.gesture(uriOf(name), g.kind === "palette" && g.name === undefined && g.hold !== true && script.input !== undefined ? { ...g, name: script.input } : g);
   const dirty = (name: string) => api.diagram.state(uriOf(name)).dirty;
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string, detail?: () => string) => {
     const end = performance.now() + ms;
@@ -777,5 +778,130 @@ export function editingTests(c: Ctx): Test[] {
       await vscode.commands.executeCommand("workbench.action.files.revert");
       console.log("  D6 observations:\n    " + log.join("\n    "));
     })],
+
+    // ---- add-diagram-authoring 2.1-2.3: palette ghost and inline naming, inline rename, descriptions --------------------
+
+    ["Palette ghost: State/Part follows the pointer with a default name, a click places it and opens the inline input with the name selected, Enter writes `part wheel;` once, and no quick input is used (screenshot)", scenario("EdGhost", { "tmp-edghost.sysmld": gen("EdGhost") }, async ({ model, diagram }) => {
+      const original = MODEL("EdGhost");
+      await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, hold: true });
+      await c.eventually(async () => {
+        const m = await metrics(diagram);
+        assert.strictEqual(m.inline?.purpose, "add", "the inline input is open");
+        assert.strictEqual(m.inline?.value, "part1", "with the next free default name");
+        assert.deepStrictEqual(m.paletteGhost, { kind: "part", name: "part1", placed: true });
+      }, "the placed ghost and its inline input");
+      assert.strictEqual(onDisk(model), original, "nothing is written before the name is confirmed");
+      assert.strictEqual(rec.inputs.length, 0, "the VS Code quick input is not used");
+      await gesture(diagram, { kind: "inline", text: "wheel" });
+      mkdirSync(c.artifactDir, { recursive: true });
+      writeFileSync(path.join(c.artifactDir, "authoring-palette-ghost-inline-input.png"), Buffer.from(await api.diagram.pngWindow(uriOf(diagram), "editor-dark"), "base64"));
+      await gesture(diagram, { kind: "inline", end: "enter" });
+      await waitFor(() => onDisk(model).includes("part wheel;"), 15000, "the part is on disk");
+      assert.strictEqual(without(onDisk(model), /    part wheel;\n/), original, "only the new line was added");
+      assert.strictEqual(rec.inputs.length, 0, "still no quick input");
+      await clean(model);
+      await c.eventually(async () => { const m = await metrics(diagram); assert.strictEqual(m.inlineEditor, false); assert.strictEqual(m.paletteGhost, undefined); assert.strictEqual(m.tool, undefined); }, "the ghost and the input are gone");
+    })],
+
+    ["Palette ghost: the ghost follows the pointer before the click, Escape in the input writes nothing and removes the ghost, a duplicate name shows an error under the input and writes nothing", scenario("EdGhost2", { "tmp-edghost2.sysmld": gen("EdGhost2") }, async ({ model, diagram }) => {
+      const original = MODEL("EdGhost2");
+      const item = "part";
+      const btn = await metrics(diagram);
+      assert.ok(btn.palette.includes("Part"));
+      await gesture(diagram, { kind: "palette", item, id: "n2", x: 10, y: 10, hold: true });
+      await gesture(diagram, { kind: "inline", end: "escape" });
+      await c.eventually(async () => { const m = await metrics(diagram); assert.strictEqual(m.inlineEditor, false); assert.strictEqual(m.paletteGhost, undefined); }, "Escape removed the input and the ghost");
+      await sleep(300);
+      assert.strictEqual(onDisk(model), original, "Escape wrote nothing");
+      await gesture(diagram, { kind: "palette", item, id: "n2", x: 10, y: 10, hold: true });
+      await gesture(diagram, { kind: "inline", text: "spare" });
+      await c.eventually(async () => assert.match((await metrics(diagram)).inline?.error ?? "", /already has a member named 'spare'/), "the error shows under the input");
+      await gesture(diagram, { kind: "inline", end: "enter" });
+      await sleep(300);
+      assert.strictEqual((await metrics(diagram)).inlineEditor, true, "the input stays open on an error");
+      assert.strictEqual(onDisk(model), original, "a duplicate writes nothing");
+      await gesture(diagram, { kind: "inline", text: "wheel", end: "blur" });
+      await waitFor(() => onDisk(model).includes("part wheel;"), 15000, "a click elsewhere saves the corrected name");
+    })],
+
+    ["Inline rename: a click outside saves (references follow), Escape cancels, and an inherited element offers no input but has a tooltip saying why", scenario("EdRen2", { "tmp-edren2b.sysmld": gen("EdRen2") }, async ({ model, diagram }) => {
+      await gesture(diagram, { kind: "dblclick", id: "n3" });
+      assert.strictEqual((await metrics(diagram)).inline?.purpose, "rename");
+      assert.strictEqual((await metrics(diagram)).inline?.value, "Engine");
+      await gesture(diagram, { kind: "inline", text: "Nope", end: "escape" });
+      await sleep(300);
+      assert.strictEqual(onDisk(model), MODEL("EdRen2"), "Escape cancels");
+      await gesture(diagram, { kind: "dblclick", id: "n3" });
+      await gesture(diagram, { kind: "inline", text: "Motor", end: "blur" });
+      await waitFor(() => onDisk(model).includes("part def Motor;") && onDisk(model).includes("part engine : Motor;"), 15000, "clicking outside saved the rename and the reference followed");
+      await clean(model);
+    })],
+
+    ["Inline rename: an inherited feature shows no input and has a tooltip", scenario("EdInh2", { "tmp-edinh2.sysmld": ic("EdInh2") }, async ({ model, diagram }) => {
+      const original = MODEL("EdInh2");
+      const m = await metrics(diagram);
+      assert.match(nodeOf(m, "n1").tooltip ?? "", /Inherited from EdInh2::Vehicle.*cannot be renamed/s, "the node's tooltip says why");
+      await gesture(diagram, { kind: "dblclick", id: "n1" });
+      assert.strictEqual((await metrics(diagram)).inlineEditor, false, "no input for an inherited element");
+      assert.strictEqual(onDisk(model), original);
+    })],
+
+    ["Descriptions: shown under the name clipped with the full text in the tooltip; double-click edits (Shift+Enter adds a line, Enter saves, `*/` stored as `*\\/`), empty removes, Add Description in the menu, the toggle is a layout edit (screenshot)", scenario(
+      "EdDoc",
+      { "tmp-eddoc.sysmld": gen("EdDoc") },
+      async ({ model, diagram }) => {
+        const LONG = "The engine converts stored fuel into rotation for the drive train. It must run smoothly across the whole temperature range, start without hesitation, and stay within its emission limits for the full service life of the vehicle under any load.";
+        const m0 = await metrics(diagram);
+        assert.match(nodeOf(m0, "n3").text ?? "", /…/, "a long description is clipped with an ellipsis");
+        assert.strictEqual(nodeOf(m0, "n3").tooltip, LONG, "the tooltip has the full text");
+        assert.ok(!(nodeOf(m0, "n2").text ?? "").includes("description"), "a node without a doc shows none");
+        mkdirSync(c.artifactDir, { recursive: true });
+        writeFileSync(path.join(c.artifactDir, "authoring-node-description.png"), Buffer.from(await api.diagram.pngWindow(uriOf(diagram), "editor-dark"), "base64"));
+        // edit with a `*/` inside
+        await gesture(diagram, { kind: "dblclick", id: "n3", area: "doc" });
+        assert.strictEqual((await metrics(diagram)).inline?.purpose, "doc");
+        await gesture(diagram, { kind: "inline", text: "Burns fuel */ well.", end: "enter" });
+        await waitFor(() => onDisk(model).includes("doc /* Burns fuel *\\/ well. */"), 15000, "the doc has the new text, `*/` stored as `*\\/`");
+        await clean(model);
+        await c.eventually(async () => assert.match(nodeOf(await metrics(diagram), "n3").text ?? "", /Burns fuel \*\/ well\./), "the node shows the new text with `*/`");
+        // Shift+Enter adds a line and does not save
+        await gesture(diagram, { kind: "dblclick", id: "n3", area: "doc" });
+        await gesture(diagram, { kind: "inline", end: "shiftEnter" });
+        assert.strictEqual((await metrics(diagram)).inlineEditor, true, "Shift+Enter does not save");
+        await gesture(diagram, { kind: "inline", text: "Line one\nLine two", end: "enter" });
+        await waitFor(() => /doc \/\*[\s\S]*Line one[\s\S]*Line two[\s\S]*\*\//.test(onDisk(model)) && onDisk(model).split("\n").some((l) => l.includes("Line two")), 15000, "a multi-line doc");
+        await clean(model);
+        // Escape cancels
+        const before = onDisk(model);
+        await gesture(diagram, { kind: "dblclick", id: "n3", area: "doc" });
+        await gesture(diagram, { kind: "inline", text: "Never saved", end: "escape" });
+        await sleep(300);
+        assert.strictEqual(onDisk(model), before);
+        // empty removes
+        await gesture(diagram, { kind: "dblclick", id: "n3", area: "doc" });
+        await gesture(diagram, { kind: "inline", text: "", end: "enter" });
+        await waitFor(() => !onDisk(model).includes("doc "), 15000, "the doc is removed");
+        await clean(model);
+        // Add Description from the context menu
+        await gesture(diagram, { kind: "contextmenu", id: "n2" });
+        await c.eventually(async () => assert.ok((await metrics(diagram)).menu.includes("Add Description")), "the menu offers Add Description");
+        await gesture(diagram, { kind: "menu", id: "n2", action: "description" });
+        assert.strictEqual((await metrics(diagram)).inline?.purpose, "doc");
+        await gesture(diagram, { kind: "inline", text: "A road vehicle.", end: "blur" });
+        await waitFor(() => /part def Vehicle \{\s*doc \/\* A road vehicle\. \*\//.test(onDisk(model)), 15000, "the doc was added to Vehicle (a click outside saves)");
+        await clean(model);
+        // the toggle is diagram style only
+        const textBefore = onDisk(model);
+        assert.strictEqual(dirty(diagram), false);
+        await gesture(diagram, { kind: "descriptions", show: false });
+        await c.eventually(async () => { const m = await metrics(diagram); assert.strictEqual(m.descriptions, false); assert.ok(!(nodeOf(m, "n2").text ?? "").includes("A road vehicle")); }, "descriptions are hidden");
+        assert.strictEqual(onDisk(model), textBefore, "the .sysml file is unchanged");
+        assert.strictEqual((mem(diagram) as unknown as { style?: { descriptions?: boolean } }).style?.descriptions, false, "stored as diagram style");
+        await waitFor(() => dirty(diagram), 5000, "the diagram is marked changed");
+        await gesture(diagram, { kind: "descriptions", show: true });
+        await c.eventually(async () => assert.match(nodeOf(await metrics(diagram), "n2").text ?? "", /A road vehicle/), "shown again");
+      },
+      { model: "package EdDoc {\n  // keep me\n  part def Engine {\n    doc /* The engine converts stored fuel into rotation for the drive train. It must run smoothly across the whole temperature range, start without hesitation, and stay within its emission limits for the full service life of the vehicle under any load. */\n  }\n  part def Vehicle {\n    part engine : Engine;\n    port drive;\n    part spare;\n  }\n  part vehicle1 : Vehicle {\n    part battery;\n  }\n  part vehicle2 : Vehicle;\n}\n" },
+    )],
   ];
 }

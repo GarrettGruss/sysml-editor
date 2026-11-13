@@ -41,7 +41,7 @@ export class ModelActions {
   }
 
   /** "Add Child": choose a kind, then a name; undefined when cancelled. */
-  async addChild(owner: Element, opts: { origin?: Origin; placement?: Omit<Placement, "diagram"> & { diagram?: string }; kind?: string; type?: string } = {}): Promise<OpResult | undefined> {
+  async addChild(owner: Element, opts: { origin?: Origin; placement?: Omit<Placement, "diagram"> & { diagram?: string }; kind?: string; type?: string; /** The name, already chosen by the caller (the diagram's inline input): nothing is asked. */ name?: string } = {}): Promise<OpResult | undefined> {
     let kind = opts.kind;
     if (!kind) {
       const allowed = new Set(allowedChildKinds(owner));
@@ -59,11 +59,13 @@ export class ModelActions {
       void vscode.window.showWarningMessage(wrong);
       return { ok: false, reason: wrong };
     }
-    const name = await this.ui().input({
-      title: `New ${kindLabel(kind)}`,
-      prompt: `Name of the new ${kind} in ${owner.name ?? owner.kind}`,
-      validateInput: (v) => nameProblem(v, owner, undefined, this.index),
-    });
+    const name =
+      opts.name ??
+      (await this.ui().input({
+        title: `New ${kindLabel(kind)}`,
+        prompt: `Name of the new ${kind} in ${owner.name ?? owner.kind}`,
+        validateInput: (v) => nameProblem(v, owner, undefined, this.index),
+      }));
     if (name === undefined) return undefined;
     const problem = nameProblem(name, owner, undefined, this.index);
     if (problem) {

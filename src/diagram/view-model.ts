@@ -7,6 +7,8 @@ import type { DiagramDocument, DiagramKind, DiagramNode, ElementReference, Label
 import type { Resolution } from "./resolve.js";
 import { endElement, relationOf } from "./relations.js";
 import { nestFamily } from "../edit/nest.js";
+import { unescapeTerminator } from "../edit/comment.js";
+import { DOC_SHAPES } from "./authoring.js";
 
 export type ShapeKind =
   | "definition" | "usage" | "package" | "requirement" | "port" | "unresolved"
@@ -112,7 +114,12 @@ export interface ViewModel {
   root: string;
   nodes: VmNode[];
   edges: VmEdge[];
+  /** Whether nodes show their description (the diagram's style, D35; on unless the file says `"descriptions": false`). */
+  descriptions?: boolean;
 }
+
+/** Whether the diagram style shows descriptions. */
+export const showsDescriptions = (doc: Pick<DiagramDocument, "style">): boolean => doc.style?.descriptions !== false;
 
 /** Human-readable form of a stored reference. */
 export function referenceText(r: ElementReference): string {
@@ -325,7 +332,9 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       const lines = stateActions(index, el).map((a) => `${a.kind} / ${a.text}`);
       if (lines.length) out.compartments = [{ title: "", lines }];
     }
-    if (shape === "requirement" && el.documentation) out.doc = el.documentation;
+    // The first `doc` of the element (D35), shown unescaped; control nodes, pseudostates, pins and lifelines have no room for it.
+    const docText = el.documentation !== undefined ? unescapeTerminator(el.documentation) : undefined;
+    if (docText && showsDescriptions(doc) && DOC_SHAPES.has(shape)) out.doc = docText;
     const fromName = inheritedOf(n);
     if (general && (shape === "definition" || shape === "usage")) {
       const c = compartmentsOf(el, shown, index, shape === "definition", fromName);
@@ -347,7 +356,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       ...(el.shortName !== undefined ? { shortName: el.shortName } : {}),
       ...(el.types.length ? { type: el.types.join(", ") } : {}),
       ...(el.multiplicity !== undefined ? { multiplicity: el.multiplicity } : {}),
-      ...(el.documentation !== undefined ? { documentation: el.documentation } : {}),
+      ...(el.documentation !== undefined ? { documentation: unescapeTerminator(el.documentation) } : {}),
       ...(isLibraryUri(el.uri) ? { locked: "library" as const } : from ? { locked: "inherited" as const } : isSynthetic(el) ? { locked: "readonly" as const, lockedReason: `The ${el.kind} node is implied by the language and has no declaration of its own.` } : blocked ? { locked: "readonly" as const, lockedReason: blocked } : {}),
     };
     if (shape === "port") {
@@ -462,5 +471,5 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       }
     }
   }
-  return { kind: doc.kind, root: doc.root, nodes, edges };
+  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc) };
 }

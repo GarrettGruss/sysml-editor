@@ -100,10 +100,14 @@ export type Gesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" }
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[]; x?: number; y?: number }
-  | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
+  | { kind: "palette"; item: string; id?: string; x?: number; y?: number; name?: string; hold?: boolean }
+  | { kind: "ghostMove"; x: number; y: number }
+  | { kind: "inline"; text?: string; end?: "enter" | "shiftEnter" | "escape" | "blur" }
+  | { kind: "dblclick"; id: string; area?: "name" | "doc" }
+  | { kind: "descriptions"; show: boolean }
   | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow" }
   | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow"; target?: string; x?: number; y?: number; hold?: boolean }
   | { kind: "connectRelease" }
@@ -125,14 +129,14 @@ export type Gesture =
   | { kind: "wheel"; deltaY: number; ctrl?: boolean }
   | { kind: "focusCanvas"; mouse: boolean }
   | { kind: "flush" };
-export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
+export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean; tooltip?: string }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean; labelBox?: { x: number; y: number; w: number; h: number }; labelLines?: string[]; labelLaidOut?: boolean }[];
   overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number; userLabelsOverNodes: number; userLabelsOffCanvas: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; routeHandles: number; labelHandles: number; focusable: boolean; zoom: number;
   view: { x: number; y: number; k: number }; canvas: { w: number; h: number }; highlights: number; staleDraws: number; focusOutline: boolean;
   ghost?: { target?: string; invalid?: string; points: number }; quickBar: string[]; quickAnchor?: { bar: { x: number; y: number }; ghostEnd: { x: number; y: number } }; connectHandles: number; reconnectHandles: number;
-  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
+  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; inline?: { value: string; error?: string; purpose: string }; paletteGhost?: { kind: string; name: string; placed: boolean }; descriptions: boolean; theme: string;
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }
 

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ModelIndex } from "../model/index.js";
 import { addElements, createDiagram } from "./create.js";
-import { applyAutoLayout, applyBoxPatches, applyEdgeLayout, removeItems, withDescendants } from "./edits.js";
+import { applyAutoLayout, applyBoxPatches, applyDiagramStyle, applyEdgeLayout, removeItems, withDescendants } from "./edits.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument } from "./format.js";
 import { relink } from "./reconcile.js";
 import { relationOf } from "./relations.js";
@@ -283,5 +283,22 @@ describe("edge layout limits and exclusions", () => {
     expect(mk((e) => { e.label = { dx: 1, dy: 1, w: 2e6 }; })).toBe(false);
     expect(mk((e) => { e.points = Array.from({ length: 1001 }, (_, i) => ({ x: i, y: 0 })); })).toBe(false);
     expect(mk((e) => { e.label = { dx: 1, dy: 1, w: 50, h: 20, wrap: false }; })).toBe(true);
+  });
+});
+
+describe("applyDiagramStyle", () => {
+  const base: DiagramDocument = { version: 1, kind: "general", root: "P::A", sources: [], nodes: [], edges: [] };
+  it("hides and shows the descriptions", () => {
+    const hidden = applyDiagramStyle(base, { descriptions: false })!;
+    expect(hidden.style).toEqual({ descriptions: false });
+    expect(applyDiagramStyle(hidden, { descriptions: false })).toBeUndefined();
+    const shown = applyDiagramStyle(hidden, { descriptions: true })!;
+    expect("style" in shown).toBe(false);
+    expect(applyDiagramStyle(base, { descriptions: true })).toBeUndefined();
+  });
+  it("keeps other style keys", () => {
+    const d = applyDiagramStyle({ ...base, style: { grid: 8 } }, { descriptions: false })!;
+    expect(d.style).toEqual({ grid: 8, descriptions: false });
+    expect(applyDiagramStyle(d, { descriptions: true })!.style).toEqual({ grid: 8 });
   });
 });

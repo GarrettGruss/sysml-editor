@@ -188,3 +188,17 @@ export function materializePins(doc: DiagramDocument, patches: readonly BoxPatch
   }
   return { doc: cur, boxes };
 }
+
+/**
+ * The per-diagram style (D35): `descriptions` shows or hides the descriptions on the nodes. Stored as `style.descriptions: false`; showing
+ * (the default) removes the key, and an empty `style` is removed. Layout only. Undefined when nothing changes.
+ */
+export function applyDiagramStyle(doc: DiagramDocument, patch: { descriptions: boolean }): DiagramDocument | undefined {
+  if (typeof patch?.descriptions !== "boolean") return undefined;
+  const shown = doc.style?.descriptions !== false;
+  if (shown === patch.descriptions) return undefined;
+  const { style: old, ...rest } = doc;
+  const { descriptions: _d, ...others } = old ?? {};
+  const style = patch.descriptions ? others : { ...others, descriptions: false };
+  return Object.keys(style).length ? { ...rest, style } : (rest as DiagramDocument);
+}
