@@ -15,7 +15,8 @@ import {
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { composeChanges, nameNodesChange, placeElementChange, placeNodeAndLineChange, reconnectChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { planFlow, planNest } from "../edit/index.js";
+import { composeChanges, nestChange, nameNodesChange, placeElementChange, placeNodeAndLineChange, reconnectChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
 import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
@@ -100,8 +101,11 @@ export interface ModelHost {
   editBlocker?(uri: string): string | undefined;
   /** Show the user a warning, with an optional action (a VS Code command). */
   warn?(message: string, action?: { label: string; command: string }): void;
-  /** A model edit was made from a diagram: record one undo entry there. */
-  recordUndoEntry?(originDiagram: string, result: OpOk): void;
+  /**
+   * A model edit was made from a diagram: record one undo entry there, as soon as the text is changed. `result` settles
+   * when the operation is complete (to a text-only result if it failed after the text was changed).
+   */
+  recordUndoEntry?(originDiagram: string, description: string, result: Promise<OpOk>): void;
 }
 
 export interface ForceOutcome {
@@ -272,6 +276,35 @@ export class ModelService {
       if (!outcome.ok) return fail(outcome.reason);
       // From here the edit IS applied (documents that could not be saved keep it as unsaved changes): everything
       // that belongs to the operation still happens, and the result says what was and was not saved.
+      // The undo entry exists from the moment the text changed: an Undo pressed while the diagram files are still being
+      // updated must reverse this edit, not the one before it. Its undo runs after this operation (they are serialized).
+      let settle!: (r: OpOk) => void;
+      const done = new Promise<OpOk>((r) => (settle = r));
+      if (origin?.diagram && p.edits.length > 0) this.host.recordUndoEntry?.(origin.diagram, p.description, done);
+      try {
+        const result = await this.finish(p, record, base, sources, outcome, hooks);
+        settle(result);
+        return result;
+      } catch (e) {
+        // The text edit is saved but the rest failed: Undo still reverts the text (there is no diagram part to revert).
+        settle({ ok: true, description: p.description, files: [...base.keys()], record, diagramFiles: [] });
+        this.warn(`${p.description}: the text was changed, but the diagrams could not be updated (${e instanceof Error ? e.message : String(e)}); they may not match the model.`);
+        throw e;
+      }
+    }
+    return fail("The file changed while the edit was being prepared, twice. Nothing was changed; try again.");
+  }
+
+  /** The rest of an applied edit: diagram files, forced diagram changes, the result and its warnings. */
+  private async finish(
+    p: PlanOk,
+    record: EditRecord,
+    base: ReadonlyMap<string, string>,
+    sources: readonly PlanSource[],
+    outcome: { unsaved?: string[] },
+    hooks: { element?: () => Element | undefined; change?: () => DiagramChange | undefined; extra?: Partial<OpOk> },
+  ): Promise<OpOk> {
+    {
       const unsaved = outcome.unsaved ?? [];
       await this.host.sync();
       const diagramFiles: string[] = [];
@@ -312,7 +345,6 @@ export class ModelService {
         ...(changedMeanwhile.length ? { diagramsChangedMeanwhile: changedMeanwhile } : {}),
         ...hooks.extra,
       };
-      if (origin?.diagram) this.host.recordUndoEntry?.(origin.diagram, result);
       this.noteUnsaved(unsaved);
       if (diagramProblems) {
         const names = [...diagramProblems.failed, ...diagramProblems.skipped].map(nameOfUri);
@@ -323,7 +355,6 @@ export class ModelService {
       }
       return result;
     }
-    return fail("The file changed while the edit was being prepared, twice. Nothing was changed; try again.");
   }
 
   /** The user is told which files could not be saved, with a "Save All" action. */
@@ -653,6 +684,11 @@ export class ModelService {
       if (typeof b === "string") return fail(b);
       return planAddSuccession(this.index, o2, a, b, opts.guard);
     }, opts, "Add succession");
+  }
+
+  /** `flow from a.x to b.y;` in `owner`: the ends are dotted paths to features (pins), written as given. */
+  addFlow(owner: Element, from: string, to: string, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    return this.statementIn(owner, "flow", (o2) => planFlow(this.index, o2, from, to), opts, "Add flow");
   }
 
   /** `transition first a [accept T] [if g] [do e] then b;` in the nearest common owner of the two states (see `addSuccession`). */
@@ -1023,6 +1059,35 @@ export class ModelService {
       if (to.before) mt.before = it.next().value as Element;
       return planMoveMember(this.index, el!, mt);
     }, () => [...new Set([element.uri, ...(to.owner ? [to.owner.uri] : []), ...(to.after ? [to.after.uri] : []), ...(to.before ? [to.before.uri] : [])])], origin);
+  }
+
+  /**
+   * Nesting by dropping (design D33): move the declaration of `t` into `owner` (the diagram's root for moving out),
+   * rewriting references, as one edit. Features a usage only inherits are refused (D18).
+   */
+  nest(t: Target, owner: Element, origin?: Origin): Promise<OpResult> {
+    return this.serial(async () => {
+      const refusal = this.inheritedRefusal(t, "moved");
+      if (refusal) return refusal;
+      let nested: { oldQn: string; newQn: string; ends: NonNullable<PlanOk["nest"]>["endsChanges"] } | undefined;
+      return this.run(
+        async () => {
+          const el = this.fresh(t.element);
+          const ow = this.fresh(owner);
+          if (!el) return fail(gone("The element", t.element));
+          if (!ow) return fail(gone("The target", owner));
+          const r = planNest(this.index, el, ow);
+          if (r.ok && r.nest?.newQn) nested = { oldQn: r.nest.oldQn, newQn: r.nest.newQn, ends: r.nest.endsChanges };
+          return r;
+        },
+        () => ({
+          element: () => (nested ? this.index.findByQualifiedName(nested.newQn)[0] : undefined),
+          change: () => (nested ? nestChange(nested.oldQn, nested.newQn, owner.qualifiedName ?? "", nested.ends, "Move into owner") : undefined),
+        }),
+        origin,
+        () => [t.element.uri, owner.uri],
+      );
+    });
   }
 
   /** Replace the body of a `doc` or `comment` element (an empty text removes it). */

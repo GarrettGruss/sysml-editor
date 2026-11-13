@@ -318,7 +318,7 @@ function blockOf(index: ModelIndex, text: string, el: Element): { start: number;
  * qualified name, so the plan is refused when any reference would stop resolving to the same element
  * (references and diagram files are not rewritten; use rename for that).
  */
-export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarget): PlanResult {
+export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarget, opts: { skipResolutionCheck?: boolean } = {}): PlanResult {
   const c = checkElement(index, element);
   if (!c.ok) return c;
   const text = c.state.text;
@@ -370,7 +370,8 @@ export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarg
   }
   if (result === text && insEdits.every((e) => e.uri === element.uri)) return fail("The declaration is already there.");
   const plan: PlanOk = { ok: true, edits, description: `Move ${describeElement(element)}${sameOwner ? "" : ` to ${describeElement(owner)}`}` };
-  return checkResolutionPreserved(index, validatePlan(index, plan));
+  const valid = validatePlan(index, plan);
+  return opts.skipResolutionCheck ? valid : checkResolutionPreserved(index, valid);
 }
 
 // ---------------------------------------------------------------------------- document sections and paragraphs

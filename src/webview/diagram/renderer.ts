@@ -85,6 +85,9 @@ export class SvgRenderer implements DiagramRenderer {
   /** Routes released by the user and drawn until the host confirms; a drawing that differs from them counts as a stale draw (a test measure). */
   private readonly pendingRoutes = new Map<string, Pt[]>();
   private staleDraws = 0;
+  /** The node a dragged node would nest into (or leave, without an id) when released. */
+  private dropTarget?: { id?: string };
+  private dropFrom?: string;
 
   constructor(host: HTMLElement, private readonly measure: Measure, private readonly cb: RendererCallbacks) {
     this.svg = document.createElementNS(SVG_NS, "svg");
@@ -115,6 +118,8 @@ export class SvgRenderer implements DiagramRenderer {
       },
       onPanEnd: () => { this.panStart = undefined; this.autoFit = false; cb.onView(this.getView()); },
       onMenu: (id) => this.openMenu(id),
+      onDropTarget: (t, dragged) => { this.dropTarget = t; this.dropFrom = dragged; this.repaintOverlay(); },
+      onNest: (id, targetId) => { this.preview = undefined; this.repaint(); cb.onModel({ kind: "nest", id, ...(targetId !== undefined ? { targetId } : {}) }); },
       zoom: () => this.view.k,
       setTimer: (fn, ms) => setTimeout(fn, ms),
       clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
@@ -409,13 +414,23 @@ export class SvgRenderer implements DiagramRenderer {
 
   private repaintOverlay(): void {
     const { boxes, handles } = this.selectionBoxes();
-    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k) + this.edgeHandles({}) + this.connectOverlay({});
+    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k) + this.edgeHandles({}) + this.connectOverlay({}) + this.dropHighlight();
     // The drawing's `selected` flags follow the selection.
     for (const g of this.world.querySelectorAll<SVGGElement>("g[data-node]")) {
       const on = this.ia.selection.includes(g.getAttribute("data-node") ?? "");
       if (on) { g.setAttribute("data-selected", "true"); g.setAttribute("aria-current", "true"); }
       else { g.removeAttribute("data-selected"); g.removeAttribute("aria-current"); }
     }
+  }
+
+  /** The highlight of the nesting target: a filled outline round the node it would go into, or a dashed one round the parent it would leave. */
+  private dropHighlight(): string {
+    const t = this.dropTarget;
+    if (!t) return "";
+    const id = t.id ?? (this.dropFrom !== undefined ? this.scene.get(this.dropFrom)?.parent : undefined);
+    const b = id !== undefined ? this.scene.get(id)?.abs : undefined;
+    if (!b) return "";
+    return `<rect class="drop-target${t.id === undefined ? " drop-out" : ""}" data-drop-target="${id}" data-drop-kind="${t.id === undefined ? "out" : "into"}" x="${b.x - 2}" y="${b.y - 2}" width="${b.w + 4}" height="${b.h + 4}" rx="6" fill="none" class="drop-target-stroke" stroke-width="3" stroke-dasharray="${t.id === undefined ? "6 4" : "none"}" pointer-events="none"/>`;
   }
 
   getView(): View { return { ...this.view }; }
@@ -848,7 +863,7 @@ export class SvgRenderer implements DiagramRenderer {
         if (!same) this.cb.onModel({ kind: "reconnect", id: g.edge!, end: g.end!, nodeId: target });
         return;
       }
-      const relation = g.relation === "flow" ? undefined : g.relation;
+      const relation = g.relation;
       const source = g.source;
       if (g.side !== undefined) this.pendingSide = { source, target, side: g.side };
       this.cg = undefined;
@@ -1142,10 +1157,16 @@ export class SvgRenderer implements DiagramRenderer {
   }
 
   /** Replay a gesture as DOM events on the diagram, so it takes the paths real input takes. */
-  testGesture(g: TestGesture): void {
+  testGesture(g: TestGesture): void | Promise<void> {
     switch (g.kind) {
       case "select": this.click(this.pointOn(g.id), g.shift); break;
-      case "drag": this.dragFrom(this.pointOn(g.id), g.dx, g.dy, g.steps); break;
+      case "drag": {
+        if (!g.hold) { this.dragFrom(this.pointOn(g.id), g.dx, g.dy, g.steps); break; }
+        const p = this.pointOn(g.id), steps = g.steps ?? 6;
+        this.fire("pointerdown", p, { shift: false });
+        for (let i = 1; i <= steps; i++) this.fire("pointermove", { x: p.x + (g.dx * i) / steps, y: p.y + (g.dy * i) / steps }, { shift: false });
+        return new Promise<void>((r) => setTimeout(() => { this.fire("pointerup", { x: p.x + g.dx, y: p.y + g.dy }, { shift: false }); r(); }, g.hold));
+      }
       case "resize": {
         if (!(this.ia.selection.length === 1 && this.ia.selection[0] === g.id)) this.click(this.pointOn(g.id));
         const b = this.scene.get(g.id)?.abs;

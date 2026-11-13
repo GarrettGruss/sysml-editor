@@ -32,6 +32,9 @@ export interface TestApi {
     readonly ioCalls: number;
     /** Re-reads of newly created folders still scheduled. */
     readonly pendingFolderRescans: number;
+    readonly diagramUris: string[];
+    readonly diagramLog: string[];
+    readonly query: string;
     setExpanded(n: ModelNode, expanded: boolean): void;
   };
   /** The search box above the tree; `post` delivers a message as its webview would. */
@@ -51,10 +54,10 @@ export interface TestApi {
     pngWindow(uri: vscode.Uri, theme: "editor-dark" | "editor-light"): Promise<string>;
     save(uri: vscode.Uri): Promise<void>;
     edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
-    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: DiagramDoc };
+    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; pending: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
-    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined> } | undefined): void;
+    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined>; saveAs?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined> } | undefined): void;
     activeUri(): string | undefined;
     hoverOf(uri: vscode.Uri): string | undefined;
   };
@@ -96,7 +99,7 @@ export interface DiagramDoc {
 }
 export type Gesture =
   | { kind: "select"; id: string; shift?: boolean }
-  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number; hold?: number }
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
@@ -104,8 +107,8 @@ export type Gesture =
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[]; x?: number; y?: number }
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
-  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" }
-  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message"; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow" }
+  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow"; target?: string; x?: number; y?: number; hold?: boolean }
   | { kind: "connectRelease" }
   | { kind: "quickBar"; item?: string }
   | { kind: "reconnectDrag"; id: string; end: "source" | "target"; target?: string; x?: number; y?: number; hold?: boolean }

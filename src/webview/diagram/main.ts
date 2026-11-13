@@ -256,7 +256,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "testGesture":
       queue = queue
-        .then(() => { renderer.testGesture(m.gesture); post({ type: "gestureResult", requestId: m.requestId }); })
+        .then(async () => { await renderer.testGesture(m.gesture); post({ type: "gestureResult", requestId: m.requestId }); })
         .catch((e) => post({ type: "gestureResult", requestId: m.requestId, error: e instanceof Error ? e.message : String(e) }));
       break;
   }

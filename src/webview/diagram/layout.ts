@@ -270,6 +270,9 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const sides: VmNode[][] = [[], []];
     for (const p of list) {
       if (hasPos(p)) continue;
+      // Pins: inputs on the left, outputs on the right (D36).
+      if (p.pin?.direction === "in") { sides[0]!.push(p); continue; }
+      if (p.pin?.direction === "out") { sides[1]!.push(p); continue; }
       let dx = 0;
       for (const e of vm.edges) {
         const other = e.source === p.id ? e.target : e.target === p.id ? e.source : undefined;
@@ -302,6 +305,9 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
   const routes = new Map<string, Pt[]>();
   const finalAbs = absoluteBoxes(vm, boxes);
   for (const r of pending) {
+    // A line that ends at a pin is routed from the pin (ELK routed it between the actions).
+    const ve = vm.edges.find((x) => x.id === r.id);
+    if (ve && (byId.get(ve.source)?.pin || byId.get(ve.target)?.pin)) continue;
     const o = r.pid === undefined ? { x: 0, y: 0 } : finalAbs.get(r.pid);
     if (!o) continue;
     const shift = r.pid === undefined ? topShift : 0;
