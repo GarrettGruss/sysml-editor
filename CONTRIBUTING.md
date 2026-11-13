@@ -53,3 +53,7 @@ Work PRs follow the same convention for their titles (`feat(diagram): ...`, `fix
 ## Planning
 
 Planned work lives in `openspec/changes/`. See `CLAUDE.md` for the order of the changes and the architecture rules. OpenSpec changes organise the planning; versions organise what ships. A work PR says which OpenSpec change and tasks it implements, if any.
+
+### Local integration runs
+
+`npm run test:integration` takes a machine-wide lock (a file in the temp directory), so a second run waits until the first finishes instead of starting another VS Code. Several at once exhausted memory on a 7 GB WSL machine. Set `SYSML_TEST_NO_LOCK=1` to skip the lock.
