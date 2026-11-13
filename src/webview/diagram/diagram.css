@@ -54,3 +54,7 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 
 /* No text selection while dragging, panning, resizing or connecting on the canvas. */
 svg, svg * { -webkit-user-select: none; user-select: none; }
+.diagram [data-route-handle], .diagram [data-label-handle] { cursor: move; }
+.diagram [data-label-handle="resize"] { cursor: nwse-resize; }
+.ctx-menu button[aria-checked="true"]::before { content: "\2713"; margin-right: 6px; }
+.ctx-menu button[aria-checked="false"]::before { content: ""; display: inline-block; width: 1em; margin-right: 6px; }

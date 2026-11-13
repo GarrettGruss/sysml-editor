@@ -3,16 +3,19 @@
  * this class so the drawing technology can be replaced. This implementation is hand-built SVG,
  * with the interaction logic in `interaction.ts` and the drawing in `svg.ts`.
  */
-import { ELEMENT_MIME, type ConnectRelation, type DiagramEdit, type DiagramMetrics, type ModelIntent, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
+import { ELEMENT_MIME, type ConnectRelation, type DiagramEdit, type EdgePatch, type DiagramMetrics, type ModelIntent, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
 import { absoluteBoxes, boundsOf, countOutsideParent, countOverCompartments, countOverlaps, type Box, type Measure, type Pt } from "./geometry.js";
-import { handleBoxes, Interaction, snap, type InteractionHost, type PointerInput, type Scene } from "./interaction.js";
+import { DRAG_THRESHOLD, handleBoxes, Interaction, snap, type InteractionHost, type PointerInput, type Scene } from "./interaction.js";
 import type { LayoutResult } from "./layout.js";
 import { checkEdges } from "./metrics.js";
-import { showMenu } from "./menu.js";
+import { showMenu, type MenuItem } from "./menu.js";
+import { labelHit, layoutAt, moveBox, resizeBox, toggleWrap, type LabelLayout } from "./labels.js";
+import { addBend, adjustRoute, dragBend, dragSegment, isHorizontal, routeHandleAt, segmentAt } from "./route-edit.js";
+import { clean, routeFits } from "./routing.js";
 import { buildScene } from "./scene.js";
 import { Tools, type Suggestion, type Tool } from "./tools.js";
-import { DARK_PALETTE, LIGHT_PALETTE, buildSvg, overlaySvg, wrapStandalone } from "./svg.js";
+import { DARK_PALETTE, LIGHT_PALETTE, buildSvg, edgeHandlesSvg, overlaySvg, wrapStandalone } from "./svg.js";
 
 export type Metrics = DiagramMetrics;
 
@@ -46,7 +49,10 @@ export class SvgRenderer implements DiagramRenderer {
   private scene: Scene;
   private preview?: Map<string, Box>;
   private band?: Box;
-  private drawn = { routes: new Map<string, Pt[]>(), labels: new Map<string, Box>() };
+  private drawn = { routes: new Map<string, Pt[]>(), labels: new Map<string, Box>(), labelLines: new Map<string, string[]>(), laidOut: new Set<string>() };
+  /** A route or label gesture in progress, and what it draws instead of the stored layout. */
+  private rg?: LineGesture;
+  private overrides = new Map<string, { points?: Pt[]; label?: LabelLayout | null }>();
   private readonly world: SVGGElement;
   private readonly overlay: SVGGElement;
   private view: View = { x: 0, y: 0, k: 1 };
@@ -77,7 +83,7 @@ export class SvgRenderer implements DiagramRenderer {
     const ihost: InteractionHost = {
       onSelection: (ids) => { this.selectedEdge = undefined; this.repaint(); this.tools.setSelection(this.vm, ids); cb.onSelection(ids); },
       onPreview: (boxes, band) => { this.preview = boxes; this.band = band; this.repaint(); },
-      onEdit: (edit) => cb.onEdit(edit),
+      onEdit: (edit) => cb.onEdit(this.withRoutes(edit)),
       onPan: (dx, dy) => {
         this.panStart ??= { ...this.view };
         this.view = { ...this.view, x: this.view.x + dx, y: this.view.y + dy };
@@ -126,8 +132,8 @@ export class SvgRenderer implements DiagramRenderer {
   private repaint(): void {
     if (!this.vm) return;
     const rel = this.currentRel();
-    const r = buildSvg(this.vm, rel, this.measure, {}, { routes: this.layoutRoutes, selected: this.selectedSet() });
-    this.drawn = { routes: r.routes, labels: r.labels };
+    const r = buildSvg(this.vm, rel, this.measure, {}, { routes: this.layoutRoutes, selected: this.selectedSet(), overrides: this.overrides });
+    this.drawn = { routes: r.routes, labels: r.labels, labelLines: r.labelLines, laidOut: r.laidOut };
     this.world.innerHTML = r.content;
     this.applyView();
     this.repaintOverlay();
@@ -171,6 +177,162 @@ export class SvgRenderer implements DiagramRenderer {
     this.cb.onSelection([id]);
   }
 
+  /** Handles of the selected line: its route (when adjustable) and its label. */
+  private edgeHandles(o: { palette?: Parameters<typeof edgeHandlesSvg>[2]["palette"] }): string {
+    const id = this.selectedEdge;
+    if (id === undefined) return "";
+    return edgeHandlesSvg(this.routeOf(id)?.pts, this.labelOf(id)?.box, o, this.view.k);
+  }
+
+  /** The route of a line the user may edit: stored routes only, so not derived lines, sequence messages or loops. */
+  private routeOf(id: string): { pts: Pt[]; src: Box; tgt: Box } | undefined {
+    const e = this.vm?.edges.find((x) => x.id === id);
+    if (!e || e.derived || e.fixed || e.source === e.target) return undefined;
+    const pts = this.drawn.routes.get(id);
+    const src = this.scene.get(e.source)?.abs, tgt = this.scene.get(e.target)?.abs;
+    return pts && pts.length >= 2 && src && tgt ? { pts: clean(pts), src, tgt } : undefined;
+  }
+
+  /** The label of a line the user may adjust, as drawn. */
+  private labelOf(id: string): { box: Box; pts: Pt[]; layout?: LabelLayout } | undefined {
+    const e = this.vm?.edges.find((x) => x.id === id);
+    if (!e || e.derived || e.fixed || !e.label) return undefined;
+    const box = this.drawn.labels.get(id), pts = this.drawn.routes.get(id);
+    return box && pts ? { box, pts, ...(e.labelLayout ? { layout: e.labelLayout } : {}) } : undefined;
+  }
+
+  /** The line whose label is under the point (that of the selected line first). */
+  private labelAtPoint(p: Pt): string | undefined {
+    const ids = [...(this.selectedEdge !== undefined ? [this.selectedEdge] : []), ...this.drawn.labels.keys()];
+    // A label over a node only takes the press when its line is selected, so it never steals clicks, drags or connections from the node.
+    const nodeUnder = hit(this.scene, p) !== undefined;
+    return ids.find((id) => { const l = this.labelOf(id); return l !== undefined && (id === this.selectedEdge || !nodeUnder) && labelHit(l.box, p, this.view.k) !== undefined; });
+  }
+
+  /** A move or resize edit also carries the stored routes of the lines at the changed nodes, adjusted (or to be dropped), so the file holds what is drawn. */
+  private withRoutes(edit: DiagramEdit): DiagramEdit {
+    const vm = this.vm;
+    if (edit.kind !== "layout" || !vm) return edit;
+    const old = absoluteBoxes(vm, this.rel);
+    const nrel = new Map(this.rel);
+    for (const b of edit.boxes) {
+      const cur = this.rel.get(b.id);
+      if (cur) nrel.set(b.id, { x: b.x, y: b.y, w: b.w ?? cur.w, h: b.h ?? cur.h });
+    }
+    const now = absoluteBoxes(vm, nrel);
+    const routes: { id: string; points: Pt[] }[] = [];
+    const drop: string[] = [];
+    const same = (a: Box | undefined, b: Box | undefined) => a !== undefined && b !== undefined && a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+    for (const e of vm.edges) {
+      if (e.derived || e.fixed || !e.points?.length) continue;
+      const os = old.get(e.source), ot = old.get(e.target), ns = now.get(e.source), nt = now.get(e.target);
+      if (!os || !ot || !ns || !nt || (same(os, ns) && same(ot, nt))) continue;
+      const r = adjustRoute(e.points, os, ot, ns, nt);
+      if (!r) drop.push(e.id);
+      else routes.push({ id: e.id, points: r.map((q) => ({ x: Math.round(q.x * 100) / 100, y: Math.round(q.y * 100) / 100 })) });
+    }
+    return routes.length || drop.length ? { ...edit, ...(routes.length ? { routes } : {}), ...(drop.length ? { drop } : {}) } : edit;
+  }
+
+  private emitEdge(label: "Route" | "Label", patch: EdgePatch): void {
+    this.cb.onEdit({ kind: "edgeLayout", label, edges: [patch] });
+  }
+
+  /** Press on a line, its handles or its label: starts a route or label gesture. Returns whether the press was used. */
+  private beginLineGesture(p: PointerInput): boolean {
+    const zoom = this.view.k;
+    const reach = 6 / zoom + 2;
+    const begin = (id: string, area: ReturnType<typeof labelHit>): boolean => {
+      const l = this.labelOf(id);
+      if (l && area !== undefined) {
+        this.rg = { kind: area === "resize" ? "lresize" : "lmove", id, start: p, box: l.box, pts: l.pts, sized: l.layout?.w !== undefined, ...(l.layout ? { cur: l.layout } : {}), moved: false };
+        return true;
+      }
+      return false;
+    };
+    const sel = this.selectedEdge;
+    if (sel !== undefined) {
+      const l = this.labelOf(sel);
+      if (l && begin(sel, labelHit(l.box, p, zoom))) return true;
+      const r = this.routeOf(sel);
+      const h = r ? routeHandleAt(r.pts, p, reach) : undefined;
+      if (r && h) {
+        this.rg = h.kind === "bend" ? { kind: "bend", id: sel, k: h.index, start: p, base: r.pts, src: r.src, tgt: r.tgt, moved: false } : { kind: "seg", id: sel, i: h.index, start: p, base: r.pts, src: r.src, tgt: r.tgt, moved: false };
+        return true;
+      }
+    }
+    const lab = this.labelAtPoint(p);
+    if (lab !== undefined) {
+      this.selectEdge(lab);
+      return begin(lab, labelHit(this.labelOf(lab)!.box, p, zoom));
+    }
+    const edge = this.edgeHit(p);
+    if (edge === undefined) return false;
+    this.selectEdge(edge);
+    const r = this.routeOf(edge);
+    const s = r ? segmentAt(r.pts, p, reach) : undefined;
+    if (r && s) this.rg = { kind: "seg", id: edge, i: s.index, start: p, base: r.pts, src: r.src, tgt: r.tgt, moved: false };
+    return true;
+  }
+
+  private moveLineGesture(p: PointerInput): void {
+    const g = this.rg;
+    if (!g) return;
+    const dx = p.x - g.start.x, dy = p.y - g.start.y;
+    if (!g.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    g.moved = true;
+    if (g.kind === "seg" || g.kind === "bend") {
+      const cand = g.kind === "seg" ? dragSegment(g.base, g.i, isHorizontal(g.base[g.i]!, g.base[g.i + 1]!) ? dy : dx, g.src, g.tgt) : dragBend(g.base, g.k, dx, dy, g.src, g.tgt);
+      g.out = routeFits(cand, g.src, g.tgt) ? cand : undefined;
+      if (g.out) this.overrides.set(g.id, { points: g.out });
+      else this.overrides.delete(g.id);
+    } else {
+      const box = g.kind === "lmove" ? moveBox(g.box, dx, dy) : resizeBox(g.box, dx, dy);
+      g.out = layoutAt(box, g.pts, g.kind === "lresize" || g.sized, g.cur?.wrap);
+      this.overrides.set(g.id, { label: g.out });
+    }
+    this.repaint();
+  }
+
+  private endLineGesture(): void {
+    const g = this.rg;
+    this.rg = undefined;
+    if (!g) return;
+    this.overrides.clear();
+    if (g.moved && g.out) {
+      if (g.kind === "seg" || g.kind === "bend") this.emitEdge("Route", { id: g.id, points: g.out.map((q) => ({ x: Math.round(q.x * 100) / 100, y: Math.round(q.y * 100) / 100 })) });
+      else this.emitEdge("Label", { id: g.id, label: g.out });
+    }
+    this.repaint();
+  }
+
+  private cancelLineGesture(): boolean {
+    if (!this.rg) return false;
+    this.rg = undefined;
+    this.overrides.clear();
+    this.repaint();
+    return true;
+  }
+
+  private bendAt(id: string, p: Pt): void {
+    const r = this.routeOf(id);
+    const next = r ? addBend(r.pts, p, r.src, r.tgt) : undefined;
+    if (next) this.emitEdge("Route", { id, points: next.map((q) => ({ x: Math.round(q.x * 100) / 100, y: Math.round(q.y * 100) / 100 })) });
+  }
+
+  private openLabelMenu(id: string, cx: number, cy: number): void {
+    const l = this.labelOf(id);
+    if (!l) return;
+    const items: MenuItem<"reset" | "wrap">[] = [
+      { label: "Reset Position and Size", action: "reset" },
+      { label: "Wrap Text", action: "wrap", checked: l.layout?.wrap !== false },
+    ];
+    showMenu(document.body, cx, cy, items, (a) => {
+      if (a === "reset") { if (l.layout) this.emitEdge("Label", { id, label: null }); }
+      else this.emitEdge("Label", { id, label: toggleWrap(l.layout, l.box, l.pts) });
+    }, () => this.svg.focus({ preventScroll: true }));
+  }
+
   private selectionBoxes(): { boxes: Box[]; handles?: Box } {
     if (!this.vm) return { boxes: [] };
     const abs = absoluteBoxes(this.vm, this.currentRel());
@@ -181,7 +343,7 @@ export class SvgRenderer implements DiagramRenderer {
 
   private repaintOverlay(): void {
     const { boxes, handles } = this.selectionBoxes();
-    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k);
+    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k) + this.edgeHandles({});
     // The drawing's `selected` flags follow the selection.
     for (const g of this.world.querySelectorAll<SVGGElement>("g[data-node]")) {
       const on = this.ia.selection.includes(g.getAttribute("data-node") ?? "");
@@ -266,24 +428,34 @@ export class SvgRenderer implements DiagramRenderer {
         this.toolClick(this.toInput(e));
         return;
       }
-      if (e.button === 0 && !e.shiftKey) {
-        const edge = this.edgeHit(this.toInput(e));
-        if (edge !== undefined) { this.selectEdge(edge); return; }
+      if (e.button === 0 && !e.shiftKey && this.beginLineGesture(this.toInput(e))) {
+        if (this.rg) { try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ } }
+        return;
       }
       try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ }
       this.ia.pointerDown(this.toInput(e));
     });
     svg.addEventListener("dblclick", (e) => {
-      const id = hit(this.scene, this.toInput(e, 0));
+      const at = this.toInput(e, 0);
+      const line = this.edgeHit(at);
+      const id = hit(this.scene, at);
+      // A node under the point is renamed; a line adds a bend where no node is, or inside a container only when the line is selected.
+      if (line !== undefined && (id === undefined || line === this.selectedEdge)) { this.bendAt(line, at); return; }
       if (id !== undefined) this.openEditor(id);
     });
-    svg.addEventListener("pointermove", (e) => this.ia.pointerMove(this.toInput(e)));
-    const end = (e: PointerEvent) => this.ia.pointerUp(this.toInput(e));
+    svg.addEventListener("pointermove", (e) => { if (this.rg) this.moveLineGesture(this.toInput(e)); else this.ia.pointerMove(this.toInput(e)); });
+    const end = (e: PointerEvent) => { if (this.rg) this.endLineGesture(); else this.ia.pointerUp(this.toInput(e)); };
     svg.addEventListener("pointerup", end);
-    svg.addEventListener("pointercancel", () => this.ia.cancel());
+    svg.addEventListener("pointercancel", () => { if (!this.cancelLineGesture()) this.ia.cancel(); });
     svg.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       const p = this.toInput(e, 2);
+      const lab = this.labelAtPoint(p);
+      if (lab !== undefined) {
+        this.selectEdge(lab);
+        this.openLabelMenu(lab, e.clientX, e.clientY);
+        return;
+      }
       const edge = this.edgeHit(p);
       if (edge !== undefined) {
         this.selectEdge(edge);
@@ -307,6 +479,7 @@ export class SvgRenderer implements DiagramRenderer {
       }
     }, { passive: false });
     svg.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.cancelLineGesture()) { e.preventDefault(); return; }
       if (e.key === "Escape" && this.tool) { this.setTool(undefined); e.preventDefault(); return; }
       if (this.selectedEdge !== undefined && (e.key === "Delete" || e.key === "Backspace")) {
         const id = this.selectedEdge;
@@ -595,6 +768,51 @@ export class SvgRenderer implements DiagramRenderer {
         this.dragFrom(p, 0, g.dy, 6);
         break;
       }
+      case "dragSegment":
+      case "dragBend": {
+        if (this.selectedEdge !== g.id) this.click(this.pointOnEdge(g.id));
+        const pts = this.routeOf(g.id)?.pts;
+        if (!pts) throw new Error(`no adjustable route for ${g.id}`);
+        if (g.kind === "dragBend") {
+          const b = pts[g.index];
+          if (!b) throw new Error(`no bend ${g.index} on ${g.id}`);
+          this.dragFrom(b, g.dx, g.dy, 6);
+          break;
+        }
+        const a = pts[g.index], b = pts[g.index + 1];
+        if (!a || !b) throw new Error(`no segment ${g.index} on ${g.id}`);
+        const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        if (isHorizontal(a, b)) this.dragFrom(mid, 0, g.d, 6);
+        else this.dragFrom(mid, g.d, 0, 6);
+        break;
+      }
+      case "dblclickEdge": {
+        const p = this.pointOnEdge(g.id);
+        this.click(p);
+        this.click(p);
+        this.svg.dispatchEvent(new MouseEvent("dblclick", { ...this.toClient(p), button: 0, detail: 2, bubbles: true, cancelable: true }));
+        break;
+      }
+      case "labelDrag":
+      case "labelResize": {
+        if (this.selectedEdge !== g.id) this.click(this.pointOnEdge(g.id));
+        const l = this.labelOf(g.id);
+        if (!l) throw new Error(`no adjustable label on ${g.id}`);
+        if (g.kind === "labelDrag") this.dragFrom({ x: l.box.x, y: l.box.y }, g.dx, g.dy, 6);
+        else this.dragFrom({ x: l.box.x + l.box.w, y: l.box.y + l.box.h }, g.dw, g.dh, 6);
+        break;
+      }
+      case "labelMenu": {
+        if (this.selectedEdge !== g.id) this.click(this.pointOnEdge(g.id));
+        const l = this.labelOf(g.id);
+        if (!l) throw new Error(`no adjustable label on ${g.id}`);
+        this.svg.dispatchEvent(new MouseEvent("contextmenu", { ...this.toClient({ x: l.box.x, y: l.box.y }), button: 2, bubbles: true, cancelable: true }));
+        const text = g.action === "reset" ? "Reset Position and Size" : "Wrap Text";
+        const item = [...document.querySelectorAll<HTMLButtonElement>(".ctx-menu button")].find((b) => b.textContent === text);
+        if (!item) throw new Error(`the label menu has no "${text}"`);
+        item.click();
+        break;
+      }
       case "inlineRename": {
         const p = this.pointOn(g.id);
         this.svg.dispatchEvent(new MouseEvent("dblclick", { ...this.toClient(p), button: 0, detail: 2, bubbles: true, cancelable: true }));
@@ -614,8 +832,8 @@ export class SvgRenderer implements DiagramRenderer {
   getMetrics(): Metrics {
     const vm = this.vm;
     const empty: Metrics = {
-      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0,
-      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
+      nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0, userLabelsOverNodes: 0, userLabelsOffCanvas: 0,
+      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, routeHandles: 0, labelHandles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k,
     };
     if (!vm) return empty;
     const abs = absoluteBoxes(vm, this.currentRel());
@@ -635,11 +853,11 @@ export class SvgRenderer implements DiagramRenderer {
     }
     const selected = [...this.ia.selection, ...(this.selectedEdge !== undefined ? [this.selectedEdge] : [])];
     const named = selected.filter((id) => (this.world.querySelector(`g[data-node="${CSS.escape(id)}"]`)?.getAttribute("aria-label") ?? "").length > 0).length;
-    const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, style: e.style, ...(e.label !== undefined ? { label: e.label } : {}), ...(e.order !== undefined ? { order: e.order } : {}), ...(e.unordered ? { unordered: true } : {}), points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
+    const edges = vm.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, style: e.style, ...(e.label !== undefined ? { label: e.label } : {}), ...(e.order !== undefined ? { order: e.order } : {}), ...(e.unordered ? { unordered: true } : {}), ...(this.drawn.labels.has(e.id) && e.label !== undefined ? { labelBox: { ...this.drawn.labels.get(e.id)! }, labelLines: this.drawn.labelLines.get(e.id) ?? [e.label], ...(this.drawn.laidOut.has(e.id) ? { labelLaidOut: true } : {}) } : {}), points: (this.drawn.routes.get(e.id) ?? []).map((p) => ({ x: p.x, y: p.y })) }));
     return {
       nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs), nodesOverCompartments: countOverCompartments(vm, abs, this.measure),
-      ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels),
-      selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
+      ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels, this.drawn.laidOut),
+      selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, routeHandles: this.overlay.querySelectorAll("[data-route-handle]").length, labelHandles: this.overlay.querySelectorAll("[data-label-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
       focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.tools.state(), inlineEditor: this.editor !== undefined, theme: themeOf(),
     };
   }
@@ -651,7 +869,7 @@ export class SvgRenderer implements DiagramRenderer {
     const r = buildSvg(this.vm, rel, this.measure, { palette }, { routes: this.layoutRoutes, selected: theme === "light" ? new Set<string>() : this.selectedSet() });
     if (theme !== "light") {
       const { boxes, handles } = this.selectionBoxes();
-      r.content += overlaySvg(boxes, handles, undefined, { palette });
+      r.content += overlaySvg(boxes, handles, undefined, { palette }) + this.edgeHandles({ palette });
     }
     return wrapStandalone(r, { palette }).svg;
   }
@@ -659,6 +877,11 @@ export class SvgRenderer implements DiagramRenderer {
   /** Round a world coordinate onto the grid (for tests and tooling). */
   static snap(v: number): number { return snap(v); }
 }
+
+type LineGesture =
+  | { kind: "seg"; id: string; i: number; start: Pt; base: Pt[]; src: Box; tgt: Box; moved: boolean; out?: Pt[] }
+  | { kind: "bend"; id: string; k: number; start: Pt; base: Pt[]; src: Box; tgt: Box; moved: boolean; out?: Pt[] }
+  | { kind: "lmove" | "lresize"; id: string; start: Pt; box: Box; pts: Pt[]; sized: boolean; cur?: LabelLayout; moved: boolean; out?: LabelLayout };
 
 type MenuAction = "remove" | "relink" | "deleteModel" | "rename" | "goto";
 

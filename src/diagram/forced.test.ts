@@ -132,3 +132,18 @@ describe("vanished items: only a clean parse of the declaring document drops the
     expect(s.forced.some((f) => f.token === change)).toBe(false);
   });
 });
+
+describe("forced changes and hand-edited lines", () => {
+  test("a forced change keeps the saved route and label of an edge and does not save pending ones", () => {
+    const saved: DiagramDocument = { ...doc([{ id: "n1", ref: "P::A", x: 1, y: 1 }, { id: "n2", ref: "P::B", x: 9, y: 9 }]), edges: [{ id: "e1", ref: "P::r", source: "n1", target: "n2", points: [{ x: 0, y: 0 }, { x: 5, y: 0 }], label: { dx: 1, dy: 2 } }] };
+    const s = new DiagramState(text(saved));
+    s.apply({ ...s.doc!, edges: [{ ...s.doc!.edges[0]!, points: [{ x: 0, y: 0 }, { x: 0, y: 5 }], label: { dx: 50, dy: 60, w: 40 } }] }); // pending layout edit
+    const w = forceChange(s, {}, addNode, text(saved));
+    const written = JSON.parse((w as { text: string }).text) as DiagramDocument;
+    expect(written.edges[0]!.points).toEqual([{ x: 0, y: 0 }, { x: 5, y: 0 }]);
+    expect(written.edges[0]!.label).toEqual({ dx: 1, dy: 2 });
+    expect(s.doc!.edges[0]!.label).toEqual({ dx: 50, dy: 60, w: 40 });
+    expect(s.doc!.edges[0]!.points).toEqual([{ x: 0, y: 0 }, { x: 0, y: 5 }]);
+    expect(s.dirty).toBe(true);
+  });
+});

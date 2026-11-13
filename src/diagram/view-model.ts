@@ -3,7 +3,7 @@
  * document, its resolution and the model. No `vscode` import and no DOM.
  */
 import { analyze, inheritedFrom, inheritedMembers, interactionOf, isLibraryUri, isSynthetic, stateActions, isStateKind, type Element, type ModelIndex } from "../model/index.js";
-import type { DiagramDocument, DiagramKind, DiagramNode, ElementReference, Point } from "./format.js";
+import type { DiagramDocument, DiagramKind, DiagramNode, ElementReference, LabelLayout, Point } from "./format.js";
 import type { Resolution } from "./resolve.js";
 import { endElement, relationOf } from "./relations.js";
 
@@ -76,6 +76,8 @@ export interface VmEdge {
   resolved: boolean;
   unresolvedRef?: string;
   points?: Point[];
+  /** Stored layout of the label (offset from the route's anchor, size, wrapping). */
+  labelLayout?: LabelLayout;
   /** Sequence views: the route is computed from time order and is never routed around nodes. */
   fixed?: boolean;
   /** Messages: position in time order, and whether the model leaves the order against another message open. */
@@ -335,6 +337,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       out.label = out.unresolvedRef;
     }
     if (e.points?.length) out.points = e.points;
+    if (e.label !== undefined) out.labelLayout = e.label;
     edges.push(out);
   }
 

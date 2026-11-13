@@ -1,5 +1,5 @@
 /** A small keyboard-accessible context menu. */
-export interface MenuItem<A extends string> { label: string; action: A }
+export interface MenuItem<A extends string> { label: string; action: A; /** A check item: shown with a check mark while on. */ checked?: boolean }
 
 export function showMenu<A extends string>(host: HTMLElement, x: number, y: number, items: MenuItem<A>[], onPick: (a: A) => void, onClose: () => void): void {
   host.querySelector(".ctx-menu")?.remove();
@@ -18,7 +18,8 @@ export function showMenu<A extends string>(host: HTMLElement, x: number, y: numb
   for (const it of items) {
     const b = document.createElement("button");
     b.type = "button";
-    b.setAttribute("role", "menuitem");
+    b.setAttribute("role", it.checked === undefined ? "menuitem" : "menuitemcheckbox");
+    if (it.checked !== undefined) b.setAttribute("aria-checked", String(it.checked));
     b.textContent = it.label;
     b.addEventListener("click", () => { close(); onPick(it.action); });
     menu.append(b);

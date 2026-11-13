@@ -11,7 +11,7 @@ describe("checkEdges", () => {
   const v = vm([node("a"), node("b")], [edge("e", "a", "b")]);
   it("accepts a clean horizontal route", () => {
     const r = checkEdges(v, abs, new Map([["e", [{ x: 100, y: 30 }, { x: 300, y: 30 }]]]), new Map([["e", { x: 160, y: 14, w: 40, h: 13 }]]));
-    expect(r).toEqual({ diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, portsOffBorder: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0 });
+    expect(r).toEqual({ diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, portsOffBorder: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0, userLabelsOverNodes: 0, userLabelsOffCanvas: 0 });
   });
   it("flags diagonals, routes through an end node and labels over an end node", () => {
     const r = checkEdges(v, abs, new Map([["e", [{ x: 50, y: 30 }, { x: 300, y: 30 }, { x: 350, y: 80 }]]]), new Map([["e", { x: 10, y: 10, w: 40, h: 13 }]]));

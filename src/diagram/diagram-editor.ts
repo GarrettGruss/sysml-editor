@@ -15,7 +15,7 @@ import { readSettled } from "./read-settled.js";
 import { writeDiagramFile } from "./write-uri.js";
 import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
 import { addElements } from "./create.js";
-import { applyAutoLayout, applyBoxPatches, removeItems } from "./edits.js";
+import { applyAutoLayout, applyBoxPatches, applyEdgeLayout, removeItems } from "./edits.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
 import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
 import { relink } from "./reconcile.js";
@@ -479,12 +479,16 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     let label = "Edit diagram";
     switch (edit.kind) {
       case "layout":
-        next = Array.isArray(edit.boxes) ? applyBoxPatches(cur, edit.boxes) : undefined;
+        next = Array.isArray(edit.boxes) ? applyBoxPatches(cur, edit.boxes, { routes: Array.isArray(edit.routes) ? edit.routes : [], drop: Array.isArray(edit.drop) ? edit.drop.filter((i) => typeof i === "string") : [] }, doc.state.viewModel) : undefined;
         label = edit.label === "Resize" ? "Resize" : edit.label === "Nudge" ? "Nudge" : "Move";
         break;
       case "autoLayout":
         next = Array.isArray(edit.boxes) ? applyAutoLayout(cur, edit.boxes, Array.isArray(edit.edges) ? edit.edges : []) : undefined;
         label = "Auto-layout";
+        break;
+      case "edgeLayout":
+        next = Array.isArray(edit.edges) ? applyEdgeLayout(cur, edit.edges, doc.state.viewModel) : undefined;
+        label = edit.label === "Label" ? "Edit Label" : "Edit Route";
         break;
       case "remove": {
         const ids = Array.isArray(edit.ids) ? edit.ids.filter((i) => typeof i === "string") : [];

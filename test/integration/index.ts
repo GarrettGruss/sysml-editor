@@ -91,7 +91,7 @@ export interface PickItem { label: string; description?: string; detail?: string
 export interface DiagramDoc {
   version: number; kind: string; root: string; sources: string[];
   nodes: { id: string; ref?: string; parent?: string; x?: number; y?: number; w?: number; h?: number }[];
-  edges: { id: string; ref?: string; locator?: { kind: string }; source: string; target: string; points?: { x: number; y: number }[] }[];
+  edges: { id: string; ref?: string; locator?: { kind: string }; source: string; target: string; points?: { x: number; y: number }[]; label?: { dx: number; dy: number; w?: number; h?: number; wrap?: boolean } }[];
 }
 export type Gesture =
   | { kind: "select"; id: string; shift?: boolean }
@@ -106,14 +106,20 @@ export type Gesture =
   | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" }
   | { kind: "selectEdge"; id: string }
   | { kind: "dragEdge"; id: string; dy: number }
+  | { kind: "dragSegment"; id: string; index: number; d: number }
+  | { kind: "dragBend"; id: string; index: number; dx: number; dy: number }
+  | { kind: "dblclickEdge"; id: string }
+  | { kind: "labelDrag"; id: string; dx: number; dy: number }
+  | { kind: "labelResize"; id: string; dw: number; dh: number }
+  | { kind: "labelMenu"; id: string; action: "reset" | "wrap" }
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
   | { kind: "flush" };
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
 export interface Metrics {
-  nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean }[];
-  overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number;
-  selected: string[]; menu: string[]; selectedNamed: number; handles: number; focusable: boolean; zoom: number;
+  nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean; labelBox?: { x: number; y: number; w: number; h: number }; labelLines?: string[]; labelLaidOut?: boolean }[];
+  overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number; userLabelsOverNodes: number; userLabelsOffCanvas: number;
+  selected: string[]; menu: string[]; selectedNamed: number; handles: number; routeHandles: number; labelHandles: number; focusable: boolean; zoom: number;
   inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }

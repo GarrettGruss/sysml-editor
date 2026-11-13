@@ -61,3 +61,27 @@ Changes made through either channel SHALL be reflected in the tree, open diagram
 #### Scenario: Diagram open during agent edit
 - **WHEN** a diagram is open and an agent adds an element to it via either channel
 - **THEN** the open editor shows the new node without reopening
+
+### Requirement: Read what the user is looking at
+An agent tool `sysml_get_editor_context` SHALL return, at the time of the call: the diagram in the active editor tab (workspace-relative path, kind and root element), or none; the diagram element under the user's mouse pointer in that diagram, or none; and the elements selected in that diagram. The tool SHALL be read-only and available over both agent channels.
+
+#### Scenario: Element identification
+- **WHEN** the result names a hovered or selected element
+- **THEN** it identifies it as `sysml_read_diagram` does: qualified name, or locator for an unnamed statement, plus its diagram node or edge id
+
+#### Scenario: Pointer over a node
+- **WHEN** the user has `vehicle-general.sysmld` open in the active tab with the pointer over the `engine` node, and an agent calls `sysml_get_editor_context`
+- **THEN** the result names `vehicle-general.sysmld`, its kind, and `VehicleModel::Vehicle::engine` as the hovered element
+
+#### Scenario: Pointer over a line
+- **WHEN** the pointer is over a transition line
+- **THEN** the hovered element is that transition, identified by its locator, with its source and target
+
+#### Scenario: Pointer outside the diagram
+- **WHEN** the pointer is not over any element, or has left the diagram, or the diagram is not the active tab
+- **THEN** the hovered element is none; the open diagram is still reported if it is the active tab
+
+#### Scenario: No diagram active
+- **WHEN** the active tab is a text editor or no editor is open
+- **THEN** the result says no diagram is active, and lists any diagrams open in other tabs by path
+

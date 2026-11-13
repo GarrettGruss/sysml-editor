@@ -39,7 +39,7 @@ JSON paths such as `$.nodes[2].parent`. A unit test keeps schema and parser in a
   without a position are laid out automatically when the diagram is opened, and saving writes the
   computed positions.
 - Edge: `id`, a reference, `source` and `target` (node ids; a port is a node), optional `points`
-  (`[{ "x": 0, "y": 0 }]`) and `style`.
+  (`[{ "x": 0, "y": 0 }]`), optional `label` (layout of the text on the line, below) and `style`.
 - Ids are unique across nodes and edges. Unknown extra properties are preserved on a round trip.
 
 ## References
@@ -60,9 +60,9 @@ Exactly one of `ref` or `locator` is present on each node and edge.
 Files are written as UTF-8 JSON, 2-space indent, trailing newline, with a fixed key order: document
 keys `version, kind, root, sources, nodes, edges, style`, then others sorted; node keys `id, ref,
 locator, x, y, w, h`, then the rest sorted; edge keys `id, ref, locator, source, target, points`, then
-the rest sorted; locator keys `owner, kind, ends, index`. Nodes and edges are sorted by `id`, `sources`
+the rest sorted; label keys `dx, dy, w, h, wrap`; locator keys `owner, kind, ends, index`. Nodes and edges are sorted by `id`, `sources`
 are sorted and de-duplicated, style objects have recursively sorted keys, and geometry numbers (`x`, `y`, `w`, `h` and
-the coordinates in `points`) are rounded to two decimals; every other number (style values, unknown
+the coordinates in `points` and the numbers in `label`) are rounded to two decimals; every other number (style values, unknown
 properties) is written unchanged, except `-0`, which becomes `0`. Opening and saving an unchanged canonical file is byte-identical. A file that was not
 canonical is normalised by the first save.
 
@@ -78,9 +78,26 @@ container is drawn at the container's inner edge.
 Edge `points` hold the whole route as an orthogonal polyline in canvas coordinates, ends included
 (each segment horizontal or vertical, the first point on the source's border and the last on the
 target's). The editor keeps a stored route only while it still joins the borders of the two end
-nodes without crossing them; when an end moves, resizes or its node is edited, the route is dropped
-from the file and the editor computes one (routes of edges the model derives, such as composition
-and typing, are never stored). A route from automatic layout is stored together with the positions.
+nodes without crossing them. When an end node moves or resizes, the stored route is kept: the editor
+draws it with its interior bends and only re-attaches the end segments (the end point slides along
+the border, a bend is added where the segment's line no longer meets the node), and computes a route
+only when no valid adjusted one exists. Moving both ends by the same amount translates the stored
+route. (Routes of edges the model derives, such as composition and typing, are never stored.) A route from automatic layout is stored together with the positions.
+A route is adjustable by hand (segment drag, bend drag, double-click to add a bend; collinear bends are
+removed, an end segment dragged past its node's edge is routed around the node) for every drawn edge
+except those the model derives and sequence messages; the edit writes the whole new route to `points`
+and nothing else. Moving or resizing an end node keeps the route as described above.
+
+Edge `label` holds the layout of the text drawn on the line (a name, guard, trigger, `«include»`):
+`{ "dx": 12, "dy": -20, "w": 120, "h": 30, "wrap": false }`. `dx` and `dy` are the label box's top-left
+corner relative to the route's label anchor, the middle of its longest segment, so the label follows
+the line when the line or its nodes move. `w` and `h` (positive) are the box size and are absent
+while the label has the size of its text; `wrap` is absent (meaning true: text wraps within `w`) or
+`false`. The text always comes from the model. Absent `label` means automatic placement; old files
+without it load unchanged. Moving, resizing, "Wrap Text" and "Reset Position and Size" (removes the
+entry) are layout edits like node moves: saved when the user saves the diagram, never written to the
+`.sysml` file, and independent of the route. Messages and edges the model derives have no `label`.
+
 User edits and what they write: Move and Nudge write `x`, `y` of the moved nodes (relative to the
 parent; a port to its owner); Resize writes `x`, `y`, `w`, `h` and shifts the nested nodes' and ports'
 positions so they stay where they are; Auto-layout writes `x`, `y`, `w`, `h` for every node and the
