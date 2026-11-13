@@ -335,6 +335,9 @@ export function behaviorTests(c: Ctx): Test[] {
         assert.ok(mm.nodes.some((n) => n.id === forkId && n.shape === "fork"), "the fork is still drawn");
         assert.ok(mm.edges.some((e) => e.style === "succession" && e.target === forkId), "the edge to the fork is drawn");
       }, "fork and edge drawn");
+      // Undo only once the text is saved, clean and settled in the model (as the other undo tests do).
+      await savedAndClean(model);
+      await api.model.ready;
       await vscode.commands.executeCommand("undo");
       await waitFor(() => onDisk(model) === original, 15000, "one undo removes the naming and the succession");
     }, { text: (t) => t.replace("    then done;", "    then fork;\n    then done;") })],
