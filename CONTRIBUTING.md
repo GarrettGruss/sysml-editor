@@ -15,7 +15,7 @@ The deploy PR's description lists the user-facing features and fixes in the vers
 The repository is set to use the pull request's title and description as the merge commit message. The deploy PR's title and description are therefore written as a [Conventional Commits](https://www.conventionalcommits.org/) message:
 
 - **Title:** `<type>: release v<version>, <short summary>`, where the type is `feat` if the version adds a feature and `fix` if it only fixes defects; add `!` after the type for a breaking change (for example `feat!:`). Example: `feat: release v0.1.0, SysML v2 model tree, diagrams, editing and requirements`.
-- **Description (above the marker):** the commit body. A short paragraph, then the user-facing features and fixes as plain bullet lists under `Features:` and `Fixes:`, then any footers (`BREAKING CHANGE: ...`, `Refs: #<pr>, ...`). No headings, tables or images; it must read well in `git log`.
+- **Description (above the marker):** the commit body. A short paragraph, then the user-facing features and fixes as plain bullet lists under `Features:` and `Fixes:`, then any footers (`BREAKING CHANGE: ...`, `Refs: #<pr>, ...`). When AI agents did the work, end with the trailer `Co-Authored-By: Claude <noreply@anthropic.com>` so the merge commit credits them. No headings, tables or images; it must read well in `git log`.
 - **Marker:** everything else the reviewer needs (merged work PRs, assumptions, decisions needed, what no test verifies, known issues, how to test) goes below this line, on a line of its own:
 
   ```
