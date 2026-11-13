@@ -25,6 +25,7 @@ export class NewEntryFlow {
     private readonly view: vscode.TreeView<ModelNode>,
     private readonly log: (m: string) => void,
     private readonly clearSearch: () => void = () => {},
+    private readonly indexFile: (uri: vscode.Uri) => Promise<void> = async () => {},
   ) {}
 
   /** Tests set this to pretend the workspace is untrusted. */
@@ -102,6 +103,7 @@ export class NewEntryFlow {
       void vscode.window.showErrorMessage(`SysML: could not create ${name}: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
+    if (cur.kind === "file") await this.indexFile(uri).catch(() => {});
     this.finish(cur);
     if (cur.kind === "file") await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri));
     else {

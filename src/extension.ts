@@ -78,7 +78,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   const newEntry = new NewEntryFlow(provider, view, (m) => log.warn(m), () => {
     provider.setQuery("");
     search.setText("");
-  });
+  }, (uri) => model.indexFile(uri));
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
   context.subscriptions.push(

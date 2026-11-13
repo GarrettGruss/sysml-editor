@@ -662,7 +662,9 @@ export function foldersTests(c: Ctx): Test[] {
       const cmds = await vscode.commands.getCommands(true);
       for (const id of ["sysml.tree.newFile", "sysml.tree.newFolder", "sysml.tree.refresh"]) assert.ok(cmds.includes(id), id);
       try {
-        await waitFor(() => indexed("a/b.sysml"), 20000, "the file is indexed");
+        await waitFor(() => indexed("a/b.sysml"), 20000, "the file is indexed (a file written into a folder created moments earlier)").catch((e: unknown) => {
+          throw new Error(`${String(e)}; on disk ${existsSync(dir("a", "b.sysml"))}; indexed under tmp-tree: ${api.model.index.uris().filter((u) => u.includes("/tmp-tree/")).join(",") || "none"}`);
+        });
         await vscode.commands.executeCommand("workbench.action.closeAllEditors");
         // Earlier tests leave the view with a selection that no longer exists; a refresh starts it afresh.
         await vscode.commands.executeCommand("sysml.tree.refresh");

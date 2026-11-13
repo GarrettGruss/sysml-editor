@@ -109,14 +109,29 @@ export class WorkspaceModel implements vscode.Disposable {
     return lo < list.length && list[lo]!.startsWith(prefix);
   }
 
-  /** A moved or renamed folder may be reported as one created directory only: load the `.sysml` files inside it. */
+  /**
+   * A moved, renamed or just created folder may be reported as one created directory only, and the watcher can
+   * miss files written into it moments later: read it (directory listing, not the search index) now and again
+   * a few times over the next seconds.
+   */
   private async loadCreatedFolder(uri: vscode.Uri): Promise<void> {
-    try {
-      if (((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) === 0) return;
-      const found = await vscode.workspace.findFiles(new vscode.RelativePattern(uri, GLOB));
-      for (const f of found) if (!this.disposed) await this.fromDisk(f);
-    } catch {
-      // vanished again, or not readable
+    for (const delay of [0, 1000, 2000, 5000]) {
+      if (delay) await new Promise<void>((r) => { const t = setTimeout(r, delay); this.subs.push({ dispose: () => clearTimeout(t) }); });
+      if (this.disposed) return;
+      try {
+        await this.loadFolderFiles(uri, 0);
+      } catch {
+        return; // vanished again, or not readable
+      }
+    }
+  }
+
+  private async loadFolderFiles(uri: vscode.Uri, depth: number): Promise<void> {
+    if (depth > 20 || this.disposed) return;
+    for (const [name, type] of await vscode.workspace.fs.readDirectory(uri)) {
+      const child = vscode.Uri.joinPath(uri, name);
+      if (type & vscode.FileType.Directory) await this.loadFolderFiles(child, depth + 1);
+      else if (isSysmlUri(child)) await this.fromDisk(child);
     }
   }
 
@@ -245,6 +260,11 @@ export class WorkspaceModel implements vscode.Disposable {
     if (this.disposed) return;
     if (text !== undefined) this.index.setDocument(key, text);
     else this.index.removeDocument(key);
+  }
+
+  /** Index a file just created by the extension itself, without waiting for a watcher event (watchers can miss files in new folders). */
+  async indexFile(uri: vscode.Uri): Promise<void> {
+    await this.fromDisk(uri);
   }
 
   private async fromDisk(uri: vscode.Uri): Promise<void> {
