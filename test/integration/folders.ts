@@ -626,6 +626,7 @@ export function foldersTests(c: Ctx): Test[] {
       for (const how of ["rmSync", "vscodeApi"]) {
         const name = `gone-${how}`;
         rmSync(dir(), { recursive: true, force: true });
+        await sleep(1000); // let the watcher see the previous test's deletion before the same path is recreated
         mkdirSync(dir(name), { recursive: true });
         writeFileSync(dir(name, "gone.sysml"), `package Gone${how} { part def GoneThing${how}; }\n`);
         await waitFor(() => indexed(name, "gone.sysml"), 30000, `${how}: the file is indexed`);
