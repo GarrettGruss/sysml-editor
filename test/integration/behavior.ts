@@ -325,6 +325,20 @@ export function behaviorTests(c: Ctx): Test[] {
       await clearly(diagram, "after adding a fork");
     })],
 
+    ["Draw a succession from an action to an unnamed fork: the fork is named fork1 in the same edit, the node keeps its place, one undo reverses both", scenario("BhFork", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, original }) => {
+      const forkId = id("fork");
+      await gesture(diagram, { kind: "connect", source: id("deliverOrder::retry"), target: forkId, relation: "succession" });
+      await waitFor(() => onDisk(model).includes("fork fork1;") && onDisk(model).includes("first retry then fork1;"), 15000, "the fork is named and the succession is on disk");
+      await waitFor(() => mem(diagram).nodes.some((n) => n.id === forkId && n.ref === "BhFork::deliverOrder::fork1"), 15000, "the diagram node refers to the new name");
+      await c.eventually(async () => {
+        const mm = await metrics(diagram);
+        assert.ok(mm.nodes.some((n) => n.id === forkId && n.shape === "fork"), "the fork is still drawn");
+        assert.ok(mm.edges.some((e) => e.style === "succession" && e.target === forkId), "the edge to the fork is drawn");
+      }, "fork and edge drawn");
+      await vscode.commands.executeCommand("undo");
+      await waitFor(() => onDisk(model) === original, 15000, "one undo removes the naming and the succession");
+    }, { text: (t) => t.replace("    then done;", "    then fork;\n    then done;") })],
+
     // ---- editing: State Transition -----------------------------------------------------------
     ["Add state, Draw transition, then enter the trigger: `state idle;`, `transition first off then idle;`, `transition first off accept TurnOn then idle;` (saved at once; the edge keeps its place)", scenario("BhSt", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
       const m0 = await metrics(diagram);

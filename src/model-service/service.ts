@@ -15,7 +15,7 @@ import {
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { placeElementChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { composeChanges, nameNodesChange, placeElementChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
 import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
@@ -605,13 +605,16 @@ export class ModelService {
       const pre = new Map<string, number>();
       const ownerQn = owner.qualifiedName;
       const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === owner.uri && x.kind === owner.kind) ?? this.index.findByQualifiedName(ownerQn)[0] : this.fresh(owner));
+      let named: NonNullable<PlanOk["namedNodes"]> = [];
       return this.run(
         () => {
           const o = findOwner();
           if (!o) return fail(gone("The element to add to", owner));
           pre.clear();
           for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
-          return plan(o);
+          const p = plan(o);
+          named = p.ok ? p.namedNodes ?? [] : [];
+          return p;
         },
         () => ({
           element: () => {
@@ -625,7 +628,11 @@ export class ModelService {
             });
             return created;
           },
-          change: () => addStatementChange(this.index, () => created, opts.placement?.diagram ? placeElementChange(this.index, () => created, { diagram: opts.placement.diagram }, label) : undefined, label),
+          change: () => {
+            const stmt = addStatementChange(this.index, () => created, opts.placement?.diagram ? placeElementChange(this.index, () => created, { diagram: opts.placement.diagram }, label) : undefined, label);
+            // Nodes the statement named follow in the same change, before the statement's edge is placed.
+            return named.length ? composeChanges(nameNodesChange(named, label), stmt, label) : stmt;
+          },
         }),
         opts.diagram ? { diagram: opts.diagram } : undefined,
         () => [owner.uri],

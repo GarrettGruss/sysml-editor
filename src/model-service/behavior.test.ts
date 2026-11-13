@@ -165,4 +165,40 @@ describe("behaviour operations", () => {
       expect((r as { reason: string }).reason).not.toMatch(/out of date/);
     });
   });
+
+  describe("unnamed control nodes as ends", () => {
+    const MODEL = "package P { action def A { action a; action b; then fork; action c; fork fork1; } }";
+    const fork = (q: (n: string) => ReturnType<typeof setup>["q"] extends (n: string) => infer R ? R : never) => q("P::A").members.find((m) => m.kind === "fork" && m.name === undefined)!;
+    test("the node is named with the next free name and the succession is written in the same edit", async () => {
+      const { host, svc, q } = setup(MODEL);
+      const r = ok(await svc.addSuccession(q("P::A"), q("P::A::a"), fork(q)));
+      const text = host.disk.get(U)!;
+      expect(text).toContain("then fork fork2;");
+      expect(text).toContain("first a then fork2;");
+      expect(host.applied).toHaveLength(1);
+      expect(r.ok).toBe(true);
+    });
+    test("the diagram entry of the node follows the new name, later twins move up, and undo restores them", async () => {
+      const model = "package P { action def A { action a; action b; then fork; fork; action c; } }";
+      const d = diagram("actionFlow", "P::A", [
+        { id: "n1", ref: "P::A" },
+        { id: "n2", ref: "P::A::a", parent: "n1" },
+        { id: "n3", locator: { owner: "P::A", kind: "fork", ends: [], index: 0 }, parent: "n1" },
+        { id: "n4", locator: { owner: "P::A", kind: "fork", ends: [], index: 1 }, parent: "n1" },
+      ]);
+      const { host, svc, q } = setup(model, d);
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!, { diagram: D, placement: { diagram: D } }));
+      const doc = host.diagramOnDisk(D);
+      expect(doc.nodes.find((n) => n.id === "n3")).toMatchObject({ ref: "P::A::fork1" });
+      expect(doc.nodes.find((n) => n.id === "n3")!.locator).toBeUndefined();
+      expect(doc.nodes.find((n) => n.id === "n4")!.locator).toMatchObject({ kind: "fork" });
+      expect(doc.nodes.find((n) => n.id === "n4")!.locator!.index ?? 0).toBe(0);
+      expect(doc.edges.some((e) => e.source === "n2" && e.target === "n3")).toBe(true);
+    });
+    test("a comment and the statements after the node stay attached", async () => {
+      const { host, svc, q } = setup("package P { action def A { action a; action b; then fork; // split here\n action c; } }");
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!));
+      expect(host.disk.get(U)).toContain("then fork fork1; // split here");
+    });
+  });
 });

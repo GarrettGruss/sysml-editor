@@ -57,6 +57,8 @@ export interface PlanOk {
   ok: true;
   edits: TextEdit[];
   diagramUpdates?: DiagramUpdate[];
+  /** Unnamed control nodes the plan names (`fork;` to `fork fork1;`): their diagram entries must follow in the same change. */
+  namedNodes?: { oldKey: string | undefined; ref: string }[];
   description: string;
   unjudged?: UnjudgedReferences;
   /** Delete: references to the deleted element (or what it owns) that stay behind elsewhere. */

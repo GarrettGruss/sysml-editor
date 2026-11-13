@@ -268,3 +268,61 @@ export function retargetChange(oldKey: string | undefined, next: () => ElementRe
     },
   };
 }
+
+/**
+ * Unnamed control nodes that a statement named (`fork;` to `fork fork1;`): their diagram nodes change from a locator to the
+ * new reference, and the entries of the later unnamed twins move up by one. Applies to the saved state of every diagram file.
+ */
+export function nameNodesChange(named: readonly { oldKey: string | undefined; ref: string }[], label: string): DiagramChange {
+  const was = new Map<string, DiagramNode>();
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      let nodes = doc.nodes;
+      for (const n of named) {
+        if (!n.oldKey) continue;
+        const old = nodes.find((x) => referenceKey(x) === n.oldKey);
+        if (!old) continue;
+        const l = old.locator!;
+        const k = l.index ?? 0;
+        const group = referenceKey({ locator: { ...l, index: 0 } });
+        nodes = nodes.map((x) => {
+          if (x === old) {
+            was.set(ctx.uri + "\0" + x.id, x);
+            const { locator: _l, ...rest } = x;
+            return { ...rest, ref: n.ref } as DiagramNode;
+          }
+          const xl = x.locator;
+          if (!xl || referenceKey({ locator: { ...xl, index: 0 } }) !== group || (xl.index ?? 0) <= k) return x;
+          was.set(ctx.uri + "\0" + x.id, x);
+          const { index: _i, ...restL } = xl;
+          return { ...x, locator: xl.index! - 1 > 0 ? { ...restL, index: xl.index! - 1 } : restL } as DiagramNode;
+        });
+      }
+      return nodes === doc.nodes ? doc : { ...doc, nodes };
+    },
+    revert(doc, ctx) {
+      let changed = false;
+      const nodes = doc.nodes.map((x) => {
+        const old = was.get(ctx.uri + "\0" + x.id);
+        if (!old) return x;
+        changed = true;
+        return old;
+      });
+      was.clear();
+      return changed ? { ...doc, nodes } : doc;
+    },
+  };
+}
+
+/** Two changes as one: `first` is applied before `second`, and reverted after it. */
+export function composeChanges(first: DiagramChange, second: DiagramChange, label: string): DiagramChange {
+  return {
+    ...second,
+    target: "all",
+    label,
+    apply: (doc, ctx) => second.apply(first.apply(doc, ctx), ctx),
+    revert: (doc, ctx) => first.revert(second.revert(doc, ctx), ctx),
+  };
+}
