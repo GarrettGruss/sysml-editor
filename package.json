@@ -4,6 +4,7 @@
   "description": "Graphical and model-aware editor for SysML v2",
   "version": "0.0.1",
   "publisher": "your-publisher",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/GarrettGruss/sysml-editor.git"
@@ -1110,7 +1111,7 @@
     "gate:parser": "npm run generate:parser && tsx scripts/parser-gate.ts",
     "gate:parser:record": "npm run generate:parser && tsx scripts/parser-gate.ts --write",
     "generate:manifest": "tsx scripts/generate-manifest.ts",
-    "package": "npm run build && vsce package --no-dependencies --skip-license",
+    "package": "npm run build && vsce package --no-dependencies",
     "check:vsix": "tsx scripts/check-vsix.ts"
   },
   "devDependencies": {
