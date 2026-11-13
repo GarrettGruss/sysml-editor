@@ -129,3 +129,35 @@ textarea { resize: vertical; min-height: 2.4em; max-height: 22em; }
 
 /* Reordering sections by dragging must not select the entry text. */
 .toc-item { -webkit-user-select: none; user-select: none; }
+
+/* verification matrix */
+.matrix-view { padding-top: 10px; }
+.matrix-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 8px; }
+.matrix-summary { font-weight: 600; flex: 1 1 18em; min-width: 0; }
+.matrix-bar { row-gap: 6px; }
+.matrix-filters { display: flex; flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; max-width: 100%; overflow-x: auto; }
+.matrix-filters button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.matrix-export { display: flex; flex: 0 0 auto; gap: 4px; }
+.mx-box { display: flex; align-items: flex-start; gap: 6px; }
+.mx-box .mx-list { flex: 1 1 auto; display: block; min-width: 0; margin: 0; }
+.mx-box button.icon { flex: 0 0 auto; }
+.mx-list li.usages { color: var(--muted); font-size: 11px; }
+table.matrix { width: 100%; min-width: 56em; border-collapse: collapse; table-layout: fixed; }
+table.matrix th { text-align: left; font-weight: 600; padding: 6px; border-bottom: 1px solid var(--border); color: var(--muted); }
+table.matrix th:nth-child(1) { width: 26%; } table.matrix th:nth-child(2) { width: 24%; } table.matrix th:nth-child(3) { width: 12%; } table.matrix th:nth-child(4) { width: 22%; } table.matrix th:nth-child(5) { width: 16%; }
+table.matrix td { padding: 4px 6px; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+table.matrix tr.mx-section th { color: var(--fg); background: var(--input-bg); }
+table.matrix tr.selected { background: var(--row-sel); }
+table.matrix .num { color: var(--muted); white-space: nowrap; }
+table.matrix a.mx-link { color: var(--vscode-textLink-foreground, #3794ff); text-decoration: none; }
+table.matrix a.mx-link:hover { text-decoration: underline; }
+.mx-list { list-style: none; margin: 0 4px 0 0; padding: 0; display: inline; }
+.mx-list li { display: block; padding: 1px 0; }
+.mx-list li.via { color: var(--muted); }
+.mx-list li button.icon { margin-left: 6px; }
+.status { display: inline-block; white-space: nowrap; font-size: 11px; border: 1px solid var(--border); border-radius: 8px; padding: 0 7px; }
+.status-not-satisfied { color: var(--danger); border-color: var(--danger); }
+.status-no-verification { color: var(--warn); border-color: var(--warn); }
+.status-covered { color: var(--vscode-testing-iconPassed, #388a34); border-color: var(--vscode-testing-iconPassed, #388a34); }
+.trace { margin: 4px 0 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+#app[data-layout=card] .matrix-view .table-scroll { overflow-x: auto; }

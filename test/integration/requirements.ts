@@ -9,6 +9,7 @@ import type { DiagramDoc, Failure, Gesture, Metrics, ModelNode, PickItem, ReqMet
 type Test = [name: string, fn: () => Promise<void>];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const FIXTURE = path.resolve(__dirname, "../../../test/fixtures/requirements/vehicle-spec.sysml");
+const MATRIX_FIXTURE = path.resolve(__dirname, "../../../test/fixtures/requirements/verification-matrix.sysml");
 
 /** The requirements editor (table and document views), requirement relationships, the palette tools and the agent tools, through the real extension. */
 export function requirementsTests(c: Ctx): Test[] {
@@ -70,7 +71,7 @@ export function requirementsTests(c: Ctx): Test[] {
   };
 
   /** A copy of the fixture package (renamed), opened and in the model; cleaned up after. */
-  const scenario = (pkg: string, fn: (t: { file: string; scope: ReqScope; qn: (s: string) => string; m: () => Promise<ReqMetrics>; before: string }) => Promise<void>, opts: { text?: string; extra?: Record<string, string>; view?: "table" | "document"; probe?: string } = {}) => async () => {
+  const scenario = (pkg: string, fn: (t: { file: string; scope: ReqScope; qn: (s: string) => string; m: () => Promise<ReqMetrics>; before: string }) => Promise<void>, opts: { text?: string; extra?: Record<string, string>; view?: "table" | "matrix" | "document"; probe?: string } = {}) => async () => {
     const file = `tmp-${pkg.toLowerCase()}.sysml`;
     const before = opts.text ?? readFileSync(FIXTURE, "utf8").replace(/VehicleSpec/g, pkg);
     writeFileSync(uriOf(file).fsPath, before);
@@ -720,6 +721,130 @@ export function requirementsTests(c: Ctx): Test[] {
       assert.ok(doc().getText().includes("Rules that apply to every requirement:"), "the other paragraph is untouched");
       assert.strictEqual((await m()).conflicts.length, 0);
     }, { view: "document" })],
+
+    // ---- verification matrix (add-requirements-authoring 3.1 to 3.4) -------------------------------
+
+    ["Matrix: rows are numbered and nested, the method comes from VerificationMethod metadata, status counts a parent's satisfy, the summary and the gap filters work, cells link to declarations", scenario("ReqM1", async ({ file, scope, qn, m }) => {
+      const row = async (id: string) => (await m()).matrix.rows.find((r) => r.id.startsWith(id + " ") || r.id === id)!;
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 10), "the matrix is drawn", 60000);
+      const x = await m();
+      assert.strictEqual(x.view, "matrix");
+      assert.deepStrictEqual(x.matrix.columns, ["Requirement", "Satisfied by", "Verification method", "Verified by", "Status"]);
+      assert.deepStrictEqual(x.matrix.rows.map((r) => `${r.number}:${r.depth}`), ["1:0", "1.1:1", "1.2:1", "1.2.1:2", "1.3:1", "2:0", "3:0", "3.1:1", "3.1.1:2", "3.2:1"], "numbered and nested like the document");
+      // method from the metadata, and the verification case as verified by
+      const q1 = await row("MFRQ01");
+      assert.strictEqual(q1.method, "test");
+      assert.deepStrictEqual(q1.verifiedBy, ["OreExtractionTest"]);
+      assert.strictEqual((await row("MFRQ02")).method, "inspect");
+      assert.strictEqual((await row("S1.1")).method, "analyze");
+      assert.strictEqual((await row("MFRQ03")).method, "");
+      // a parent's satisfy counts for its child; the usage's satisfy for what its definition owns
+      const child = await row("S1.1");
+      assert.deepStrictEqual(child.satisfiedBy, ["rig via S1 parentReq"]);
+      assert.strictEqual(child.status, "covered");
+      assert.notStrictEqual((await row("MFRQ01")).status, "not satisfied");
+      assert.deepStrictEqual(q1.satisfiedBy, ["frigate via SYS1 frigateNeeds"]);
+      assert.strictEqual((await row("S2")).status, "not satisfied");
+      assert.strictEqual((await row("MFRQ03")).status, "no verification");
+      // summary and filters
+      assert.match(x.matrix.summary, /9 requirements: 4 covered \(44%\), 4 with no verification, 0 partly satisfied, 1 not satisfied/);
+      await gesture(scope, { kind: "click", selector: "[data-testid=filter-no-verification]" });
+      await eventually(async () => {
+        const f = await m();
+        assert.strictEqual(f.matrix.filter, "no verification");
+        assert.deepStrictEqual(f.matrix.rows.map((r) => r.status), ["no verification", "no verification", "no verification", "no verification"]);
+      }, "only the rows without verification are shown");
+      await gesture(scope, { kind: "click", selector: "[data-testid=filter-gaps]" });
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 5), "gaps: not satisfied and no verification");
+      await gesture(scope, { kind: "click", selector: "[data-testid=filter-all]" });
+      // a cell links to its declaration
+      await gesture(scope, { kind: "click", selector: `tr[data-qn="${qn("MiningFrigateRequirements::oreExtraction")}"] [data-testid=mx-verify] a.mx-link` });
+      await eventually(async () => assert.ok(api.requirements.navigation().includes(`text ${qn("OreExtractionTest")}`), `navigation: ${api.requirements.navigation().join("|")}`), "the case's declaration is opened");
+      // the screenshot
+      mkdirSync(c.artifactDir, { recursive: true });
+      const narrow = Buffer.from(await api.requirements.png(scope), "base64");
+      writeFileSync(path.join(c.artifactDir, "requirements-matrix-narrow.png"), narrow);
+      await api.requirements.setWidth(scope, 1100);
+      const y = await m();
+      const png = Buffer.from(await api.requirements.png(scope), "base64");
+      assert.ok(png.length > 8000, `matrix png is ${png.length} bytes`);
+      writeFileSync(path.join(c.artifactDir, "requirements-matrix.png"), png);
+      await api.requirements.setWidth(scope, null);
+      assert.strictEqual(y.overflow.count, 0, `no clipped content (${y.overflow.samples.join(", ")})`);
+      void file;
+    }, { text: readFileSync(MATRIX_FIXTURE, "utf8").replace(/MiningSpec/g, "ReqM1"), probe: "::Standalone", view: "matrix" })],
+
+    ["Matrix: add and remove satisfy and verify from the cells write text at once", scenario("ReqM2", async ({ file, scope, qn, m }) => {
+      const doc = () => textDoc(file)!;
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 10), "the matrix is drawn", 60000);
+      const cell = (id: string, kind: string, tail = "") => `tr[data-qn="${qn(id)}"] [data-testid=${kind}]${tail}`;
+      // add satisfy from the Satisfied by cell
+      script.one = qn("Standalone::rig");
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-satisfy-add") });
+      await waitFor(() => /satisfy\s+(?:\S+::)?lonely\s+by\s+\S*rig;/.test(onDisk(file)), 90000, "a satisfy statement is written");
+      await clean(file);
+      await parses(file);
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.find((r) => r.qn === qn("Standalone::lonely"))!.status, "no verification"), "S2 is satisfied now", 60000);
+      // add verify from the Verified by cell
+      script.verification = { existing: qn("OreExtractionTest") };
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-verify-add") });
+      await waitFor(() => /verify\s+(?:\S+::)?lonely;/.test(onDisk(file)), 90000, "a verify statement is written");
+      await parses(file);
+      await eventually(async () => {
+        const r = (await m()).matrix.rows.find((x) => x.qn === qn("Standalone::lonely"))!;
+        assert.strictEqual(r.status, "covered");
+        assert.strictEqual(r.method, "test");
+        assert.deepStrictEqual(r.verifiedBy, ["OreExtractionTest"]);
+      }, "S2 is covered with method test", 60000);
+      // remove both again
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-verify", " [data-testid=mx-remove]") });
+      await waitFor(() => !/verify\s+(?:\S+::)?lonely;/.test(onDisk(file)), 90000, "the verify statement is removed");
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-satisfy", " [data-testid=mx-remove]") });
+      await waitFor(() => !/satisfy\s+(?:\S+::)?lonely/.test(onDisk(file)), 90000, "the satisfy statement is removed");
+      await clean(file);
+      await parses(file);
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.find((r) => r.qn === qn("Standalone::lonely"))!.status, "not satisfied"), "S2 is not satisfied again", 60000);
+      assert.ok(doc().getText().includes("part rig : Rig { satisfy parentReq by rig; }"), "the rest of the file is untouched");
+    }, { text: readFileSync(MATRIX_FIXTURE, "utf8").replace(/MiningSpec/g, "ReqM2"), probe: "::Standalone", view: "matrix" })],
+
+    ["Matrix: export as CSV and Markdown writes one row per requirement; the document view shows the trace line; both agent channels return the matrix", scenario("ReqM3", async ({ scope, qn, m }) => {
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 10), "the matrix is drawn", 60000);
+      const dir = path.join(c.artifactDir, "matrix-export");
+      mkdirSync(dir, { recursive: true });
+      const csvPath = path.join(dir, "matrix.csv");
+      const mdPath = path.join(dir, "matrix.md");
+      const csv = await api.requirements.exportMatrix(scope, "csv", csvPath);
+      const md = await api.requirements.exportMatrix(scope, "markdown", mdPath);
+      assert.strictEqual(readFileSync(csvPath, "utf8"), csv);
+      assert.strictEqual(readFileSync(mdPath, "utf8"), md);
+      const lines = csv.trimEnd().split("\r\n");
+      assert.strictEqual(lines[0], "Number,Id,Name,Satisfied by,Verification method,Verified by,Status");
+      assert.strictEqual(lines.length, 11, "a header and one line per row");
+      assert.ok(lines.includes("1.1,MFRQ01,oreExtraction,frigate (via SYS1 frigateNeeds) [1 of 1 usage],test,OreExtractionTest,covered"));
+      assert.strictEqual(md.trimEnd().split("\n").length, 12);
+      assert.ok(md.includes("| 1.1 | MFRQ01 | oreExtraction | frigate (via SYS1 frigateNeeds) [1 of 1 usage] | test | OreExtractionTest | covered |"));
+      // the trace line under each requirement of the document view
+      await api.requirements.setView(scope, "document");
+      await eventually(async () => {
+        const items = (await m()).document.items;
+        assert.strictEqual(items.find((i) => i.id === "SYS1")?.trace, "Satisfied by: frigate · Not verified yet");
+        assert.strictEqual(items.find((i) => i.id === "S1")?.trace, "Satisfied by: rig · Not verified yet");
+        assert.strictEqual(items.find((i) => i.id === "S2")?.trace, "Not satisfied yet · Not verified yet");
+      }, "the trace lines are shown", 60000);
+      await api.requirements.setView(scope, "matrix");
+      // the agent tool, over both channels, agrees with the editor
+      const pkg = scope.kind === "package" ? scope.qualifiedName : "";
+      const lm = await viaLm("sysml_read_verification_matrix", { package: pkg });
+      const mcp = await viaMcp(api, "sysml_read_verification_matrix", { package: pkg });
+      assert.strictEqual(mcp.isError, false);
+      assert.strictEqual(lm.text, mcp.text, "identical over both channels");
+      const out = JSON.parse(lm.text) as { rows: { kind: string; qn: string; status?: string; methods: string[] }[] };
+      const shown = (await m()).matrix.rows;
+      assert.deepStrictEqual(out.rows.map((r) => [r.qn, r.status ?? ""]), shown.map((r) => [r.qn, r.status]));
+      assert.deepStrictEqual(out.rows.find((r) => r.qn === qn("MiningFrigateRequirements::oreExtraction"))!.methods, ["test"]);
+      assert.strictEqual((await viaLm("sysml_read_verification_matrix", { package: pkg, format: "csv" })).text, csv);
+      rmSync(dir, { recursive: true, force: true });
+    }, { text: readFileSync(MATRIX_FIXTURE, "utf8").replace(/MiningSpec/g, "ReqM3"), probe: "::Standalone", view: "matrix" })],
   ];
   return tests;
 }

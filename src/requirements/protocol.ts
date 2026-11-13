@@ -1,8 +1,10 @@
 /** Messages between the extension host and the requirements editor webview, and the view models. No `vscode`, no DOM. */
 import type { TocEntry } from "./document-model.js";
+import type { MatrixVM } from "./matrix-shape.js";
 
 export type RequirementsScope = { kind: "package"; qualifiedName: string } | { kind: "file"; uri: string };
-export type ViewMode = "table" | "document";
+/** "matrix" is the verification matrix, the tabular view; "table" is the older editing table, no longer offered as a tab. */
+export type ViewMode = "table" | "matrix" | "document";
 
 export interface RelationVM {
   /** Opaque key of the statement (`uri#offset`), used to remove it. */
@@ -46,6 +48,8 @@ export interface ItemVM {
   name: string;
   text: string;
   summary: { satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] };
+  /** "Satisfied by: ... · Verified by: ..." with plain words for gaps (see `traceLine`). */
+  trace?: string;
   editable: boolean;
 }
 export interface ParagraphVM {
@@ -94,6 +98,7 @@ export interface RequirementsState {
   /** The package that new requirements and sections go into. */
   scopeQn?: string;
   table: TableVM;
+  matrix?: MatrixVM;
   document?: DocumentVM;
   /** Why the scope cannot be shown (no such package, file without a package), when it cannot. */
   problem?: string;
@@ -118,7 +123,9 @@ export type Intent =
   | { type: "addSection"; parentQn: string; name: string; appendix?: boolean; afterQn?: string }
   | { type: "addParagraph"; pkgQn: string; text: string }
   | { type: "moveSection"; qn: string; how: "up" | "down" | { beforeQn: string } | { afterQn: string } }
-  | { type: "deleteSection"; qn: string };
+  | { type: "deleteSection"; qn: string }
+  /** Write the matrix as CSV or Markdown to a file the user chooses. */
+  | { type: "exportMatrix"; format: "csv" | "markdown" };
 
 export type Gesture =
   | { kind: "click"; selector: string }
@@ -156,8 +163,15 @@ export interface RequirementsMetrics {
     toc: { number: string; heading: string; level: number }[];
     appendixLetters: string[];
     paragraphs: { section: string; text: string; lists: number; links: number }[];
-    items: { section: string; id: string; name: string; text: string }[];
+    items: { section: string; id: string; name: string; text: string; trace: string }[];
     rootBlocks: number;
+  };
+  matrix: {
+    /** The drawn rows: the requirement cell's id and name, and the texts of the other cells. */
+    rows: { qn: string; kind: "section" | "requirement"; number: string; depth: number; id: string; satisfiedBy: string[]; usages: string; method: string; verifiedBy: string[]; status: string; links: string[]; selected: boolean }[];
+    filter: string;
+    summary: string;
+    columns: string[];
   };
   /** Controls being edited and not yet committed. */
   pendingEdits: string[];

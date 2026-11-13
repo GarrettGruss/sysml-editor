@@ -63,14 +63,15 @@ export interface TestApi {
   };
   dnd: { handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void };
   requirements: {
-    open(scope: ReqScope, view?: "table" | "document"): Promise<void>;
+    open(scope: ReqScope, view?: "table" | "matrix" | "document"): Promise<void>;
     close(scope: ReqScope): Promise<void>;
     metrics(scope: ReqScope): Promise<ReqMetrics>;
     png(scope: ReqScope): Promise<string>;
     gesture(scope: ReqScope, g: ReqGesture): Promise<void>;
     setWidth(scope: ReqScope, width: number | null): Promise<void>;
     intent(scope: ReqScope, intent: Record<string, unknown>): Promise<{ ok: boolean; message?: string }>;
-    setView(scope: ReqScope, view: "table" | "document"): Promise<void>;
+    setView(scope: ReqScope, view: "table" | "matrix" | "document"): Promise<void>;
+    exportMatrix(scope: ReqScope, format: "csv" | "markdown", path: string): Promise<string>;
     setUi(ui: { confirm?: (m: string, d: string, a: string) => Promise<boolean>; pickOne?: (items: { id: string; label: string }[], title: string) => Promise<string | undefined>; pickMany?: (items: { id: string; label: string }[], title: string) => Promise<string[] | undefined>; pickVerification?: (cases: { id: string; label: string }[], title: string) => Promise<{ existing: string } | { create: string } | undefined>; inputName?: (p: string) => Promise<string | undefined> } | undefined): void;
     navigation(): string[];
     errors(): string[];
@@ -84,9 +85,10 @@ export type ReqGesture =
   | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
   | { kind: "key"; selector: string; key: string };
 export interface ReqMetrics {
-  view: "table" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
+  view: "table" | "matrix" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
   table: { rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[]; selected?: string; counts: { total: number; unsatisfied: number; unverified: number }; detail?: { qn: string; satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] } };
-  document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string }[]; rootBlocks: number };
+  document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string; trace: string }[]; rootBlocks: number };
+  matrix: { rows: { qn: string; kind: "section" | "requirement"; number: string; depth: number; id: string; satisfiedBy: string[]; usages: string; method: string; verifiedBy: string[]; status: string; links: string[]; selected: boolean }[]; filter: string; summary: string; columns: string[] };
   pendingEdits: string[]; conflicts: string[]; overflow: { count: number; horizontalScroll: boolean; samples: string[] }; notice?: { level: string; message: string }; errors: string[]; size: { width: number; height: number };
   layout: { width: number; mode: "table" | "card"; detail: "beside" | "below"; textWidths: number[]; rowWidths: number[] };
 }
@@ -380,7 +382,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 19; // four model read tools, seven diagram tools (one reads the editor context), six model edit tools (one sets a transition) and two requirements tools
+  const TOOL_COUNT = 20; // four model read tools, seven diagram tools (one reads the editor context), six model edit tools (one sets a transition) and three requirements tools (document, matrix, create)
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {

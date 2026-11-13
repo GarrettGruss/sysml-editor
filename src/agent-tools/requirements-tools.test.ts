@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { buildState } from "../requirements/view-model.js";
 import { describe, expect, it } from "vitest";
 import { ModelIndex, defaultDocumentParser } from "../model/index.js";
 import { FakeHost } from "../model-service/fake-host.js";
@@ -185,5 +188,38 @@ describe("requirement tools with hostile input", () => {
     const r3 = await call(ctx, "sysml_create_relationship", { kind: "derivation", original: `${PR}::TestRig`, derived: [`${PR}::chassisMass`] });
     expect(r3.isError).toBe(true);
     expect(host.buffers.get(URI)).toBe(MODEL);
+  });
+});
+
+describe("sysml_read_verification_matrix", () => {
+  const FIXTURE = readFileSync(resolve(__dirname, "../../test/fixtures/requirements/verification-matrix.sysml"), "utf8");
+  function matrixSetup() {
+    const host = new FakeHost();
+    host.addDocument(URI, FIXTURE);
+    const ctx: ToolContext = { index: host.index, uriToPath: (u) => u, pathToUri: (p) => p };
+    return { host, ctx };
+  }
+  it("returns one row per requirement with satisfied by, method, verified by and status, as the editor shows them", async () => {
+    const { host, ctx } = matrixSetup();
+    const r = await call(ctx, "sysml_read_verification_matrix", { package: "MiningSpec" });
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.text);
+    const req = out.rows.filter((x: { kind: string }) => x.kind === "requirement");
+    expect(req).toHaveLength(9);
+    expect(out.summary).toMatchObject({ total: 9, covered: 4, noVerification: 4, notSatisfied: 1 });
+    const q1 = req.find((x: { id: string }) => x.id === "MFRQ01");
+    expect(q1).toMatchObject({ number: "1.1", methods: ["test"], status: "covered" });
+    expect(q1.verifiedBy.map((v: { label: string }) => v.label)).toEqual(["OreExtractionTest"]);
+    expect(q1.satisfiedBy[0]).toMatchObject({ label: "frigate", via: "SYS1 frigateNeeds" });
+    // the same rows as the editor's view model
+    const state = buildState(host.index, { kind: "package", qualifiedName: "MiningSpec" }, () => true);
+    expect(state.matrix!.rows).toEqual(out.rows);
+    expect((await call(ctx, "sysml_read_verification_matrix", { package: "MiningSpec", format: "csv" })).text).toMatch(/^Number,Id,Name,Satisfied by,Verification method,Verified by,Status\r\n/);
+    expect((await call(ctx, "sysml_read_verification_matrix", { package: "MiningSpec", format: "markdown" })).text).toContain("| 1.1 | MFRQ01 | oreExtraction |");
+    expect((await call(ctx, "sysml_read_verification_matrix", { package: "Nope" })).isError).toBe(true);
+    expect((await call(ctx, "sysml_read_verification_matrix", { package: "MiningSpec", format: "xml" })).isError).toBe(true);
+  });
+  it("is read-only", () => {
+    expect(toolDefinitions.find((t) => t.name === "sysml_read_verification_matrix")!.readOnly).toBe(true);
   });
 });

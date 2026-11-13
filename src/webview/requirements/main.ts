@@ -1,6 +1,8 @@
 /** Entry point of the requirements editor webview (`dist/webview/requirements.js`): the Table and the Document view. */
 import type { BlockVM, Gesture, HostToWebview, Intent, ItemVM, RelationVM, RequirementRowVM, RequirementsMetrics, RequirementsScope, RequirementsState, SectionVM, ViewMode, WebviewToHost } from "../../requirements/protocol.js";
 import { layoutFor, parseTestWidth } from "../../requirements/layout.js";
+import { matrixMetrics, matrixView } from "./matrix-view.js";
+import type { MatrixFilter } from "../../requirements/matrix-shape.js";
 import { parseMarkdown, type Inline, type MdBlock } from "../../requirements/markdown.js";
 
 interface VsCodeApi {
@@ -12,6 +14,7 @@ interface SavedState {
   scope?: RequirementsScope;
   view?: ViewMode;
   selected?: string;
+  filter?: MatrixFilter;
 }
 declare function acquireVsCodeApi(): VsCodeApi;
 
@@ -28,13 +31,14 @@ window.addEventListener("unhandledrejection", (e) => fail(e.reason));
 post({ type: "ready" });
 
 const saved = vscode.getState() ?? {};
-let view: ViewMode = saved.view ?? "table";
+let view: ViewMode = saved.view ?? "matrix";
+let matrixFilter: MatrixFilter = saved.filter ?? "all";
 let selected: string | undefined = saved.selected;
 let scope: RequirementsScope | undefined = saved.scope;
 let state: RequirementsState | undefined;
 let generation = 0;
 let notice: { level: "info" | "error"; message: string } | undefined;
-const persist = () => vscode.setState({ ...(scope ? { scope } : {}), view, ...(selected ? { selected } : {}) });
+const persist = () => vscode.setState({ ...(scope ? { scope } : {}), view, ...(selected ? { selected } : {}), filter: matrixFilter });
 
 // ------------------------------------------------------------------ DOM helpers (text only, never innerHTML)
 
@@ -280,6 +284,11 @@ function tableView(s: RequirementsState): HTMLElement {
   return wrap;
 }
 
+function matrixSection(s: RequirementsState): HTMLElement {
+  if (!s.matrix) return h("p", { class: "empty" }, "This scope has no verification matrix.");
+  return matrixView(s.matrix, { h, button, intent, filter: matrixFilter, setFilter: (f) => { matrixFilter = f; persist(); draw(); }, selected, select });
+}
+
 function select(qn: string): void {
   if (selected === qn) return;
   selected = qn;
@@ -298,7 +307,8 @@ function itemView(i: ItemVM): HTMLElement {
       h("span", { class: "kind" }, i.defKind),
     ),
     field(i.qn + "|text", i.text, { label: "Requirement text", multiline: true, editable: i.editable }, (v, expected) => intent({ type: "setCell", qn: i.qn, field: "text", value: v, expected })),
-    h("div", { class: "chips" }, sum("Satisfied by", i.summary.satisfiedBy), sum("Verified by", i.summary.verifiedBy), sum("Derived from", i.summary.derivedFrom), sum("Derives", i.summary.derives)),
+    i.trace ? h("p", { class: "trace", "data-testid": "trace" }, i.trace) : undefined,
+    h("div", { class: "chips" }, sum("Derived from", i.summary.derivedFrom), sum("Derives", i.summary.derives)),
   );
 }
 
@@ -421,8 +431,8 @@ function draw(): void {
   const focusKey = (document.activeElement as HTMLElement | null)?.getAttribute?.("data-key");
   root.replaceChildren();
   const tabs = h("div", { class: "tabs", role: "tablist", "aria-label": "View" });
-  for (const v of ["table", "document"] as const) {
-    const t = h("button", { type: "button", role: "tab", "aria-selected": String(view === v), "data-testid": "tab-" + v, class: view === v ? "active" : "" }, v === "table" ? "Table" : "Document");
+  for (const v of ["matrix", "document"] as const) {
+    const t = h("button", { type: "button", role: "tab", "aria-selected": String(view === v), "data-testid": "tab-" + v, class: view === v ? "active" : "" }, v === "matrix" ? "Matrix" : "Document");
     t.addEventListener("click", () => {
       view = v;
       persist();
@@ -432,10 +442,10 @@ function draw(): void {
     tabs.append(t);
   }
   root.append(h("div", { class: "bar" }, h("span", { class: "scope", "data-testid": "scope" }, s?.scopeName ?? ""), tabs));
-  root.append(h("div", { id: "notice", class: "notice " + (notice?.level ?? ""), role: "status", "data-testid": "notice", hidden: !notice }, notice?.message));
+  root.append(h("div", { id: "notice", class: "notice " + (notice?.level ?? ""), role: "status", "data-testid": "notice", hidden: !notice?.message }, notice?.message));
   if (!s) root.append(h("p", { class: "empty" }, "Loading..."));
   else if (s.problem) root.append(h("p", { class: "empty error" }, s.problem));
-  else root.append(view === "table" ? tableView(s) : documentView(s));
+  else root.append(view === "table" ? tableView(s) : view === "matrix" ? matrixSection(s) : documentView(s));
   applyLayout();
   window.scrollTo(0, scrollY);
   // A pending edit or conflict whose field no longer exists (its element is gone) cannot be shown; tell the user.
@@ -518,7 +528,7 @@ function metrics(): RequirementsMetrics {
     };
   });
   const paragraphs = [...document.querySelectorAll<HTMLElement>("[data-testid=paragraph]")].map((p) => ({ section: p.closest("section")?.getAttribute("data-qn") ?? "", text: p.querySelector("textarea") ? val(p.querySelector("textarea")) : text(p.querySelector(".md")), lists: p.querySelectorAll("ul,ol").length, links: p.querySelectorAll("a").length }));
-  const items = [...document.querySelectorAll<HTMLElement>("[data-testid=item]")].map((i) => ({ section: i.closest("section")?.getAttribute("data-qn") ?? "", id: val(i.querySelector("input.id")), name: val(i.querySelector("input.name")), text: val(i.querySelector("textarea")) }));
+  const items = [...document.querySelectorAll<HTMLElement>("[data-testid=item]")].map((i) => ({ section: i.closest("section")?.getAttribute("data-qn") ?? "", id: val(i.querySelector("input.id")), name: val(i.querySelector("input.name")), text: val(i.querySelector("textarea")), trace: text(i.querySelector("[data-testid=trace]")) }));
   const over: string[] = [];
   for (const e of document.querySelectorAll<HTMLElement>("body *")) {
     if (e instanceof HTMLTextAreaElement || e instanceof HTMLInputElement || e.closest(".table-scroll") === e) continue;
@@ -560,6 +570,7 @@ function metrics(): RequirementsMetrics {
       items,
       rootBlocks: document.querySelectorAll(".document > [data-testid=paragraph], .document > [data-testid=item], .document > [data-testid=elements]").length,
     },
+    matrix: matrixMetrics(matrixFilter, selected),
     pendingEdits: [...pending.keys()],
     conflicts: [...conflicts.keys()],
     overflow: { count: over.length, horizontalScroll: (forcedWidth === undefined && sc.scrollWidth > sc.clientWidth + 1) || root.scrollWidth > root.clientWidth + 1, samples: over.slice(0, 5) },
@@ -646,7 +657,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         scope = m.scope;
         generation = m.generation;
         if (m.view && !saved.view && generation <= 1) view = m.view;
-        if (selected && !state.table.rows.some((r) => r.qn === selected)) selected = undefined;
+        if (selected && !state.table.rows.some((r) => r.qn === selected) && !state.matrix?.rows.some((r) => r.qn === selected)) selected = undefined;
         persist();
         draw();
         break;
