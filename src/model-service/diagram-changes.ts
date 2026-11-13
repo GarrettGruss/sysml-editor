@@ -279,28 +279,37 @@ export function nameNodesChange(named: readonly { oldKey: string | undefined; re
     target: "all",
     label,
     apply(doc, ctx) {
-      let nodes = doc.nodes;
+      // Every old key is resolved against the unchanged nodes first, so naming one node never disturbs finding the next.
+      const hits = new Map<string, { ref: string; group: string; k: number }>();
+      const renamed: { group: string; k: number }[] = [];
       for (const n of named) {
-        if (!n.oldKey) continue;
-        const old = nodes.find((x) => referenceKey(x) === n.oldKey);
-        if (!old) continue;
-        const l = old.locator!;
-        const k = l.index ?? 0;
-        const group = referenceKey({ locator: { ...l, index: 0 } });
-        nodes = nodes.map((x) => {
-          if (x === old) {
-            was.set(ctx.uri + "\0" + x.id, x);
-            const { locator: _l, ...rest } = x;
-            return { ...rest, ref: n.ref } as DiagramNode;
-          }
-          const xl = x.locator;
-          if (!xl || referenceKey({ locator: { ...xl, index: 0 } }) !== group || (xl.index ?? 0) <= k) return x;
-          was.set(ctx.uri + "\0" + x.id, x);
-          const { index: _i, ...restL } = xl;
-          return { ...x, locator: xl.index! - 1 > 0 ? { ...restL, index: xl.index! - 1 } : restL } as DiagramNode;
-        });
+        if (!n.oldKey || doc.nodes.some((x) => x.ref === n.ref)) continue; // nothing to name, or already applied to this document
+        const old = doc.nodes.find((x) => referenceKey(x) === n.oldKey);
+        if (!old?.locator) continue;
+        const group = referenceKey({ locator: { ...old.locator, index: 0 } });
+        const k = old.locator.index ?? 0;
+        hits.set(old.id, { ref: n.ref, group, k });
+        renamed.push({ group, k });
       }
-      return nodes === doc.nodes ? doc : { ...doc, nodes };
+      if (!hits.size) return doc;
+      const nodes = doc.nodes.map((x) => {
+        const hit = hits.get(x.id);
+        if (hit) {
+          if (!was.has(ctx.uri + "\0" + x.id)) was.set(ctx.uri + "\0" + x.id, x);
+          const { locator: _l, ...rest } = x;
+          return { ...rest, ref: hit.ref } as DiagramNode;
+        }
+        const xl = x.locator;
+        if (!xl) return x;
+        const group = referenceKey({ locator: { ...xl, index: 0 } });
+        const at = xl.index ?? 0;
+        const shift = renamed.filter((r) => r.group === group && r.k < at).length;
+        if (!shift) return x;
+        if (!was.has(ctx.uri + "\0" + x.id)) was.set(ctx.uri + "\0" + x.id, x);
+        const { index: _i, ...restL } = xl;
+        return { ...x, locator: at - shift > 0 ? { ...restL, index: at - shift } : restL } as DiagramNode;
+      });
+      return { ...doc, nodes };
     },
     revert(doc, ctx) {
       let changed = false;
@@ -310,7 +319,6 @@ export function nameNodesChange(named: readonly { oldKey: string | undefined; re
         changed = true;
         return old;
       });
-      was.clear();
       return changed ? { ...doc, nodes } : doc;
     },
   };

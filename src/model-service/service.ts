@@ -644,8 +644,8 @@ export class ModelService {
    * `first a then b;` in the nearest common owner of the two nodes: `owner` itself, or the action or state between
    * them that holds both. An end nested below that owner is written as a dotted path (`first a then group.b;`).
    */
-  addSuccession(owner: Element, source: Element, target: Element, opts: Origin & { guard?: string; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
-    const o = this.commonOwner(owner, source, target, "succession");
+  addSuccession(owner: Element, source: Element, target: Element, opts: Origin & { guard?: string; context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    const o = this.commonOwner(owner, source, target, "succession", opts.context);
     if (typeof o === "string") return Promise.resolve(fail(o));
     return this.statementIn(o, "succession", (o2) => {
       const a = this.resolveNode(o2, source, "source"), b = this.resolveNode(o2, target, "target");
@@ -656,8 +656,8 @@ export class ModelService {
   }
 
   /** `transition first a [accept T] [if g] [do e] then b;` in the nearest common owner of the two states (see `addSuccession`). */
-  addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
-    const o = this.commonOwner(owner, source, target, "transition");
+  addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    const o = this.commonOwner(owner, source, target, "transition", opts.context);
     if (typeof o === "string") return Promise.resolve(fail(o));
     return this.statementIn(o, "transition", (o2) => {
       const a = this.resolveNode(o2, source, "source"), b = this.resolveNode(o2, target, "target");
@@ -668,7 +668,14 @@ export class ModelService {
   }
 
   /** Where a statement between two nodes is written: the nearest element that holds both (at or below `owner`). */
-  private commonOwner(owner: Element, source: Element, target: Element, what: string): Element | string {
+  private commonOwner(owner: Element, source: Element, target: Element, what: string, context?: Element): Element | string {
+    // Shown in a usage's diagram, an end it only inherits belongs to the definition: that is not changed from the usage (D18).
+    if (context) {
+      for (const e of [source, target]) {
+        const refusal = this.inheritedRefusal({ element: e, context }, `connected by a ${what}`);
+        if (refusal) return refusal.reason;
+      }
+    }
     const chain = (e: Element): Element[] => {
       const out: Element[] = [];
       // Both a start or done node and any other node are held by the element that owns them.
@@ -681,6 +688,9 @@ export class ModelService {
     if (!shared) return `The ${what} ends ${label(source)} and ${label(target)} are in different parts of the model (they have no common owner), so no ${what} can connect them.`;
     if (shared !== owner && !chain(shared).includes(owner)) {
       return `The ${what} ends ${label(source)} and ${label(target)} are not both inside ${owner.name ?? owner.kind}; their common owner is ${shared.name ?? shared.kind}.`;
+    }
+    if (context && shared !== context && !chain(shared).includes(context)) {
+      return `The common owner of the ${what} ends (${label(shared)}) is not ${label(context)} or inside it, so the ${what} would change ${label(shared)} from another element's diagram. Change it in ${label(shared)} instead.`;
     }
     return shared;
   }

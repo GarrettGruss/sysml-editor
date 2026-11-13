@@ -9,6 +9,7 @@ import { buildViewModel } from "./view-model.js";
 import { absoluteBoxes, countOutsideParent, countOverCompartments, countOverlaps, type Measure } from "../webview/diagram/geometry.js";
 import { layoutDiagram, type ElkLike } from "../webview/diagram/layout.js";
 import { checkEdges } from "../webview/diagram/metrics.js";
+import { routeThroughBox } from "../webview/diagram/routing.js";
 import { SEQ_FIRST, SEQ_ROW } from "../webview/diagram/sequence-layout.js";
 import { LIGHT_PALETTE, buildSvg, wrapStandalone } from "../webview/diagram/svg.js";
 
@@ -74,6 +75,16 @@ describe("diagrams of real release fixtures and the workspace fixtures", () => {
       expect(r.edges.labelsOverLabels).toBe(0);
       for (const e of r.vm.edges) if (!e.derived) expect(r.svg.routes.get(e.id), e.id).toBeDefined();
       if (c.name.startsWith("many self-transitions")) {
+        // The routes ELK computed are kept for lines at nodes with loops (clipped to the node's own border).
+        for (const e of r.vm.edges) if (e.source !== e.target && r.abs.get(e.source) && !r.vm.nodes.some((k) => k.parent === e.source || k.parent === e.target)) expect(r.layout.routes.has(e.id), `route kept for ${e.id}`).toBe(true);
+        // No line runs through a node it does not end at, and every self-transition has its own loop.
+        for (const e of r.vm.edges) {
+          const pts = r.svg.routes.get(e.id)!;
+          for (const n of r.vm.nodes) {
+            if (n.id === e.source || n.id === e.target || r.vm.nodes.some((k) => k.parent === n.id)) continue;
+            expect(routeThroughBox(pts, r.abs.get(n.id)!), `${e.id} through ${n.id}`).toBe(false);
+          }
+        }
         // No label runs past the frame of the state it belongs to.
         const frame = r.abs.get(r.vm.nodes.find((n) => n.parent === undefined)!.id)!;
         for (const [id, l] of r.svg.labels) {

@@ -29,15 +29,18 @@ export function labelSize(text: string, measure: Measure): { lines: string[]; w:
   return { lines, w: Math.ceil(Math.max(...lines.map((l) => measure(l, "small")))) + 4, h: Math.max(13, lines.length * LABEL_LINE + 1) };
 }
 
-const SIDES = ["R", "L", "B", "T"] as const;
-type LoopSide = (typeof SIDES)[number];
+type LoopSide = "R" | "L" | "B" | "T";
+const ALL_SIDES: readonly LoopSide[] = ["R", "L", "B", "T"];
+
+/** Top-to-bottom views keep the top and bottom borders free for the flow lines: their loops are on the sides only. */
+export const loopSidesFor = (kind: string): readonly LoopSide[] => (kind === "actionFlow" || kind === "stateTransition" ? ["R", "L"] : ALL_SIDES);
 
 /** Loops and labels for the self-transitions of one node, in order (`labels[i]` is the label of loop i, if any). */
-export function planSelfLoops(box: Box, labels: readonly (string | undefined)[], measure: Measure): SelfLoop[] {
+export function planSelfLoops(box: Box, labels: readonly (string | undefined)[], measure: Measure, sides: readonly LoopSide[] = ALL_SIDES): SelfLoop[] {
   const out: SelfLoop[] = labels.map(() => ({ pts: [], lines: [] }));
   const bySide = new Map<LoopSide, number[]>();
   labels.forEach((_, i) => {
-    const s = SIDES[i % 4]!;
+    const s = sides[i % sides.length]!;
     bySide.set(s, [...(bySide.get(s) ?? []), i]);
   });
   const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
@@ -75,7 +78,7 @@ export function planSelfLoops(box: Box, labels: readonly (string | undefined)[],
 }
 
 /** How far the loops and labels of a node reach beyond its box on each side. */
-export function loopExtent(w: number, h: number, labels: readonly (string | undefined)[], measure: Measure): LoopExtent {
+export function loopExtent(w: number, h: number, labels: readonly (string | undefined)[], measure: Measure, sides: readonly LoopSide[] = ALL_SIDES): LoopExtent {
   const box = { x: 0, y: 0, w, h };
   const ext = { l: 0, r: 0, t: 0, b: 0 };
   const grow = (b: Box) => {
@@ -84,7 +87,7 @@ export function loopExtent(w: number, h: number, labels: readonly (string | unde
     ext.r = Math.max(ext.r, b.x + b.w - w);
     ext.b = Math.max(ext.b, b.y + b.h - h);
   };
-  for (const lp of planSelfLoops(box, labels, measure)) {
+  for (const lp of planSelfLoops(box, labels, measure, sides)) {
     for (const p of lp.pts) grow({ x: p.x, y: p.y, w: 0, h: 0 });
     if (lp.label) grow(lp.label);
   }
