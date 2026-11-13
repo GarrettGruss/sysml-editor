@@ -116,6 +116,15 @@ export function requirementsAuthoringTests(c: Ctx): Test[] {
       assert.strictEqual(x.view, "document");
       assert.strictEqual(x.document.heading, "MFA2");
       assert.ok(x.document.outline.some((o) => o.heading === "Appendices"), "the nested package is a section");
+      assert.deepStrictEqual(x.document.toc.map((t) => `${t.kind}:${t.number} ${t.heading}`), [
+        `requirement:1 ${DEF}`,
+        "requirement:1.1 MFRQ01 : OreExtractionEfficiencyRequirement",
+        "requirement:1.1.1 MFRQ01_1 : ExtractorYield",
+        "requirement:1.1.2 MFRQ01_2 : ExtractorWear",
+        "requirement:1.2 MFRQ02 : CargoCapacityRequirement",
+        "requirement:1.3 MFRQ03 : ShieldRequirement",
+        "section:2 Appendices",
+      ], "the full table of contents: numbers in source order, requirements and sections");
       assert.ok(x.document.items.some((i) => i.id === "MFRQ02"), "requirements of the nested definition are shown");
       await g({ kind: "click", selector: "[data-testid=tab-table]" });
       await api.requirements.setWidth(scope, 1100);

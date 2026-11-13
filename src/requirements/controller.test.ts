@@ -246,4 +246,52 @@ describe("requirements authoring: add and move", () => {
     expect(r.message).toMatch(/refer to|resolve/i);
     expect(host.buffers.get(URI)).toBe(text);
   });
+  test("a gap anchor that is not in the target owner is refused, here and in the plan", async () => {
+    const { ctl, text } = mf();
+    const t0 = text();
+    const r = await ctl.handle({ type: "moveRequirement", qn: "MF::Owner::Third", how: { ownerQn: "MF::Owner::First", beforeQn: "MF::Owner::Second" } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/not in that owner/);
+    expect(text()).toBe(t0);
+    const a = await ctl.handle({ type: "addRequirement", kind: "requirement", id: "Z", name: "Zed", ownerQn: "MF::Owner::First", beforeQn: "MF::Owner::Second" });
+    expect(a.ok).toBe(false);
+    expect(text()).toBe(t0);
+  });
+  test("a move is refused when the owner cannot hold the kind, or lies outside the open document", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, "package MF {\n    requirement def D1 {\n        requirement <'A'> a;\n    }\n    requirement def D2 {\n        requirement <'B'> b;\n    }\n}\n");
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "MF::D1");
+    const t0 = host.buffers.get(URI)!;
+    const out = await ctl.handle({ type: "moveRequirement", qn: "MF::D1::a", how: { ownerQn: "MF::D2" } });
+    expect(out.ok).toBe(false);
+    expect(out.message).toMatch(/only be moved within the document/);
+    const add = await ctl.handle({ type: "addRequirement", kind: "requirement", id: "C", name: "c", ownerQn: "MF::D2" });
+    expect(add.ok).toBe(false);
+    expect(host.buffers.get(URI)).toBe(t0);
+  });
+  test("a requirement definition cannot be moved into a requirement", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, "package MF {\n    requirement def D1;\n    requirement def D2;\n    requirement r;\n}\n");
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "MF");
+    const r = await ctl.handle({ type: "moveRequirement", qn: "MF::D1", how: { ownerQn: "MF::r" } });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/cannot be moved into/);
+  });
+  test("renaming the heading of a requirement-rooted document renames with references, and a stale heading is a conflict", async () => {
+    const host = new FakeHost();
+    host.addDocument(URI, "package MF {\n    requirement def Owner {\n        requirement <'A'> a;\n    }\n    part def H {\n        ref requirement x : Owner;\n    }\n}\n");
+    const service = new ModelService(host);
+    const ui: RequirementsUi = { confirm: async () => true, pickOne: async () => undefined, pickMany: async () => undefined, pickVerification: async () => undefined, inputName: async () => undefined, report: () => undefined };
+    const ctl = new RequirementsController(service, host.index, ui, { revealInTree: () => undefined, goToText: () => undefined, showInDiagram: () => undefined }, () => "MF::Owner");
+    const stale = await ctl.handle({ type: "setHeading", qn: "MF::Owner", value: "Boss", expected: "Old" });
+    expect(stale.conflict).toEqual({ fieldKey: "MF::Owner|heading", current: "Owner" });
+    expect((await ctl.handle({ type: "setHeading", qn: "MF::Owner", value: "Boss", expected: "Owner" })).ok).toBe(true);
+    const t = host.buffers.get(URI)!;
+    expect(t).toContain("requirement def Boss");
+    expect(t).toContain("x : Boss");
+  });
 });

@@ -335,8 +335,8 @@ export function requirementsTests(c: Ctx): Test[] {
       const d = (await m()).document;
       assert.strictEqual(d.title, "Vehicle SRS");
       assert.strictEqual(d.version, "1.0");
-      assert.deepStrictEqual(d.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`), ["1 Performance Requirements", "1.1 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
-      assert.deepStrictEqual(d.outline.map((o) => o.number), ["1", "1.1", "2", "3", "4", "Appendix A"]);
+      assert.deepStrictEqual(d.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`), ["1 Performance Requirements", "1.3 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
+      assert.deepStrictEqual(d.outline.map((o) => o.number), ["1", "1.3", "2", "3", "4", "Appendix A"]);
       assert.deepStrictEqual(d.outline.map((o) => o.level), [1, 2, 1, 1, 1, 1]);
       assert.deepStrictEqual(d.appendixLetters, ["A"]);
       const perf = d.outline[0]!;
@@ -366,7 +366,7 @@ export function requirementsTests(c: Ctx): Test[] {
       assert.ok(t.indexOf("package Safety") < t.indexOf("package Reliability;") && t.indexOf("package Reliability;") < t.indexOf("package Design"), "after the Safety package, before Design");
       assert.strictEqual(t.replace("    package Reliability;\n", ""), before, "nothing else changed");
       await clean(file);
-      await eventually(async () => assert.deepStrictEqual((await m()).document.outline.map((o) => o.number), ["1", "1.1", "2", "3", "4", "5", "Appendix A"]), "the new section is number 3 and the rest are renumbered");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.outline.map((o) => o.number), ["1", "1.3", "2", "3", "4", "5", "Appendix A"]), "the new section is number 3 and the rest are renumbered");
       assert.ok(!/package\s+'?\d/.test(onDisk(file)), "no numbers are written into the text");
       // heading with spaces: rename Safety; the diagram file that refers to it follows
       await gesture(scope, { kind: "input", selector: `input[data-key="${qn("Safety")}|heading"]`, value: "Functional Safety" });
@@ -607,7 +607,7 @@ export function requirementsTests(c: Ctx): Test[] {
         assert.strictEqual(lm.text, mcp.text, "identical over both channels");
         const md = lm.text;
         assert.match(md, new RegExp(`^# Vehicle SRS <!-- qn: ${pkg} -->`));
-        assert.match(md, /- 1 Performance Requirements\n {2}- 1.1 Acceleration\n- 2 Safety/);
+        assert.match(md, /- 1 Performance Requirements\n {2}- 1.3 Acceleration\n- 2 Safety/);
         assert.match(md, new RegExp(`## 1 Performance Requirements <!-- qn: ${pkg}::'Performance Requirements' -->`));
         assert.match(md, new RegExp(`\\*\\*R1 massLimit\\*\\* \\(requirement\\) <!-- qn: ${pkg}::'Performance Requirements'::massLimit -->`));
         assert.match(md, /- Satisfied by: vehicle/);

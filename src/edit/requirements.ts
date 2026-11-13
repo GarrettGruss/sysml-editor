@@ -341,6 +341,8 @@ export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarg
   if (!owner) return fail(`${describeElement(element)} is a top-level declaration; choose a package to move it into.`);
   const oc = checkElement(index, owner);
   if (!oc.ok) return oc;
+  const sameDecl = (a: Element, b: Element) => a === b || (a.qualifiedName !== undefined && a.qualifiedName === b.qualifiedName && a.uri === b.uri);
+  for (const ref of [to.before, to.after]) if (ref && (!ref.owner || !sameDecl(ref.owner, owner))) return fail(`${describeElement(ref)} is not a member of ${describeElement(owner)}, so the declaration cannot be placed next to it.`);
   for (let o: Element | undefined = owner; o; o = o.owner) if (o === element) return fail("An element cannot be moved into itself.");
   const sameOwner = owner === element.owner || (owner.qualifiedName !== undefined && owner.qualifiedName === element.owner?.qualifiedName && owner.uri === element.uri);
   if (!sameOwner) {
@@ -403,8 +405,14 @@ export function planAddSection(index: ModelIndex, parent: Element, name: string,
     const pkg = enclosingPackage(parent);
     if (pkg && !visibleFrom(index, parent, "DocumentAnnotations", "Appendix")) needs.push({ pkg, text: ANNOTATIONS_IMPORT });
   }
-  const pb = opts.before ? positionBefore(index, opts.before) : undefined;
-  const ins = insertWithImports(index, parent, [decl], needs, opts.after ? { after: opts.after } : pb && pb !== "same" ? pb : "end");
+  if (opts.after && opts.before) return fail("Give either the section it goes after or the one it goes above, not both.");
+  let position: InsertPosition = opts.after ? { after: opts.after } : "end";
+  if (opts.before) {
+    const pb = opts.before.owner === parent ? positionBefore(index, opts.before) : undefined;
+    if (pb === undefined || pb === "same") return fail("The section the new one should go above is no longer in that parent; nothing was changed.");
+    position = pb;
+  }
+  const ins = insertWithImports(index, parent, [decl], needs, position);
   if (!ins.ok) return ins;
   return finish(index, ins.edits, `Add ${opts.appendix ? "appendix" : "section"} ${n} to ${describeElement(parent)}`, needs);
 }

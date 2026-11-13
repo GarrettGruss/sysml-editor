@@ -122,6 +122,9 @@ export interface Origin {
   diagram?: string;
 }
 
+/** The same owner: the element itself, or another declaration of the same name in the same file. */
+const ownerIs = (a: Element, b: Element): boolean => a === b || (a.qualifiedName !== undefined && a.qualifiedName === b.qualifiedName && a.uri === b.uri);
+
 export interface AddSpec {
   /** Declaration kind, e.g. `part`, `part def`, `port`. */
   kind: string;
@@ -435,9 +438,13 @@ export class ModelService {
             type = t;
           }
           const memberSpec = { kind: spec.kind, ...(spec.name !== undefined ? { name: spec.name } : {}), ...(spec.shortName ? { shortName: spec.shortName } : {}), ...(type !== undefined ? { type } : {}), ...(spec.multiplicity ? { multiplicity: spec.multiplicity } : {}) };
-          const bef = opts.before ? this.fresh(opts.before) : undefined;
-          const pos = bef ? positionBefore(this.index, bef) : undefined;
-          const at = pos === undefined || pos === "same" ? "end" : pos;
+          let at: import("../edit/body.js").InsertPosition = "end";
+          if (opts.before) {
+            const bef = this.fresh(opts.before);
+            const pos = bef && bef.owner && ownerIs(bef.owner, ownerNow) ? positionBefore(this.index, bef) : undefined;
+            if (pos === undefined || pos === "same") return fail("The member the new element should go above is no longer in that owner; nothing was changed.");
+            at = pos;
+          }
           if (!spec.documentation) return planInsertMember(this.index, ownerNow, memberSpec, at);
           const b = buildDeclaration(this.index, ownerNow, memberSpec);
           if (!b.ok) return b;

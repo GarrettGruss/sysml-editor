@@ -35,7 +35,7 @@ describe("DocumentModel", () => {
     expect(doc.annotated).toBe(true);
     expect(doc.sections.map((s) => sectionLabel(s))).toEqual(["1 Performance Requirements", "2 Safety"]);
     expect(doc.appendices.map((s) => sectionLabel(s))).toEqual(["Appendix A Glossary", "Appendix B Index"]);
-    expect(doc.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`)).toEqual(["1 Performance Requirements", "1.1 Sub", "2 Safety", "A Glossary", "B Index"]);
+    expect(doc.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`)).toEqual(["1 Performance Requirements", "1.2 Sub", "2 Safety", "A Glossary", "B Index"]);
   });
   test("section content: paragraphs in order, requirement items, model elements", () => {
     const { doc } = model(ANNOTATED, "VehicleSpec");
@@ -152,11 +152,20 @@ describe("requirement hierarchy and numbering", () => {
       "requirement:2 MFRQ02 : Cargo:1",
     ]);
   });
-  test("in a package, requirements of a section are numbered after its subsections so numbers do not clash", () => {
+  test("one counter in source order shared by sections and requirements", () => {
     const { doc } = model(MINING, "MiningFrigate");
-    expect(doc.sections.map((s) => s.number)).toEqual(["1"]);
+    // the requirement definition is member 1 of the package, the section member 2
+    expect(doc.blocks.filter((b) => b.kind === "item").map((b: any) => b.number)).toEqual(["1"]);
+    expect(doc.sections.map((s) => s.number)).toEqual(["2"]);
     const s = doc.sections[0]!;
-    expect((s.blocks.find((b) => b.kind === "item") as any).number).toBe("1.2");
-    expect(s.children[0]!.number).toBe("1.1");
+    expect((s.blocks.find((b) => b.kind === "item") as any).number).toBe("2.1");
+    expect(s.children[0]!.number).toBe("2.2");
+  });
+  test("adding a member shifts only the numbers after it", () => {
+    const text = "package P {\n  requirement <'A'> a;\n  package S { requirement <'B'> b; }\n  requirement <'C'> c;\n}";
+    const before = model(text, "P").doc.toc.map((t) => `${t.number} ${t.heading}`);
+    const after = model(text.replace("  package S", "  requirement <'N'> n;\n  package S"), "P").doc.toc.map((t) => `${t.number} ${t.heading}`);
+    expect(before).toEqual(expect.arrayContaining(["1 A : a", "2 S", "2.1 B : b", "3 C : c"]));
+    expect(after).toEqual(expect.arrayContaining(["1 A : a", "2 N : n", "3 S", "3.1 B : b", "4 C : c"]));
   });
 });

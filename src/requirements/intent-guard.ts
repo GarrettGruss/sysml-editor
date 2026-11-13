@@ -36,7 +36,7 @@ export function parseIntent(x: unknown): { ok: true; intent: Intent } | { ok: fa
     case "navigate":
       if (need(["qn"])) return bad("qn must be text");
       return x.to === "tree" || x.to === "text" || x.to === "diagram" ? ok() : bad("to must be tree, text or diagram");
-    case "addSection": return need(["parentQn", "name"]) || !optStr("afterQn") || !optStr("beforeQn") || !optBool("appendix") ? bad("parentQn and name must be text, appendix a boolean, afterQn text when given") : ok();
+    case "addSection": if (x.afterQn !== undefined && x.beforeQn !== undefined) return bad("give afterQn or beforeQn, not both"); return need(["parentQn", "name"]) || !optStr("afterQn") || !optStr("beforeQn") || !optBool("appendix") ? bad("parentQn and name must be text, appendix a boolean, afterQn text when given") : ok();
     case "addParagraph": return str("pkgQn") === undefined || !text("text") ? bad("pkgQn and text must be text") : ok();
     case "moveRequirement": {
       if (need(["qn"])) return bad("qn must be text");
