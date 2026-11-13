@@ -65,3 +65,11 @@ export function planSatisfy(index: ModelIndex, requirement: Element, by: Element
   const needs = [r.need, b.need].filter((x): x is ImportNeed => !!x);
   return plan(index, target, `satisfy ${r.text} by ${b.text};`, needs, `${describeElement(by)} satisfies ${describeElement(requirement)}`);
 }
+
+/** `flow from a.x to b.y;` in `owner`; the ends are paths to features, written as given (`detectThreat.scanReport`). */
+export function planFlow(index: ModelIndex, owner: Element, from: string, to: string): PlanResult {
+  const c = checkElement(index, owner);
+  if (!c.ok) return c;
+  for (const t of [from, to]) if (t.trim() === "" || /[;{}\n]/.test(t)) return fail("A flow end must be a path to a feature, such as detectThreat.scanReport.");
+  return plan(index, owner, `flow from ${from.trim()} to ${to.trim()};`, [], `Flow from ${from.trim()} to ${to.trim()} in ${describeElement(owner)}`);
+}

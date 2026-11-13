@@ -42,16 +42,16 @@ async function build(index: ModelIndex, root: string, kind: DiagramKind) {
 }
 
 const CASES: { name: string; file: string; root: string; kind: DiagramKind; nodes: number; edges: number }[] = [
-  { name: "Decision Example", file: REL + "training/17. Control/Decision Example.sysml", root: "'Decision Example'::ChargeBattery", kind: "actionFlow", nodes: 8, edges: 7 },
-  { name: "Fork Join Example", file: REL + "training/17. Control/Fork Join Example.sysml", root: "'Fork Join Example'::Brake", kind: "actionFlow", nodes: 8, edges: 10 },
-  { name: "Conditional Succession", file: REL + "training/16. Conditional Succession/Conditional Succession Example-1.sysml", root: "'Conditional Succession Example-1'::takePicture", kind: "actionFlow", nodes: 3, edges: 2 },
+  { name: "Decision Example", file: REL + "training/17. Control/Decision Example.sysml", root: "'Decision Example'::ChargeBattery", kind: "actionFlow", nodes: 11, edges: 7 },
+  { name: "Fork Join Example", file: REL + "training/17. Control/Fork Join Example.sysml", root: "'Fork Join Example'::Brake", kind: "actionFlow", nodes: 14, edges: 10 },
+  { name: "Conditional Succession", file: REL + "training/16. Conditional Succession/Conditional Succession Example-1.sysml", root: "'Conditional Succession Example-1'::takePicture", kind: "actionFlow", nodes: 9, edges: 2 },
   { name: "Transition Actions", file: REL + "training/25. Transitions/Transition Actions.sysml", root: "'Transition Actions'::vehicleStates", kind: "stateTransition", nodes: 5, edges: 4 },
   { name: "State Decomposition", file: REL + "training/24. States/State Decomposition-1.sysml", root: "'State Decomposition-1'::vehicleStates", kind: "stateTransition", nodes: 5, edges: 4 },
   { name: "ServerSequenceRealization serverBehavior", file: REL + "examples/Interaction Sequencing Examples/ServerSequenceRealization-2.sysml", root: "ServerSequenceRealization_2::Configuration::server_2::serverBehavior", kind: "stateTransition", nodes: 4, edges: 3 },
   { name: "Interaction Example-1", file: REL + "training/27. Occurrences/Interaction Example-1.sysml", root: "'Interaction Example-1'::CruiseControlInteraction", kind: "sequence", nodes: 2, edges: 3 },
   { name: "Message Payload Example", file: REL + "training/27. Occurrences/Message Payload Example.sysml", root: "'Message Payload Example'::CruiseControlInteraction", kind: "sequence", nodes: 2, edges: 4 },
   { name: "ServerSequenceModel", file: REL + "examples/Interaction Sequencing Examples/ServerSequenceModel.sysml", root: "ServerSequenceModel::PubSubSequence", kind: "sequence", nodes: 3, edges: 3 },
-  { name: "workspace actions", file: WS + "actions.sysml", root: "Delivery::deliverOrder", kind: "actionFlow", nodes: 7, edges: 7 },
+  { name: "workspace actions", file: WS + "actions.sysml", root: "Delivery::deliverOrder", kind: "actionFlow", nodes: 9, edges: 7 },
   { name: "workspace states", file: WS + "states.sysml", root: "Lamp::lamp", kind: "stateTransition", nodes: 6, edges: 4 },
   { name: "many self-transitions with long labels", file: "test/fixtures/self-transitions.sysml", root: "Fleet::FleetStates", kind: "stateTransition", nodes: 7, edges: 12 },
   { name: "workspace interaction", file: WS + "interaction.sysml", root: "Ordering::OrderInteraction", kind: "sequence", nodes: 3, edges: 3 },
@@ -221,7 +221,7 @@ describe("notation", () => {
   it("action flow: guards in brackets, control nodes, start and done, a dashed flow", async () => {
     const r = await build(load(WS + "actions.sysml"), "Delivery::deliverOrder", "actionFlow");
     expect(r.vm.edges.filter((e) => e.style === "succession").map((e) => e.label ?? "")).toEqual(expect.arrayContaining(["[pack.weight >= 100]", "[else]"]));
-    expect(r.vm.nodes.map((n) => n.shape).sort()).toEqual(["action", "action", "action", "action", "decision", "done", "start"]);
+    expect(r.vm.nodes.map((n) => n.shape).sort()).toEqual(["action", "action", "action", "action", "decision", "done", "port", "port", "start"]);
     expect(r.svg.content).toContain('data-style="flow"');
     expect(r.vm.nodes.find((n) => n.shape === "action" && n.label === "pack : Pack")?.keyword).toBe("«action»");
   });

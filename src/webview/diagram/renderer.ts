@@ -75,6 +75,9 @@ export class SvgRenderer implements DiagramRenderer {
   /** Routes released by the user and drawn until the host confirms; a drawing that differs from them counts as a stale draw (a test measure). */
   private readonly pendingRoutes = new Map<string, Pt[]>();
   private staleDraws = 0;
+  /** The node a dragged node would nest into (or leave, without an id) when released. */
+  private dropTarget?: { id?: string };
+  private dropFrom?: string;
 
   constructor(host: HTMLElement, private readonly measure: Measure, private readonly cb: RendererCallbacks) {
     this.svg = document.createElementNS(SVG_NS, "svg");
@@ -99,6 +102,8 @@ export class SvgRenderer implements DiagramRenderer {
       },
       onPanEnd: () => { this.panStart = undefined; this.autoFit = false; cb.onView(this.getView()); },
       onMenu: (id) => this.openMenu(id),
+      onDropTarget: (t, dragged) => { this.dropTarget = t; this.dropFrom = dragged; this.repaintOverlay(); },
+      onNest: (id, targetId) => { this.preview = undefined; this.repaint(); cb.onModel({ kind: "nest", id, ...(targetId !== undefined ? { targetId } : {}) }); },
       zoom: () => this.view.k,
       setTimer: (fn, ms) => setTimeout(fn, ms),
       clearTimer: (t) => clearTimeout(t as ReturnType<typeof setTimeout>),
@@ -382,13 +387,23 @@ export class SvgRenderer implements DiagramRenderer {
 
   private repaintOverlay(): void {
     const { boxes, handles } = this.selectionBoxes();
-    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k) + this.edgeHandles({});
+    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k) + this.edgeHandles({}) + this.dropHighlight();
     // The drawing's `selected` flags follow the selection.
     for (const g of this.world.querySelectorAll<SVGGElement>("g[data-node]")) {
       const on = this.ia.selection.includes(g.getAttribute("data-node") ?? "");
       if (on) { g.setAttribute("data-selected", "true"); g.setAttribute("aria-current", "true"); }
       else { g.removeAttribute("data-selected"); g.removeAttribute("aria-current"); }
     }
+  }
+
+  /** The highlight of the nesting target: a filled outline round the node it would go into, or a dashed one round the parent it would leave. */
+  private dropHighlight(): string {
+    const t = this.dropTarget;
+    if (!t) return "";
+    const id = t.id ?? (this.dropFrom !== undefined ? this.scene.get(this.dropFrom)?.parent : undefined);
+    const b = id !== undefined ? this.scene.get(id)?.abs : undefined;
+    if (!b) return "";
+    return `<rect class="drop-target${t.id === undefined ? " drop-out" : ""}" data-drop-target="${id}" data-drop-kind="${t.id === undefined ? "out" : "into"}" x="${b.x - 2}" y="${b.y - 2}" width="${b.w + 4}" height="${b.h + 4}" rx="6" fill="none" class="drop-target-stroke" stroke-width="3" stroke-dasharray="${t.id === undefined ? "6 4" : "none"}" pointer-events="none"/>`;
   }
 
   getView(): View { return { ...this.view }; }

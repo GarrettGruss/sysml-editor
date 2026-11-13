@@ -6,6 +6,7 @@ import { analyze, inheritedFrom, inheritedMembers, interactionOf, isLibraryUri, 
 import type { DiagramDocument, DiagramKind, DiagramNode, ElementReference, LabelLayout, Point } from "./format.js";
 import type { Resolution } from "./resolve.js";
 import { endElement, relationOf } from "./relations.js";
+import { nestFamily } from "../edit/nest.js";
 
 export type ShapeKind =
   | "definition" | "usage" | "package" | "requirement" | "port" | "unresolved"
@@ -45,6 +46,12 @@ export interface VmNode {
   inherited?: { from: string };
   /** What the properties panel shows for a resolved node. `locked` explains why it cannot be edited. */
   props?: NodeProps;
+  /** Nesting by dropping (D33): the family of declarations that nest into each other (`state`, `action`, `part`, or `package`), and whether this node can be dragged into another. */
+  nest?: { family: string; movable: boolean };
+  /** A parameter pin of an Action Flow action (D36): a directed feature drawn on its owner's border (shape `port`, `attachedTo` the action). `id` of a pin the diagram does not store starts with `pin:`. */
+  pin?: { direction: string; qualifiedName?: string; type?: string };
+  /** Tooltip text (a pin's type). */
+  tooltip?: string;
   /** The control node kind (`fork`, `join`, `decide`, `merge`) or pseudostate (`start`, `done`). */
   variant?: string;
 }
@@ -222,6 +229,45 @@ function behaviorEdge(index: ModelIndex, el: Element): Partial<VmEdge> {
   return {};
 }
 
+/**
+ * Parameter pins (D36): the directed features of every action node, own and inherited. One the diagram stores (a node of the
+ * feature under the action) becomes the pin; the others are drawn from the model with ids that start with `pin:`.
+ */
+function addPins(nodes: VmNode[], resolution: Resolution, index: ModelIndex, nodeOfElement: Map<Element, string>): void {
+  const byId = new Map(nodes.map((n) => [n.id, n] as const));
+  for (const n of [...nodes]) {
+    if (n.shape !== "action" || !n.resolved) continue;
+    const el = resolution.get(n.id);
+    if (!el) continue;
+    const directed: { member: Element; from?: Element }[] = [
+      ...el.members.filter((m) => m.direction && m.isUsage && m.name !== undefined).map((member) => ({ member })),
+      ...inheritedMembers(index, el).filter((m) => m.member.direction && m.member.name !== undefined).map((m) => ({ member: m.member, from: m.declaredIn })),
+    ];
+    for (const { member, from } of directed) {
+      const type = member.types.join(", ");
+      const pin = { direction: member.direction!, ...(member.qualifiedName !== undefined ? { qualifiedName: member.qualifiedName } : {}), ...(type ? { type } : {}) };
+      const tooltip = `${member.direction} ${member.name}${type ? ` : ${type}` : ""}${from ? ` (inherited from ${from.name ?? from.kind})` : ""}`;
+      const stored = nodeOfElement.get(member);
+      const existing = stored !== undefined ? byId.get(stored) : undefined;
+      if (existing) {
+        if (existing.parent !== undefined && existing.parent !== n.id) continue;
+        existing.shape = "port";
+        existing.attachedTo = n.id;
+        delete existing.parent;
+        existing.label = member.name!;
+        existing.pin = pin;
+        existing.tooltip = tooltip;
+        delete existing.keyword;
+        continue;
+      }
+      const vm: VmNode = { id: `pin:${n.id}:${member.name}`, shape: "port", label: member.name!, resolved: true, attachedTo: n.id, pin, tooltip, ...(from ? { inherited: { from: from.qualifiedName ?? from.name ?? "" } } : {}) };
+      nodes.push(vm);
+      byId.set(vm.id, vm);
+      if (!nodeOfElement.has(member)) nodeOfElement.set(member, vm.id);
+    }
+  }
+}
+
 /** `readOnly` tells why an element's document must not be edited (see `ModelService.blockedReason`). */
 export function buildViewModel(doc: DiagramDocument, resolution: Resolution, index: ModelIndex, readOnly?: (uri: string) => string | undefined): ViewModel {
   const nodeOfElement = new Map<Element, string>();
@@ -286,6 +332,10 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     const from = fromName;
     if (from !== undefined) out.inherited = { from };
     const blocked = readOnly?.(el.uri);
+    {
+      const fam = isPackage(el) ? "package" : nestFamily(el.kind);
+      if (fam && (shape !== "port")) out.nest = { family: fam, movable: el.isUsage && fam !== "package" && !isLibraryUri(el.uri) && !isSynthetic(el) && !blocked && el.name !== undefined };
+    }
     out.props = {
       kind: el.kind,
       isUsage: el.isUsage,
@@ -302,6 +352,8 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     } else if (n.parent !== undefined && doc.kind !== "sequence") out.parent = n.parent;
     return out;
   });
+
+  if (doc.kind === "actionFlow") addPins(nodes, resolution, index, nodeOfElement);
 
   const edges: VmEdge[] = [];
   const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
@@ -323,6 +375,14 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       if (rel) {
         source = endNode(rel.source) ?? source;
         target = endNode(rel.target) ?? target;
+        if (rel.kind === "flow" && el.owner) {
+          // A flow runs from pin to pin: the ends are written as paths to features (`a.x`).
+          const f = analyze(index, el.owner).flows.find((x) => x.statement === el);
+          if (f) {
+            source = endNode({ scope: el.owner, text: f.sourceText }) ?? source;
+            target = endNode({ scope: el.owner, text: f.targetText }) ?? target;
+          }
+        }
         if (rel.kind === "derivation") { style = "derivation"; label = "«derive»"; }
       }
       if (style === "satisfy" || style === "verify") label = `«${style}»`;

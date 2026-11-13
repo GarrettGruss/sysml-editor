@@ -62,3 +62,4 @@ svg, svg * { -webkit-user-select: none; user-select: none; }
 .diagram [data-label-handle="resize"] { cursor: nwse-resize; }
 .ctx-menu button[aria-checked="true"]::before { content: "\2713"; margin-right: 6px; }
 .ctx-menu button[aria-checked="false"]::before { content: ""; display: inline-block; width: 1em; margin-right: 6px; }
+.diagram .drop-target-stroke { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }

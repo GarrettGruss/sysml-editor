@@ -26,6 +26,32 @@ export interface SceneItem {
   min: { w: number; h: number };
   /** Height of the node's own header; nested nodes and ports start below it. */
   headerH: number;
+  /** Nesting by dropping: the family (`state`, `action`, `part`, `package`) and whether the node can be dragged into another owner. */
+  nest?: string;
+  movable?: boolean;
+}
+
+/** Where a dragged node would go when released: into the node `id`, or (no `id`) out of its parent. */
+export interface DropTarget {
+  id?: string;
+}
+
+/**
+ * The drop target of one dragged node at pointer `p` (design D33): the topmost node under the pointer that can own it (a
+ * package, or one of its own family) and is not where it already is; or, over nothing at all, out of its parent.
+ */
+export function dropTargetAt(scene: Scene, id: string, p: Pt): DropTarget | undefined {
+  const it = scene.get(id);
+  if (!it || !it.movable || it.owner !== undefined) return undefined;
+  const skip = new Set([id]);
+  for (let i = scene.items.length - 1; i >= 0; i--) {
+    const c = scene.items[i]!;
+    if (c.owner !== undefined || skip.has(c.id) || scene.hasAncestorIn(c.id, skip) || !inside(c.abs, p)) continue;
+    if (c.id === it.parent) return undefined;
+    if (c.nest !== undefined && (c.nest === "package" || c.nest === it.nest)) return { id: c.id };
+    return undefined;
+  }
+  return it.parent !== undefined ? {} : undefined;
 }
 
 export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -215,6 +241,10 @@ export interface InteractionHost {
   onPanEnd(): void;
   /** The context menu was requested on an item with the keyboard. */
   onMenu(id: string): void;
+  /** The highlighted drop target changed (a move gesture over a node that can own the dragged one, or out of its parent); undefined: none. */
+  onDropTarget?(t: DropTarget | undefined, dragged?: string): void;
+  /** A node was released on a target: a model edit (nesting), not a layout edit. */
+  onNest?(id: string, targetId: string | undefined): void;
   /** Current zoom, for handle hit areas. */
   zoom(): number;
   setTimer(fn: () => void, ms: number): unknown;
@@ -222,7 +252,7 @@ export interface InteractionHost {
 }
 
 type Gesture =
-  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; plan?: Plan }
+  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; plan?: Plan; drop?: DropTarget }
   | { kind: "resize"; start: Pt; id: string; handle: Handle; plan?: Plan }
   | { kind: "band"; start: Pt; cur: Pt; add: boolean; base: string[] }
   | { kind: "pan"; sx: number; sy: number; moved: boolean; clear: boolean };
@@ -324,6 +354,8 @@ export class Interaction {
       if (!g.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       g.moved = true;
       g.plan = planMove(this.scene, g.ids, dx, dy);
+      g.drop = g.ids.length === 1 ? dropTargetAt(this.scene, g.ids[0]!, e) : undefined;
+      this.host.onDropTarget?.(g.drop, g.ids[0]);
     } else g.plan = planResize(this.scene, g.id, g.handle, dx, dy);
     this.host.onPreview(applyPlan(this.scene, g.plan), undefined);
   }
@@ -337,6 +369,13 @@ export class Interaction {
       this.host.onPanEnd();
       return;
     }
+    if (g.kind === "move" && g.drop) {
+      // Nesting is a model edit: the gesture ends in the host, which moves the declaration or refuses.
+      this.host.onDropTarget?.(undefined);
+      this.host.onNest?.(g.ids[0]!, g.drop.id);
+      return;
+    }
+    if (g.kind === "move") this.host.onDropTarget?.(undefined);
     // A move or resize stays drawn where it was released until the host confirms it (D22).
     this.host.onPreview(g.kind !== "band" && g.plan?.size ? applyPlan(this.scene, g.plan) : undefined, undefined);
     if (g.kind === "band") {
@@ -351,6 +390,7 @@ export class Interaction {
     if (!this.g) return false;
     const was = this.g;
     this.g = undefined;
+    if (was.kind === "move") this.host.onDropTarget?.(undefined);
     if (was.kind === "pan") this.host.onPanEnd();
     this.host.onPreview(undefined, undefined);
     return true;

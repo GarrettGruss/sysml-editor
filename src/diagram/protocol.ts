@@ -74,9 +74,11 @@ export type ModelIntent =
   | { kind: "deleteFromModel"; ids: string[] }
   | { kind: "rename"; id: string; name: string }
   | { kind: "setProperties"; id: string; changes: PropertyChanges }
-  | { kind: "goToDefinition"; id: string };
+  | { kind: "goToDefinition"; id: string }
+  /** Nest by dropping (D33): move the declaration of node `id` into the element of node `targetId` (the diagram's root when absent). */
+  | { kind: "nest"; id: string; targetId?: string };
 
-export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message";
+export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
 
 export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
 

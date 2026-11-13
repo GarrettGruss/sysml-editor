@@ -70,6 +70,8 @@ export interface PlanOk {
    * Set by `validatePlan`; see `isPlanCurrent`.
    */
   sources?: PlanSource[];
+  /** Nesting: the qualified names before and after the move, and the line ends whose text changed (for diagram files). */
+  nest?: { oldQn: string; newQn: string | undefined; endsChanges: { ownerQn: string | undefined; kind: string; oldEnds: string[]; newEnds: string[] }[] };
   /** Planner input for `validatePlan`: documents read beyond the ones with edits. */
   reads?: string[];
 }

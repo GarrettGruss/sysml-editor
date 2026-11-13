@@ -12,13 +12,13 @@ import { commonOwner, type Target } from "../model-service/service.js";
 import { nameProblem, typeCandidates } from "../model-service/support.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import { readSettled } from "./read-settled.js";
-import { writeDiagramFile } from "./write-uri.js";
+import { createDiagramFile, writeDiagramFile } from "./write-uri.js";
 import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
-import { addElements, rootProblem } from "./create.js";
-import { applyAutoLayout, applyBoxPatches, applyEdgeLayout, removeItems } from "./edits.js";
+import { addElement, addElements, rootProblem } from "./create.js";
+import { applyAutoLayout, applyBoxPatches, applyEdgeLayout, materializePins, removeItems } from "./edits.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
 import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
-import { relink } from "./reconcile.js";
+import { applyUpdates, relink } from "./reconcile.js";
 import { makeSourceMapper, referenceKey, resolveReference } from "./resolve.js";
 import { DiagramState, decideSave, followRename, forceChange, hashViewModel, noteExternalChange, refresh, unforceChange } from "./session.js";
 import { dropEntriesChange, type DiagramChange } from "../model-service/diagram-changes.js";
@@ -43,6 +43,8 @@ export interface DiagramUi {
   fail(failure: OpFailure): Promise<void>;
   /** A message with action buttons; resolves to the chosen action, or undefined when dismissed. */
   choose(message: string, actions: readonly string[]): Promise<string | undefined>;
+  /** Ask where to save a new diagram whose intended path is taken. */
+  saveAs(suggested: vscode.Uri): Promise<vscode.Uri | undefined>;
 }
 
 export const defaultUi: DiagramUi = {
@@ -51,6 +53,7 @@ export const defaultUi: DiagramUi = {
   fail: (f) => showFailure(f),
   choose: (message, actions) => Promise.resolve(vscode.window.showWarningMessage(message, ...actions)),
   confirm: async (message, detail, action) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action,
+  saveAs: async (suggested) => Promise.resolve(vscode.window.showSaveDialog({ defaultUri: suggested, filters: { "SysML diagram": ["sysmld"] }, title: "Save Diagram" })),
 };
 
 export class SysmlDiagramDocument implements vscode.CustomDocument {
@@ -63,6 +66,10 @@ export class SysmlDiagramDocument implements vscode.CustomDocument {
   layoutWaiters: Array<() => void> = [];
   /** Whether the root has been checked against the kind since the document was opened. */
   rootChecked = false;
+  /** A new diagram that has no file yet (D37): its URI is the intended path, it is written when saved. */
+  pending = false;
+  /** The generated text of a pending diagram, for Revert. */
+  initialText = "";
   /** Own writes of the file in flight (state.disk already has their text); file watcher events during them are stale. */
   writing = 0;
   /** Set when a watcher event was skipped during an own write: the file is read once more afterwards. */
@@ -121,7 +128,7 @@ export interface DiagramTestApi {
   save(uri: vscode.Uri): Promise<void>;
   /** Applies a move of nodes as one user edit (undoable, dirties the document). */
   edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
-  state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: DiagramProblem[]; doc?: DiagramFile };
+  state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; pending: boolean; problems: DiagramProblem[]; doc?: DiagramFile };
   errors(): string[];
 }
 
@@ -139,6 +146,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   /** The diagram panel that was active last, for when the active tab is not a diagram (the user is in the chat). */
   private lastActive?: { doc: SysmlDiagramDocument; p: Panel };
   private renderCount = 0;
+  /** New diagrams waiting to be opened with no file: intended URI to generated text (D37). */
+  private readonly newDocs = new Map<string, string>();
   private timer?: ReturnType<typeof setTimeout>;
   ui: DiagramUi = defaultUi;
   /** Called when a node is selected in a diagram and the tree should follow (set by the extension). */
@@ -175,21 +184,39 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
 
   // ---- documents -------------------------------------------------------------------------
 
+  /** Open a new diagram without writing it (D37): the tab shows `uri`, the file is created when the user saves. */
+  async openNew(uri: vscode.Uri, text: string): Promise<void> {
+    this.newDocs.set(uri.toString(), text);
+    await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+  }
+
   async openCustomDocument(uri: vscode.Uri, ctx: vscode.CustomDocumentOpenContext): Promise<SysmlDiagramDocument> {
     const read = async (u: vscode.Uri) => decoder.decode(await vscode.workspace.fs.readFile(u));
     let state: DiagramState;
-    if (ctx.backupId) {
-      const disk = await read(uri).catch(() => "");
+    let pendingText = this.newDocs.get(uri.toString());
+    this.newDocs.delete(uri.toString());
+    if (pendingText !== undefined) {
+      state = new DiagramState(pendingText);
+      state.disk = "";
+    } else if (ctx.backupId) {
+      const disk = await read(uri).then((t) => t, () => undefined);
       state = new DiagramState("");
-      state.loadDirty(await read(vscode.Uri.parse(ctx.backupId)), disk);
+      state.loadDirty(await read(vscode.Uri.parse(ctx.backupId)), disk ?? "");
+      // A backup of a new diagram that was never saved comes back as one.
+      if (disk === undefined) pendingText = "";
     } else {
       state = new DiagramState(await read(uri));
     }
     const doc = new SysmlDiagramDocument(uri, state);
+    if (pendingText !== undefined) {
+      doc.pending = true;
+      doc.initialText = pendingText;
+    }
     this.docs.set(uri.toString(), doc);
     const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.joinPath(uri, ".."), uri.path.split("/").pop()!));
     const onDisk = async () => {
       try {
+        if (doc.pending) return; // no file of its own yet
         if (doc.writing > 0) {
           // state.disk is ahead of the file while our own write is in flight: reading now would mistake the older text for an
           // external change and reload it over what the model edit just put in memory. Look again when the write is done.
@@ -235,7 +262,35 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     }
   }
 
+  /** Save a new diagram: create the file at the intended path, or ask for another path when one exists there (never overwrite). */
+  private async saveNew(doc: SysmlDiagramDocument): Promise<void> {
+    const s = doc.state;
+    if (!s.doc) throw new Error(`${doc.uri.path.split("/").pop()} cannot be saved: it is not a valid diagram file.`);
+    const bytes = encoder.encode(s.text());
+    let dest = doc.uri;
+    if (await vscode.workspace.fs.stat(dest).then(() => true, () => false)) {
+      const picked = await this.ui.saveAs(doc.uri);
+      if (!picked) throw new Error(`Save cancelled: ${doc.uri.path.split("/").pop()} already exists.`);
+      dest = picked;
+    }
+    doc.writing++;
+    try {
+      await createDiagramFile(dest, bytes);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") throw new Error(`${dest.path.split("/").pop()} was created by something else in the meantime, so nothing was written.`);
+      throw e;
+    } finally {
+      doc.writing--;
+    }
+    s.markSaved();
+    if (dest.toString() === doc.uri.toString()) {
+      doc.pending = false;
+      doc.initialText = "";
+    } else void vscode.commands.executeCommand("vscode.openWith", dest, VIEW_TYPE);
+  }
+
   async saveCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
+    if (doc.pending) return this.saveNew(doc);
     const s = doc.state;
     const name = doc.uri.path.split("/").pop();
     const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
@@ -269,6 +324,12 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   async revertCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
+    if (doc.pending) {
+      doc.state.load(doc.initialText);
+      doc.state.disk = "";
+      this.rerender(doc);
+      return;
+    }
     doc.state.load(decoder.decode(await vscode.workspace.fs.readFile(doc.uri)));
     this.rerender(doc);
   }
@@ -441,6 +502,25 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   async forceOpen(doc: SysmlDiagramDocument, change: DiagramChange, mode: "apply" | "revert"): Promise<boolean> {
     const stat = () => vscode.workspace.fs.stat(doc.uri).then((x) => `${x.mtime}:${x.size}`, () => undefined);
     const ctx = { uri: doc.uri.toString(), sourceOf: this.opts(doc).sourceOf };
+    if (doc.pending) {
+      // No file yet: the change goes into memory only (it is not an edit of the diagram, so the document stays clean).
+      const st = doc.state;
+      if (st.doc) {
+        const fn = (d: FileDoc) => (mode === "apply" ? change.apply(d, ctx) : change.revert(d, ctx));
+        if (mode === "apply") {
+          st.doc = fn(st.doc);
+          if (!st.forced.some((f) => f.token === change)) st.forced.push({ token: change, fn: (d) => change.apply(d, ctx) });
+          for (const k of change.createdKeys?.() ?? []) st.created.add(k);
+          for (const [k, u] of change.createdIn?.() ?? []) st.createdIn.set(k, u);
+        } else {
+          st.forced = st.forced.filter((f) => f.token !== change);
+          st.doc = fn(st.doc);
+        }
+        st.snapshot = undefined;
+      }
+      this.rerender(doc);
+      return false;
+    }
     let wrote = false;
     for (let attempt = 0; ; attempt++) {
       const before = await stat();
@@ -501,10 +581,20 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     let next: FileDoc | undefined;
     let label = "Edit diagram";
     switch (edit.kind) {
-      case "layout":
-        next = Array.isArray(edit.boxes) ? applyBoxPatches(cur, edit.boxes, { routes: Array.isArray(edit.routes) ? edit.routes : [], drop: Array.isArray(edit.drop) ? edit.drop.filter((i) => typeof i === "string") : [] }, doc.state.viewModel) : undefined;
+      case "layout": {
+        // Sliding a pin the diagram does not store yet: the pin's node is added (parent: its action) and takes the position.
+        let base = cur;
+        let boxes = Array.isArray(edit.boxes) ? edit.boxes : undefined;
+        if (boxes?.some((b) => typeof b?.id === "string" && b.id.startsWith("pin:"))) {
+          const m = materializePins(cur, boxes, doc.state.viewModel, this.model.index, this.opts(doc).sourceOf);
+          base = m.doc;
+          boxes = m.boxes;
+        }
+        edit = { ...edit, boxes: boxes ?? [] };
+        next = Array.isArray(edit.boxes) ? applyBoxPatches(base, edit.boxes, { routes: Array.isArray(edit.routes) ? edit.routes : [], drop: Array.isArray(edit.drop) ? edit.drop.filter((i) => typeof i === "string") : [] }, doc.state.viewModel) : undefined;
         label = edit.label === "Resize" ? "Resize" : edit.label === "Nudge" ? "Nudge" : "Move";
         break;
+      }
       case "autoLayout":
         next = Array.isArray(edit.boxes) ? applyAutoLayout(cur, edit.boxes, Array.isArray(edit.edges) ? edit.edges : []) : undefined;
         label = "Auto-layout";
@@ -587,6 +677,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         return;
       }
       case "connect": {
+        if (intent.relation === "flow") return this.drawFlow(doc, actions, intent.sourceId, intent.targetId, origin);
         const a = this.targetOf(doc, intent.sourceId);
         const b = this.targetOf(doc, intent.targetId);
         if (!a || !b) return this.notice(doc, "Both ends of a connection must be resolved elements.");
@@ -658,6 +749,24 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         else this.rerender(doc);
         return;
       }
+      case "nest": {
+        const t = this.targetOf(doc, intent.id);
+        let owner: Element | undefined;
+        if (intent.targetId !== undefined) owner = this.targetOf(doc, intent.targetId)?.element;
+        else {
+          // Out onto the canvas: the diagram's root, or the root's owner when the element already sits in the root.
+          const rootEl = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
+          owner = rootEl && t?.element.owner === rootEl ? rootEl.owner : rootEl;
+        }
+        if (!t || !owner) {
+          this.notice(doc, "The element or the target could not be found; it may be unresolved.");
+          return this.rerender(doc);
+        }
+        const r = await actions.report(await actions.service.nest(t, owner, origin), "Moved");
+        if (!r.ok) this.notice(doc, r.reason);
+        this.rerender(doc);
+        return;
+      }
       case "goToDefinition": {
         const t = this.targetOf(doc, intent.id);
         if (!t) return;
@@ -704,6 +813,36 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     }
     const shown = await actions.report(r, `Added ${relation}`);
     if (!shown.ok) return this.notice(doc, shown.reason);
+    const fresh = (doc.state.doc?.edges ?? []).filter((e) => !known.has(e.id)).map((e) => e.id);
+    if (fresh.length) this.selectIds(doc, [fresh[fresh.length - 1]!]);
+  }
+
+  /** A flow drawn from the pin of one action to the pin of another: `flow from a.x to b.y;` in the action that holds both. */
+  private async drawFlow(doc: SysmlDiagramDocument, actions: ModelActions, sourceId: string, targetId: string, origin: { diagram: string }): Promise<void> {
+    const vm = doc.state.viewModel?.nodes ?? [];
+    const end = (id: string): { action: Element; pin: string } | undefined => {
+      const n = vm.find((x) => x.id === id);
+      const action = n?.pin && n.attachedTo !== undefined ? this.targetOf(doc, n.attachedTo)?.element : undefined;
+      return action && n ? { action, pin: n.label } : undefined;
+    };
+    const a = end(sourceId), b = end(targetId);
+    if (!a || !b) return this.notice(doc, "A flow connects two parameter pins: start on an output pin and end on an input pin.");
+    if (vm.find((x) => x.id === sourceId)?.pin?.direction === "in" || vm.find((x) => x.id === targetId)?.pin?.direction === "out") return this.notice(doc, "A flow runs from an output pin to an input pin.");
+    const owner = commonOwner(a.action, b.action);
+    if (!owner) return this.notice(doc, "These two actions have no common owner on this diagram, so there is nowhere to put the flow.");
+    const path = (e: { action: Element; pin: string }): string | undefined => {
+      const names: string[] = [];
+      for (let x: Element | undefined = e.action; x && x !== owner; x = x.owner) {
+        if (x.name === undefined) return undefined;
+        names.unshift(/^[A-Za-z_][A-Za-z0-9_]*$/.test(x.name) ? x.name : `'${x.name.replace(/[\\']/g, (c) => "\\" + c)}'`);
+      }
+      return [...names, /^[A-Za-z_][A-Za-z0-9_]*$/.test(e.pin) ? e.pin : `'${e.pin}'`].join(".");
+    };
+    const from = path(a), to = path(b);
+    if (!from || !to) return this.notice(doc, "An action on the way has no name, so the flow end cannot be written.");
+    const known = new Set((doc.state.doc?.edges ?? []).map((e) => e.id));
+    const r = await actions.report(await actions.service.addFlow(owner, from, to, { ...origin, placement: { diagram: origin.diagram } }), "Added flow");
+    if (!r.ok) return this.notice(doc, r.reason);
     const fresh = (doc.state.doc?.edges ?? []).filter((e) => !known.has(e.id)).map((e) => e.id);
     if (fresh.length) this.selectIds(doc, [fresh[fresh.length - 1]!]);
   }
@@ -899,6 +1038,14 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
 
   private async followRename(doc: SysmlDiagramDocument, updates: NonNullable<ReturnType<typeof refresh>>["updates"]): Promise<void> {
     try {
+      if (doc.pending) {
+        if (doc.state.doc && updates?.length) {
+          doc.state.doc = applyUpdates(doc.state.doc, updates);
+          doc.state.follows.push([...updates]);
+          this.rerender(doc);
+        }
+        return;
+      }
       const disk = await vscode.workspace.fs.readFile(doc.uri).then((b) => decoder.decode(b), () => undefined);
       const prev = { disk: doc.state.disk, raw: doc.state.raw };
       const r = followRename(doc.state, updates ?? [], disk);
@@ -1111,7 +1258,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     state: (uri) => {
       const d = this.docs.get(uri.toString());
       if (!d) throw new Error("diagram is not open");
-      return { errorPage: !d.state.doc, dirty: d.state.dirty, problems: d.state.problems ?? [], ...(d.state.doc ? { doc: d.state.doc } : {}) };
+      return { errorPage: !d.state.doc, dirty: d.state.dirty, pending: d.pending, problems: d.state.problems ?? [], ...(d.state.doc ? { doc: d.state.doc } : {}) };
     },
     errors: () => [...this.errorLog],
   };

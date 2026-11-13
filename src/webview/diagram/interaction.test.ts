@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiagramEdit } from "../../diagram/protocol.js";
 import type { Box } from "./geometry.js";
-import { GRID, Interaction, Scene, handleAt, hitTest, planMove, planResize, rubberBand, snap, tabOrder, type InteractionHost, type PointerInput, type SceneItem } from "./interaction.js";
+import { GRID, Interaction, dropTargetAt, Scene, handleAt, hitTest, planMove, planResize, rubberBand, snap, tabOrder, type InteractionHost, type PointerInput, type SceneItem } from "./interaction.js";
 
 /** A container (parent) with a child and a port, plus a free node. Absolute origin of the container is (100, 100). */
 function scene(): Scene {
@@ -232,5 +232,52 @@ describe("Interaction", () => {
     t.ia.setSelection(["kid", "free"]);
     t.ia.setScene(new Scene(scene().items.filter((i) => i.id !== "kid")));
     expect(t.ia.selection).toEqual(["free"]);
+  });
+});
+
+describe("nesting by dropping", () => {
+  const item = (id: string, abs: Box, extra: Partial<SceneItem> = {}): SceneItem => ({ id, rel: abs, abs, min: { w: 60, h: 40 }, headerH: 30, ...extra });
+  const states = () =>
+    new Scene([
+      item("big", { x: 100, y: 100, w: 300, h: 200 }, { nest: "state", movable: true }),
+      item("inner", { x: 120, y: 140, w: 80, h: 40 }, { parent: "big", nest: "state", movable: true }),
+      item("test", { x: 500, y: 100, w: 80, h: 40 }, { nest: "state", movable: true }),
+      item("part", { x: 500, y: 300, w: 80, h: 40 }, { nest: "part", movable: true }),
+      item("inh", { x: 500, y: 400, w: 80, h: 40 }, { nest: "state", movable: false }),
+    ]);
+  it("targets a node of the same family under the pointer", () => {
+    expect(dropTargetAt(states(), "test", { x: 300, y: 250 })).toEqual({ id: "big" });
+  });
+  it("does not target a node of another family, the owner it already has, or itself", () => {
+    const s = states();
+    expect(dropTargetAt(s, "part", { x: 300, y: 250 })).toBeUndefined();
+    expect(dropTargetAt(s, "inner", { x: 300, y: 250 })).toBeUndefined();
+    expect(dropTargetAt(s, "test", { x: 540, y: 120 })).toBeUndefined();
+  });
+  it("targets the way out when a nested node is released over nothing", () => {
+    expect(dropTargetAt(states(), "inner", { x: 700, y: 600 })).toEqual({});
+    expect(dropTargetAt(states(), "test", { x: 700, y: 600 })).toBeUndefined();
+  });
+  it("does not move inherited nodes", () => {
+    expect(dropTargetAt(states(), "inh", { x: 300, y: 250 })).toBeUndefined();
+  });
+  it("ends a drag on a target as a model edit, not a layout edit", () => {
+    const nests: [string, string | undefined][] = [];
+    const edits: DiagramEdit[] = [];
+    const targets: (string | undefined)[] = [];
+    const ia = new Interaction({
+      onSelection: () => {}, onPreview: () => {}, onEdit: (e) => edits.push(e), onPan: () => {}, onPanEnd: () => {}, onMenu: () => {}, zoom: () => 1,
+      setTimer: () => 0, clearTimer: () => {},
+      onDropTarget: (t) => targets.push(t?.id), onNest: (id, t) => nests.push([id, t]),
+    });
+    ia.setScene(states());
+    const p = (x: number, y: number): PointerInput => ({ x, y, sx: x, sy: y, button: 0, shift: false, mod: false, space: false });
+    ia.pointerDown(p(540, 120));
+    ia.pointerMove(p(300, 250));
+    expect(targets.at(-1)).toBe("big");
+    ia.pointerUp(p(300, 250));
+    expect(nests).toEqual([["test", "big"]]);
+    expect(edits).toEqual([]);
+    expect(targets.at(-1)).toBeUndefined();
   });
 });

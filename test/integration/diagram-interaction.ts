@@ -173,14 +173,17 @@ export function interactionTests(c: Ctx): Test[] {
       const f = "tmp-contain.sysmld";
       const m0 = await metrics(f);
       const cont = nodeOf(m0, "n0");
-      await gesture(f, { kind: "drag", id: "n1", dx: -2000, dy: -2000 });
+      // the pointer stays over the container: releasing outside it would move the declaration out (nesting by dropping)
+      const k0 = nodeOf(m0, "n1");
+      await gesture(f, { kind: "drag", id: "n1", dx: Math.round(cont.x + 3 - (k0.x + k0.w / 2)), dy: Math.round(cont.y + 3 - (k0.y + k0.h / 2)) });
       await waitFor(() => dirty(f), 5000, "the clamped move is still an edit");
       await settled(f);
       const m = await metrics(f);
       assert.strictEqual(m.outsideParent, 0, "no child outside its parent");
       const k = nodeOf(m, "n1");
       assert.ok(k.x >= cont.x && k.y >= cont.y && k.x + k.w <= cont.x + cont.w && k.y + k.h <= cont.y + cont.h, "the child stays inside");
-      await gesture(f, { kind: "drag", id: "n2", dx: 5000, dy: 5000 });
+      const k2 = nodeOf(await metrics(f), "n2");
+      await gesture(f, { kind: "drag", id: "n2", dx: Math.round(cont.x + cont.w - 3 - (k2.x + k2.w / 2)), dy: Math.round(cont.y + cont.h - 3 - (k2.y + k2.h / 2)) });
       await settled(f);
       const m2 = await metrics(f);
       assert.strictEqual(m2.outsideParent, 0);
@@ -564,24 +567,30 @@ export function interactionTests(c: Ctx): Test[] {
         assert.deepStrictEqual(asked, ["General View", "Interconnection View", "Requirements View"]);
         assert.strictEqual(path.basename(uri.fsPath), "Car.sysmld");
         assert.strictEqual(path.dirname(uri.fsPath), path.dirname(vehicleFile(folder)), "next to the element's source file");
+        assert.ok(!existsSync(uri.fsPath), "nothing is written until the diagram is saved");
+        const name = path.basename(uri.fsPath);
+        await c.eventually(async () => assert.deepStrictEqual((await metrics(name)).nodes.map((n) => n.id), ["n1", "n2", "n3"]), "it opens showing the element and its direct members");
+        assert.strictEqual(api.diagram.state(uri).pending, true);
+        assert.strictEqual(api.diagram.state(uri).dirty, false, "the generated layout does not dirty it");
+        const m = await metrics(name);
+        assert.ok(m.nodes[0]!.text?.includes("Car"));
+        assert.strictEqual(m.overlaps, 0);
+        await api.diagram.save(uri);
+        assert.strictEqual(api.diagram.state(uri).pending, false);
         const written = JSON.parse(readFileSync(uri.fsPath, "utf8")) as DiagramDoc;
         assert.strictEqual(written.version, 1);
         assert.strictEqual(written.kind, "general");
         assert.strictEqual(written.root, "Vehicle::Car");
         assert.deepStrictEqual(written.nodes.map((n) => n.ref), ["Vehicle::Car", "Vehicle::Car::engine", "Vehicle::Car::wheels"]);
-        assert.ok(written.nodes.every((n) => n.x === undefined), "no positions are written");
-        const name = path.basename(uri.fsPath);
-        await c.eventually(async () => assert.deepStrictEqual((await metrics(name)).nodes.map((n) => n.id), ["n1", "n2", "n3"]), "it opens showing the element and its direct members");
-        const m = await metrics(name);
-        assert.ok(m.nodes[0]!.text?.includes("Car"));
-        assert.strictEqual(m.overlaps, 0);
         await close();
         // a second diagram of the same element gets another name
         const again = (await vscode.commands.executeCommand("sysml.newDiagram", car)) as vscode.Uri;
         created.push(again.fsPath);
         assert.strictEqual(path.basename(again.fsPath), "Car 2.sysmld");
+        assert.ok(!existsSync(again.fsPath), "the second one is not written either");
         assert.ok(readFileSync(uri.fsPath).length > 0, "the first file is untouched");
         await close();
+        assert.ok(!existsSync(again.fsPath), "closing it untouched leaves no file");
         // from the command palette: the element is picked
         api.diagram.setUi({
           pick: async (items: PickItem[]) => items.find((i) => i.description === "Ports::Drivetrain") ?? items.find((i) => i.label === "Interconnection View"),
@@ -591,7 +600,8 @@ export function interactionTests(c: Ctx): Test[] {
         created.push(viaPalette.fsPath);
         assert.strictEqual(path.basename(viaPalette.fsPath), "Drivetrain.sysmld");
         assert.strictEqual(path.dirname(viaPalette.fsPath), folder.fsPath.replace(/\/$/, ""), "next to ports.sysml");
-        assert.strictEqual((JSON.parse(readFileSync(viaPalette.fsPath, "utf8")) as DiagramDoc).kind, "interconnection");
+        await c.eventually(async () => assert.ok((await metrics(path.basename(viaPalette.fsPath))).nodes.length > 0), "the palette-created diagram renders");
+        assert.strictEqual((api.diagram.state(viaPalette).doc as DiagramDoc).kind, "interconnection");
       } finally {
         api.diagram.setUi(undefined);
         await close();
