@@ -177,14 +177,20 @@ export class VsCodeModelHost implements ModelHost {
     return { written, failed, skipped };
   }
 
-  recordUndoEntry(origin: string, result: OpOk): void {
+  recordUndoEntry(origin: string, description: string, result: Promise<OpOk | undefined>): void {
     const svc = this.service;
     if (!svc) return;
     this.diagrams.recordModelEdit(
       vscode.Uri.parse(origin),
-      result.description,
-      async () => void (await svc.undo(result)),
-      async () => void (await svc.redo(result)),
+      description,
+      async () => {
+        const r = await result;
+        if (r) await svc.undo(r);
+      },
+      async () => {
+        const r = await result;
+        if (r) await svc.redo(r);
+      },
     );
   }
 }

@@ -59,6 +59,20 @@ describe("ModelService operations", () => {
     expect(r.diagramFiles).toEqual(["file:///w/d.sysmld"]);
   });
 
+  test("the undo entry is recorded as soon as the text changed, before the diagram files are updated, and settles to the result", async () => {
+    const { host, svc, q } = setup(true);
+    const force = host.forceDiagramChange.bind(host);
+    let entriesWhileForcing = -1;
+    host.forceDiagramChange = async (change, mode) => {
+      entriesWhileForcing = host.entries.length;
+      return force(change, mode);
+    };
+    const r = ok(await svc.addElement(q("Model::Vehicle"), { kind: "part", name: "wheel" }, { placement: { diagram: "file:///w/d.sysmld", parentNode: "n1", x: 30, y: 40 }, diagram: "file:///w/d.sysmld" }));
+    expect(entriesWhileForcing).toBe(1);
+    expect(host.entries[0]!.description).toBe(r.description);
+    expect(await host.entries[0]!.result).toBe(r);
+  });
+
   test("undo reverts text and diagram, redo repeats both; a changed text skips the text revert with a warning", async () => {
     const { host, svc, q } = setup(true);
     const r = ok(await svc.addElement(q("Model::Vehicle"), { kind: "part", name: "wheel" }, { placement: { diagram: "file:///w/d.sysmld", x: 1, y: 2 } }));
