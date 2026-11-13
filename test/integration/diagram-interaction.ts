@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { DiagramDoc, Gesture, Metrics, MNode, ModelNode, PickItem, TestApi } from "./index.js";
+import { viaLm, viaMcp } from "./diagram-agent.js";
 import { elementRoots } from "./tree-util.js";
 
 type Test = [name: string, fn: () => Promise<void>];
@@ -234,6 +235,132 @@ export function interactionTests(c: Ctx): Test[] {
       // the toolbar button is the same code path: it posts one autoLayout edit
       await waitFor(() => c.tabDirty(uriOf(f)) === false, 5000, "the tab is clean again");
     })],
+
+    ["Auto-layout of a selection moves only the selected nodes and leaves no overlaps", withCopy("ports-general.sysmld", "tmp-auto-sel.sysmld", async () => {
+      const f = "tmp-auto-sel.sysmld";
+      const before = JSON.stringify(doc(f));
+      const picked = ["n1", "n2", "n3"];
+      const prior = new Map(doc(f).nodes.map((n) => [n.id, JSON.stringify(n)] as const));
+      await gesture(f, { kind: "select", id: "n1" });
+      await gesture(f, { kind: "select", id: "n2", shift: true });
+      await gesture(f, { kind: "select", id: "n3", shift: true });
+      await c.eventually(async () => assert.deepStrictEqual([...(await metrics(f)).selected].sort(), picked), "three nodes are selected");
+      await vscode.commands.executeCommand("sysml.diagram.autoLayout");
+      await waitFor(() => dirty(f), 10000, "Auto-layout dirties the diagram");
+      for (const n of doc(f).nodes) {
+        if (picked.includes(n.id)) continue;
+        assert.strictEqual(JSON.stringify(n), prior.get(n.id), `${n.id} was not selected and stays where it is`);
+      }
+      assert.ok(picked.some((id) => JSON.stringify(node(f, id)) !== prior.get(id)), "a selected node was laid out again");
+      await settled(f);
+      const m = await metrics(f);
+      assert.strictEqual(m.overlaps, 0, "no overlaps");
+      assert.strictEqual(m.diagonalSegments, 0, "lines are still orthogonal");
+      assert.strictEqual(m.edgesThroughEndNodes, 0, "no line runs through the node it ends at");
+      for (const e of m.edges) {
+        const through = m.nodes.filter((n) => n.id !== e.source && n.id !== e.target && !n.parent && e.points.some((p, i) => i > 0 && Math.min(e.points[i - 1]!.x, p.x) < n.x + n.w && Math.max(e.points[i - 1]!.x, p.x) > n.x && Math.min(e.points[i - 1]!.y, p.y) < n.y + n.h && Math.max(e.points[i - 1]!.y, p.y) > n.y));
+        assert.deepStrictEqual(through.map((n) => n.id), [], `line ${e.id} crosses no unrelated node`);
+      }
+      await isUndone(f, before);
+    })],
+
+    ["the editor context follows the pointer and the selection, through both channels", withCopy("drivetrain-interconnection.sysmld", "tmp-ctx.sysmld", async () => {
+      const f = "tmp-ctx.sysmld";
+      const ctxOf = async (via: "lm" | "mcp") => {
+        const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
+        assert.strictEqual(r.isError, false, r.text);
+        return JSON.parse(r.text) as { activeDiagram: { path: string; kind: string; root: string; focused: boolean } | null; hovered: { id: string; type: string; element?: { qualifiedName?: string; locator?: unknown } } | null; selected: { id: string }[]; openDiagrams: string[] };
+      };
+      const both = async (check: (r: Awaited<ReturnType<typeof ctxOf>>) => void, what: string) => {
+        for (const via of ["lm", "mcp"] as const) await c.eventually(async () => { const r = await ctxOf(via); try { check(r); } catch (e) { throw new Error(JSON.stringify(r) + " " + String(e)); } }, `${what} (${via})`, 5000);
+      };
+      await both((r) => {
+        assert.deepStrictEqual(r.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain", focused: true });
+        assert.strictEqual(r.hovered, null);
+        assert.deepStrictEqual(r.selected, []);
+      }, "the active diagram with nothing under the pointer");
+      await gesture(f, { kind: "hover", id: "n1" });
+      await both((r) => {
+        assert.strictEqual(r.hovered?.id, "n1");
+        assert.strictEqual(r.hovered?.type, "node");
+        assert.strictEqual(r.hovered?.element?.qualifiedName, "Ports::Drivetrain::battery");
+      }, "a hovered node");
+      await gesture(f, { kind: "hover", id: "e1" });
+      await both((r) => {
+        assert.strictEqual(r.hovered?.id, "e1");
+        assert.strictEqual(r.hovered?.type, "edge");
+        assert.ok(r.hovered?.element?.locator, "an unnamed statement carries a locator");
+      }, "a hovered line");
+      await gesture(f, { kind: "select", id: "n2" });
+      await both((r) => assert.deepStrictEqual(r.selected.map((s) => s.id), ["n2"]), "the selection");
+      await gesture(f, { kind: "hover" });
+      await both((r) => assert.strictEqual(r.hovered, null), "hover cleared when the pointer leaves");
+    })],
+
+    ["an agent layout lays out the whole diagram even when the user has a selection", withCopy("ports-general.sysmld", "tmp-agent-whole.sysmld", async () => {
+      const f = "tmp-agent-whole.sysmld";
+      const prior = new Map(doc(f).nodes.map((n) => [n.id, JSON.stringify(n)] as const));
+      await gesture(f, { kind: "select", id: "n1" });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).selected, ["n1"]), "n1 is selected");
+      const r = await viaLm("sysml_layout_diagram", { path: f });
+      assert.strictEqual(r.isError, false, r.text);
+      await waitFor(() => dirty(f), 10000, "the layout dirties the diagram");
+      assert.ok(doc(f).nodes.some((n) => n.id !== "n1" && JSON.stringify(n) !== prior.get(n.id)), "unselected nodes were laid out too");
+    })],
+
+    ["the pointer's hover is cleared on the host when the panel is hidden", withCopy("drivetrain-interconnection.sysmld", "tmp-hide.sysmld", async () => {
+      const f = "tmp-hide.sysmld";
+      await gesture(f, { kind: "hover", id: "n1" });
+      await waitFor(() => api.diagram.hoverOf(uriOf(f)) === "n1", 5000, "the hover reaches the host");
+      await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uriOf("ports.sysml")), { viewColumn: vscode.ViewColumn.Active, preview: false });
+      await waitFor(() => api.diagram.hoverOf(uriOf(f)) === undefined, 5000, "the hover is cleared when the panel is hidden");
+      assert.strictEqual(JSON.parse((await viaMcp(api, "sysml_get_editor_context", {})).text).activeDiagram, null, "no diagram is visible");
+    })],
+
+    ["the editor context keeps the last active diagram, unfocused, while the user is in another editor group", withCopy("drivetrain-interconnection.sysmld", "tmp-chat.sysmld", async () => {
+      const f = "tmp-chat.sysmld";
+      await gesture(f, { kind: "select", id: "n2" });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).selected, ["n2"]), "n2 is selected");
+      const text = await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uriOf("ports.sysml")), { viewColumn: vscode.ViewColumn.Beside, preserveFocus: false, preview: false });
+      try {
+        // Focus must really be in the other group before the tool is asked.
+        await waitFor(() => {
+          const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+          return vscode.window.activeTextEditor === text && tab?.input instanceof vscode.TabInputText && tab.group.viewColumn === text.viewColumn;
+        }, 10000, "the text editor in the other group is the active tab");
+        assert.strictEqual(vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.input instanceof vscode.TabInputCustom && t.group !== vscode.window.tabGroups.activeTabGroup)), true, "the diagram stays open in its own group");
+        for (const via of ["lm", "mcp"] as const) {
+          await c.eventually(async () => {
+            // A webview that gains focus (late focus handling after the select gesture) makes its own group active again; keep the user in the text editor.
+            if (!(vscode.window.tabGroups.activeTabGroup.activeTab?.input instanceof vscode.TabInputText)) await vscode.window.showTextDocument(text.document, { viewColumn: text.viewColumn, preserveFocus: false, preview: false });
+            const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
+            const j = JSON.parse(r.text) as { activeDiagram: { path: string; focused: boolean } | null; selected: { id: string }[] };
+            const at = vscode.window.tabGroups.activeTabGroup.activeTab;
+            assert.deepStrictEqual(j.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain", focused: false }, `active tab: ${at?.label} ${at?.input?.constructor?.name} group ${at?.group.viewColumn}; groups ${vscode.window.tabGroups.all.map((g) => `${g.viewColumn}:${g.isActive}:${g.tabs.map((t) => t.label + (t.isActive ? "*" : "")).join(",")}`).join(" | ")}`);
+            assert.deepStrictEqual(j.selected.map((x) => x.id), ["n2"]);
+          }, `the unfocused diagram (${via})`, 5000);
+        }
+      } finally {
+        await close();
+      }
+    })],
+
+    ["the editor context has no active diagram when another editor is active", async () => {
+      await close();
+      const doc2 = await vscode.workspace.openTextDocument(uriOf("ports.sysml"));
+      await vscode.window.showTextDocument(doc2);
+      try {
+        for (const via of ["lm", "mcp"] as const) {
+          const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
+          const j = JSON.parse(r.text) as { activeDiagram: unknown; hovered: unknown; selected: unknown[] };
+          assert.strictEqual(j.activeDiagram, null);
+          assert.strictEqual(j.hovered, null);
+          assert.deepStrictEqual(j.selected, []);
+        }
+      } finally {
+        await close();
+      }
+    }],
 
     ["keyboard: Tab selects nodes with an accessible name, Ctrl+A selects all, arrows nudge one grid step, Escape clears", withCopy("ports-general.sysmld", "tmp-keys.sysmld", async () => {
       const f = "tmp-keys.sysmld";

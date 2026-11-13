@@ -32,7 +32,7 @@ describe("diagram tool definitions", () => {
   it("the write tools are marked not read-only, the others read-only", () => {
     const writes = toolDefinitions.filter((t) => !t.readOnly).map((t) => t.name).sort();
     expect(writes).toEqual(["sysml_add_to_diagram", "sysml_create_diagram", "sysml_create_element", "sysml_create_relationship", "sysml_create_requirement", "sysml_delete_element", "sysml_layout_diagram", "sysml_remove_from_diagram", "sysml_rename_element", "sysml_set_element_properties", "sysml_set_transition"]);
-    expect(toolDefinitions.filter((t) => t.readOnly).map((t) => t.name)).toEqual(["sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate", "sysml_list_diagrams", "sysml_read_diagram", "sysml_read_requirements_document"]);
+    expect(toolDefinitions.filter((t) => t.readOnly).map((t) => t.name)).toEqual(["sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate", "sysml_list_diagrams", "sysml_read_diagram", "sysml_get_editor_context", "sysml_read_requirements_document"]);
     for (const t of toolDefinitions) expect(t.description.length).toBeGreaterThan(80);
   });
   it("validates paths", () => {
@@ -193,5 +193,57 @@ describe("sysml_add_to_diagram, sysml_remove_from_diagram and sysml_layout_diagr
     await ok(ctx, "sysml_list_diagrams");
     await ok(ctx, "sysml_read_diagram", { path: "ports-general.sysmld" });
     expect(serializeDiagram(diagrams.files.get("ports-general.sysmld") as DiagramDocument)).toBe(serializeDiagram(diagram("ports-general.sysmld")));
+  });
+});
+
+describe("sysml_get_editor_context", () => {
+  it("is none when no diagram editor is active, and still lists open diagrams", async () => {
+    const { ctx, diagrams } = setup();
+    diagrams.editor = { open: ["b.sysmld"] };
+    expect(await ok(ctx, "sysml_get_editor_context")).toEqual({ activeDiagram: null, hovered: null, selected: [], openDiagrams: ["b.sysmld"] });
+  });
+  it("identifies the hovered and selected items of the active diagram", async () => {
+    const { ctx, diagrams } = setup();
+    const d = diagram("ports-general.sysmld");
+    const [a, b] = d.nodes;
+    diagrams.open.add("ports-general.sysmld");
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: a!.id, selection: [b!.id, "gone"] }, open: ["z.sysmld", "y.sysmld"] };
+    const r = await ok(ctx, "sysml_get_editor_context");
+    expect(r.activeDiagram).toEqual({ path: "ports-general.sysmld", kind: d.kind, root: d.root, focused: true });
+    expect(r.hovered).toMatchObject({ id: a!.id, type: "node", resolved: true });
+    expect(r.hovered.element.qualifiedName).toBeTruthy();
+    expect(r.selected.map((x: any) => x.id)).toEqual([b!.id, "gone"]);
+    expect(r.selected[1]).toEqual({ id: "gone", resolved: false });
+    expect(r.openDiagrams).toEqual(["y.sysmld", "z.sysmld"]);
+  });
+  it("reports a hovered line as an edge", async () => {
+    const { ctx, diagrams } = setup();
+    const e = diagram("ports-general.sysmld").edges[0];
+    if (!e) return;
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: e.id, selection: [] }, open: [] };
+    expect((await ok(ctx, "sysml_get_editor_context")).hovered).toMatchObject({ id: e.id, type: "edge" });
+  });
+});
+
+describe("sysml_get_editor_context, derived lines", () => {
+  it("describes a derived line by its relationship and ends", async () => {
+    const { ctx, diagrams } = setup();
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: "d:composition:n4:n5", selection: [] }, open: [] };
+    expect((await ok(ctx, "sysml_get_editor_context")).hovered).toEqual({ id: "d:composition:n4:n5", type: "edge", derived: true, relationship: "composition", source: "n4", target: "n5", resolved: true });
+  });
+});
+
+describe("sysml_get_editor_context, focus and unknown ids", () => {
+  it("reports focused false for a visible diagram that is not in the active tab", async () => {
+    const { ctx, diagrams } = setup();
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: false, selection: [] }, open: [] };
+    expect((await ok(ctx, "sysml_get_editor_context")).activeDiagram).toMatchObject({ path: "ports-general.sysmld", focused: false });
+  });
+  it("answers resolved false for ids that are not in the view", async () => {
+    const { ctx, diagrams } = setup();
+    diagrams.editor = { active: { path: "ports-general.sysmld", focused: true, hover: "d:composition:n9:n8", selection: ["nope"] }, open: [] };
+    const r = await ok(ctx, "sysml_get_editor_context");
+    expect(r.hovered).toEqual({ id: "d:composition:n9:n8", resolved: false });
+    expect(r.selected).toEqual([{ id: "nope", resolved: false }]);
   });
 });

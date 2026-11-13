@@ -84,6 +84,10 @@ interface Panel {
   pageKey?: string;
   /** Hash of the last view model posted. */
   lastHash?: string;
+  /** Node or edge id under the pointer, as last reported by this panel's webview. */
+  hover?: string;
+  /** Ids selected in this panel, as last reported. */
+  selection: string[];
 }
 
 interface Pending {
@@ -106,6 +110,8 @@ export interface DiagramTestApi {
   setUi(ui: Partial<DiagramUi> | undefined): void;
   /** The diagram editor that is active now. */
   activeUri(): string | undefined;
+  /** The id the panel's webview last reported under the pointer. */
+  hoverOf(uri: vscode.Uri): string | undefined;
   /** Writes the in-memory document in canonical form, as Save would. */
   save(uri: vscode.Uri): Promise<void>;
   /** Applies a move of nodes as one user edit (undoable, dirties the document). */
@@ -125,6 +131,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   private readonly subs: vscode.Disposable[] = [];
   private readonly errorLog: string[] = [];
   private requestId = 0;
+  /** The diagram panel that was active last, for when the active tab is not a diagram (the user is in the chat). */
+  private lastActive?: { doc: SysmlDiagramDocument; p: Panel };
   private renderCount = 0;
   private timer?: ReturnType<typeof setTimeout>;
   ui: DiagramUi = defaultUi;
@@ -272,13 +280,19 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const webview = webviewPanel.webview;
     webview.options = { enableScripts: true, localResourceRoots: [root] };
     const key = doc.key;
-    const p: Panel = { panel: webviewPanel, ready: false };
+    const p: Panel = { panel: webviewPanel, ready: false, selection: [] };
     this.panels.set(key, (this.panels.get(key) ?? new Set()).add(p));
     webviewPanel.onDidDispose(() => {
       const set = this.panels.get(key);
       set?.delete(p);
       if (set && !set.size) this.panels.delete(key);
     });
+    // Hover belongs to the pointer: a hidden or inactive panel has none.
+    webviewPanel.onDidChangeViewState(() => {
+      if (webviewPanel.active) this.lastActive = { doc, p };
+      if (!webviewPanel.visible && p.hover !== undefined) { p.hover = undefined; this.post(p, { type: "resetHover" }); }
+    });
+    if (webviewPanel.active) this.lastActive = { doc, p };
     webview.onDidReceiveMessage((m: WebviewToHost) => this.onMessage(doc, p, m));
     this.syncPage(doc, p);
     // The model must have loaded before references can resolve.
@@ -358,7 +372,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         else this.userEdit(doc, m.edit);
         if (m.edit?.kind === "autoLayout") this.layoutDone(doc);
         break;
+      case "hover":
+        p.hover = typeof m.id === "string" && this.inView(doc, m.id) ? m.id : undefined;
+        break;
       case "selection":
+        p.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string" && this.inView(doc, i)) : [];
         doc.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
         this.followSelection(doc);
         break;
@@ -757,10 +775,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   }
 
   /** Ask the active (or given) diagram's webview to run a command. */
-  runCommand(doc: SysmlDiagramDocument | undefined, name: DiagramCommand): boolean {
+  runCommand(doc: SysmlDiagramDocument | undefined, name: DiagramCommand, whole = false): boolean {
     const p = [...(this.panels.get(doc?.key ?? "") ?? [])].find((x) => x.ready);
     if (!p) return false;
-    this.post(p, { type: "command", name });
+    this.post(p, { type: "command", name, ...(whole ? { whole: true } : {}) });
     return true;
   }
 
@@ -867,6 +885,12 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     }
   }
 
+  /** The id names a node or line of the diagram as drawn (cheap: the view model is at hand). */
+  private inView(doc: SysmlDiagramDocument, id: string): boolean {
+    const vm = doc.state.viewModel;
+    return id.length > 0 && id.length <= 500 && (!vm || vm.nodes.some((n) => n.id === id) || vm.edges.some((e) => e.id === id));
+  }
+
   private post(p: Panel, m: HostToWebview): void {
     void p.panel.webview.postMessage(m);
   }
@@ -876,6 +900,26 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   /** The document open in an editor for `uri`, if any. */
   openDocument(uri: vscode.Uri): SysmlDiagramDocument | undefined {
     return this.docs.get(uri.toString());
+  }
+
+  /**
+   * What the user is looking at: the diagram in the active tab, else the diagram panel that was active last if it is still visible
+   * (`focused` says which), with its hover and selection, and the other open diagrams.
+   */
+  editorState(): { active?: { uri: string; focused: boolean; hover?: string; selection: string[] }; open: string[] } {
+    let doc = this.activeDocument();
+    let focused = true;
+    let p: Panel | undefined;
+    if (doc) {
+      const panels = [...(this.panels.get(doc.key) ?? [])];
+      p = panels.find((x) => x.panel.active && x.panel.visible) ?? panels.find((x) => x.panel.visible);
+    } else {
+      const last = this.lastActive;
+      if (last && this.panels.get(last.doc.key)?.has(last.p) && last.p.panel.visible) { doc = last.doc; p = last.p; focused = false; }
+    }
+    const open = [...this.docs.keys()].filter((k) => k !== doc?.key);
+    if (!doc) return { open };
+    return { active: { uri: doc.key, focused, ...(p?.hover !== undefined ? { hover: p.hover } : {}), selection: [...(p?.selection ?? doc.selection)] }, open };
   }
 
   /** URIs of the diagrams open in editors. */
@@ -935,7 +979,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, localResourceRoots: [root], retainContextWhenHidden: true },
     );
-    const p: Panel = { panel, ready: false };
+    const p: Panel = { panel, ready: false, selection: [] };
     this.panels.set(key, new Set([p]));
     const subs = [panel.webview.onDidReceiveMessage((m: WebviewToHost) => this.onMessage(doc, p, m)), panel.onDidDispose(() => this.panels.delete(key))];
     try {
@@ -968,7 +1012,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       timer = setTimeout(() => reject(new Error(`the diagram editor did not finish the layout in ${RENDER_TIMEOUT_MS} ms${this.errorSuffix()}`)), RENDER_TIMEOUT_MS);
     });
     try {
-      if (!this.runCommand(doc, "autoLayout")) throw new Error("the diagram editor is not ready");
+      if (!this.runCommand(doc, "autoLayout", true)) throw new Error("the diagram editor is not ready");
       await done;
     } finally {
       clearTimeout(timer);
@@ -1019,6 +1063,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     },
     setUi: (ui) => { this.ui = ui ? { ...defaultUi, ...ui } : defaultUi; },
     activeUri: () => this.activeDocument()?.uri.toString(),
+    hoverOf: (uri) => [...(this.panels.get(uri.toString()) ?? [])].map((x) => x.hover).find((h) => h !== undefined),
     edit: (uri, moves) => {
       const d = this.docs.get(uri.toString());
       if (!d?.state.doc) throw new Error("diagram is not open or not parsed");

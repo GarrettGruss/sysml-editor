@@ -4,6 +4,7 @@ import type { DiagramEdit, HostToWebview, NodeBox, PngTheme, WebviewToHost } fro
 import type { ViewModel } from "../../diagram/view-model.js";
 import { FONT_FAMILY, FONT_SIZE, SMALL_SIZE, type Measure, type TextStyle } from "./geometry.js";
 import { layoutDiagram, type ElkLike } from "./layout.js";
+import { layoutSelection } from "./selection-layout.js";
 import { SvgRenderer, type View } from "./renderer.js";
 import { exportBackground } from "./svg.js";
 
@@ -37,6 +38,7 @@ const renderer = new SvgRenderer(document.body, measure, {
   onView: (view) => vscode.setState({ view }),
   onEdit: (edit: DiagramEdit) => post({ type: "edit", edit, ...(generation !== undefined ? { generation } : {}) }),
   onSelection: (ids) => post({ type: "selection", ids }),
+  onHover: (id) => hoverReport(id),
   onRelink: (id) => post({ type: "relink", id }),
   onDrop: (names) => post({ type: "dropElements", names }),
   onModel: (intent) => post({ type: "model", intent, ...(generation !== undefined ? { generation } : {}) }),
@@ -47,12 +49,27 @@ const renderer = new SvgRenderer(document.body, measure, {
   }),
 });
 let suggestId = 0;
+/** Hover reports are throttled (leading edge, then at most one per 100 ms); the last state always goes out. */
+const HOVER_MS = 100;
+let hoverSent = Date.now() - HOVER_MS;
+let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+let hoverNow: string | undefined;
+function hoverReport(id: string | undefined): void {
+  hoverNow = id;
+  if (hoverTimer !== undefined) return;
+  const wait = Math.max(0, hoverSent + HOVER_MS - Date.now());
+  hoverTimer = setTimeout(() => {
+    hoverTimer = undefined;
+    hoverSent = Date.now();
+    post({ type: "hover", ...(hoverNow !== undefined ? { id: hoverNow } : {}) });
+  }, wait);
+}
 const suggestions = new Map<number, (items: { name: string; qualifiedName: string; library: boolean }[]) => void>();
 let first = true;
 let queue: Promise<void> = Promise.resolve();
 let current: ViewModel | undefined;
 /** Where every node was last drawn (relative to its parent): a node the host has not stored a position for yet keeps it across re-renders. */
-let lastBoxes = new Map<string, { x: number; y: number }>();
+let lastBoxes = new Map<string, { x: number; y: number; w: number; h: number }>();
 
 function withKnownPositions(vm: ViewModel): ViewModel {
   return {
@@ -71,7 +88,7 @@ async function render(vm: ViewModel, gen: number): Promise<void> {
   const layout = await layoutDiagram(withKnownPositions(vm), elk, measure);
   renderer.render(vm, layout);
   generation = gen;
-  lastBoxes = new Map([...layout.boxes].map(([id, b]) => [id, { x: b.x, y: b.y }]));
+  lastBoxes = new Map([...layout.boxes].map(([id, b]) => [id, { x: b.x, y: b.y, w: b.w, h: b.h }]));
   if (first) {
     first = false;
     if (saved?.view) renderer.setView(saved.view);
@@ -84,11 +101,16 @@ async function render(vm: ViewModel, gen: number): Promise<void> {
   }
 }
 
-/** Auto-layout: everything is laid out again, ignoring stored positions and routes, and sent as one edit. */
-async function autoLayout(): Promise<void> {
+/** Auto-layout: the selected nodes, or everything when none is selected, are laid out again and sent as one edit. */
+async function autoLayout(whole = false): Promise<void> {
   const vm = current;
   if (!vm) return;
   const gen = generation;
+  const part = whole ? undefined : await layoutSelection(vm, renderer.ia.selection, lastBoxes, elk, measure);
+  if (part) {
+    post({ type: "edit", edit: { kind: "autoLayout", boxes: part.boxes, edges: part.edges }, ...(gen !== undefined ? { generation: gen } : {}) });
+    return;
+  }
   const stripped: ViewModel = {
     ...vm,
     nodes: vm.nodes.map(({ geometry: _g, ...n }) => n),
@@ -117,7 +139,7 @@ function toolbar(): void {
   add("Fit", "Fit diagram to window", () => renderer.fit());
   add("+", "Zoom in", () => renderer.zoomBy(1.25));
   add("\u2212", "Zoom out", () => renderer.zoomBy(0.8));
-  add("Auto-layout", "Auto-layout: arrange all elements again", () => void autoLayout().catch(fail));
+  add("Auto-layout", "Auto-layout: arrange the selected elements again (all of them when none is selected)", () => void autoLayout().catch(fail));
   add("Show Element\u2026", "Show an existing model element on this diagram", () => post({ type: "showElement" }));
   document.body.append(bar);
 }
@@ -206,9 +228,12 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
+    case "resetHover":
+      renderer.resetHover();
+      break;
     case "command":
       queue = queue.then(async () => {
-        if (m.name === "autoLayout") await autoLayout();
+        if (m.name === "autoLayout") await autoLayout(m.whole === true);
         else if (m.name === "fit") renderer.fit();
         else if (m.name === "zoomIn") renderer.zoomBy(1.25);
         else if (m.name === "zoomOut") renderer.zoomBy(0.8);

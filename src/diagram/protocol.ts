@@ -114,6 +114,8 @@ export type TestGesture =
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   /** Edit a field of the properties panel as the user would: sets the value and fires `change`. */
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
+  /** Move the pointer over a node or line (no button pressed), or off the diagram when `id` is absent. */
+  | { kind: "hover"; id?: string }
   | { kind: "flush" };
 
 export type HostToWebview =
@@ -121,7 +123,10 @@ export type HostToWebview =
   | { type: "render"; viewModel: ViewModel; generation: number }
   | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number; /** Test artifact: the editor window with the palette and properties panel drawn from the live DOM, in the editor's own theme. */ panels?: boolean }
   | { type: "getMetrics"; requestId: number }
-  | { type: "command"; name: DiagramCommand }
+  /** `whole`: Auto-layout lays out the whole diagram even when nodes are selected (the agent tool). */
+  | { type: "command"; name: DiagramCommand; whole?: boolean }
+  /** The host cleared its hover state: the webview reports its next hover even when it is unchanged. */
+  | { type: "resetHover" }
   | { type: "select"; ids: string[] }
   | { type: "testGesture"; requestId: number; gesture: TestGesture }
   | { type: "typeSuggestionsResult"; requestId: number; items: { name: string; qualifiedName: string; library: boolean }[] }
@@ -209,6 +214,8 @@ export type WebviewToHost =
   /** `generation` is that of the last render the edit was made on. */
   | { type: "edit"; edit: DiagramEdit; generation?: number }
   | { type: "selection"; ids: string[] }
+  /** The node or edge id under the pointer; `id` absent when the pointer left the diagram. Throttled by the webview. */
+  | { type: "hover"; id?: string }
   | { type: "relink"; id: string }
   | { type: "model"; intent: ModelIntent; generation?: number }
   /** Completion for the type field of the properties panel. */

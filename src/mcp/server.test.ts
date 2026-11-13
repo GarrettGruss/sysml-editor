@@ -45,6 +45,7 @@ const INPUTS: Record<string, unknown> = {
   sysml_add_to_diagram: { path: "ports-general.sysmld", elements: ["Ports::Power"] },
   sysml_remove_from_diagram: { path: "ports-general.sysmld", ids: ["n3"] },
   sysml_layout_diagram: { path: "ports-general.sysmld" },
+  sysml_get_editor_context: {},
   sysml_create_element: { owner: "P::Car", kind: "part", name: "wheel", type: "Engine" },
   sysml_delete_element: { element: "P::Car::engine" },
   sysml_rename_element: { element: "P::Engine", newName: "Motor" },
