@@ -376,7 +376,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         if (m.generation !== doc.state.generation) {
           this.log(`diagram: dropped an edit from generation ${String(m.generation)} (document is at ${doc.state.generation})`);
           this.post(p, { type: "editRejected" });
-        } else if (!this.userEdit(doc, m.edit)) this.post(p, { type: "editRejected" });
+        } else this.post(p, { type: this.userEdit(doc, m.edit) ? "editApplied" : "editRejected" });
         if (m.edit?.kind === "autoLayout") this.layoutDone(doc);
         break;
       case "hover":
@@ -823,7 +823,6 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (r.vanished && !doc.renderOnly) void this.dropVanished(doc, r.vanished);
     if (r.restore && !doc.renderOnly) void this.restoreDropped(doc, r.restore);
     if (!doc.renderOnly && !doc.rootChecked && [...(this.panels.get(doc.key) ?? [])].some((p) => p.ready)) {
-      doc.rootChecked = true;
       void this.checkRoot(doc).catch((e) => this.fail("Check root", e));
     }
     for (const p of this.panels.get(doc.key) ?? []) {
@@ -846,7 +845,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const d = doc.state.doc;
     if (!d) return;
     const root = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
-    const problem = root && rootProblem(d.kind, root);
+    // Not resolved yet (the model is still loading): the next render asks again.
+    if (!root) return;
+    doc.rootChecked = true;
+    const problem = rootProblem(d.kind, root);
     if (!problem) return;
     const change = "Change root", convert = "Convert to General";
     const pick = await this.ui.choose(`${problem} Change the root or convert the diagram to a General View.`, [change, convert]);
@@ -854,12 +856,16 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (!cur || cur.root !== d.root) return;
     if (pick === convert) this.edit(doc, { ...cur, kind: "general" }, "Convert to General View");
     else if (pick === change) {
-      const items = listElements(this.model.index).filter((e) => !rootProblem(cur.kind, e)).map((e) => ({ label: e.name ?? "", description: e.qualifiedName ?? "", detail: e.kind }));
+      const items = listElements(this.model.index).filter((e) => e.qualifiedName !== undefined && !isLibraryUri(e.uri) && !rootProblem(cur.kind, e)).map((e) => ({ label: e.name ?? "", description: e.qualifiedName ?? "", detail: e.kind }));
       const chosen = await this.ui.pick(items, { title: "Change root", placeHolder: "Choose an element this diagram can show", matchOnDescription: true });
       if (!chosen) return;
       const latest = doc.state.doc;
       if (!latest || latest.root !== d.root) return;
-      this.edit(doc, { ...latest, root: chosen.description, nodes: latest.nodes.map((n) => (n.ref === latest.root ? { ...n, ref: chosen.description } : n)) }, "Change root");
+      const index = this.model.index, opts = this.opts(doc);
+      const oldRoot = resolveReference({ ref: latest.root }, latest, index, opts);
+      // The root's own node is found by the element it resolves to, not by the stored text.
+      const isRoot = (n: (typeof latest.nodes)[number]) => n.ref === latest.root || (oldRoot !== undefined && n.ref !== undefined && resolveReference(n, latest, index, opts) === oldRoot);
+      this.edit(doc, { ...latest, root: chosen.description, nodes: latest.nodes.map((n) => (isRoot(n) ? { ...n, ref: chosen.description } : n)) }, "Change root");
     }
   }
 

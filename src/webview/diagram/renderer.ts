@@ -227,7 +227,10 @@ export class SvgRenderer implements DiagramRenderer {
     const ids = [...(this.selectedEdge !== undefined ? [this.selectedEdge] : []), ...this.drawn.labels.keys()];
     // A label over a node only takes the press when its line is selected, so it never steals clicks, drags or connections from the node.
     // Labels are drawn above nodes, so the label under the press wins; only the enlarged handle area needs its line selected.
-    return ids.find((id) => { const l = this.labelOf(id); return l !== undefined && labelHit(l.box, p, this.view.k, id === this.selectedEdge) !== undefined; });
+    // Where a port or a node's resize handle is under the point, an unselected line's label does not take the press.
+    const top = hit(this.scene, p);
+    const portOrHandle = (top !== undefined && this.scene.get(top)?.owner !== undefined) || this.ia.handleAt(p) !== undefined;
+    return ids.find((id) => { const l = this.labelOf(id); return l !== undefined && (id === this.selectedEdge || !portOrHandle) && labelHit(l.box, p, this.view.k, id === this.selectedEdge) !== undefined; });
   }
 
   /** A move or resize edit also carries the stored routes of the lines at the changed nodes, adjusted (or to be dropped), so the file holds what is drawn. */
@@ -517,6 +520,10 @@ export class SvgRenderer implements DiagramRenderer {
       const at = this.toInput(e, 0);
       const line = this.edgeHit(at);
       const id = hit(this.scene, at);
+      // A double-click on a line's label is not a rename of the node under it.
+      const lab = this.labelAtPoint(at);
+      if (lab !== undefined && lab !== this.selectedEdge) return;
+      if (lab !== undefined && id !== undefined) return;
       // A node under the point is renamed; a line adds a bend where no node is, or inside a container only when the line is selected.
       if (line !== undefined && (id === undefined || line === this.selectedEdge)) { this.bendAt(line, at); return; }
       if (id !== undefined) this.openEditor(id);
@@ -580,7 +587,7 @@ export class SvgRenderer implements DiagramRenderer {
         return;
       }
       // With nothing selected the arrow keys pan the view; with a selection they nudge it (below). Not while a text field has focus.
-      const pan = this.ia.selection.length === 0 && this.selectedEdge === undefined && this.editor === undefined ? arrowPan(e.key, e.shiftKey) : undefined;
+      const pan = this.ia.selection.length === 0 && this.editor === undefined ? arrowPan(e.key, e.shiftKey) : undefined;
       if (pan && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
         this.autoFit = false;
         this.view = { ...this.view, x: this.view.x + pan.dx, y: this.view.y + pan.dy };

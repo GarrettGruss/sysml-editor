@@ -139,7 +139,9 @@ export type HostToWebview =
   /** A model edit was refused or failed; shown in the properties panel as well as in a notification. */
   | { type: "notice"; message: string }
   /** The host did not apply the last diagram edit (stale or refused): the webview draws the committed state again. */
-  | { type: "editRejected" };
+  | { type: "editRejected" }
+  /** The host applied the last diagram edit; sent after any render it caused, so a preview is dropped even when the drawing did not change. */
+  | { type: "editApplied" };
 
 /** Edges, in the metrics: absolute canvas coordinates. */
 export interface MetricsEdge {

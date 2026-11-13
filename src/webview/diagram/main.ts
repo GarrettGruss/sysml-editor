@@ -247,8 +247,10 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       suggestions.get(m.requestId)?.(m.items);
       suggestions.delete(m.requestId);
       break;
+    case "editApplied":
     case "editRejected":
-      renderer.editRejected();
+      // After any render the edit caused (the queue keeps the order): the preview is dropped and the committed state drawn.
+      queue = queue.then(() => renderer.editRejected()).catch(fail);
       break;
     case "notice":
       renderer.tools.notice(m.message);

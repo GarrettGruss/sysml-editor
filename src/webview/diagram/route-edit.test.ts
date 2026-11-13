@@ -185,3 +185,25 @@ describe("drag around nodes (test to Packaged)", () => {
     expect(s.length).toBeLessThan(loop.length);
   });
 });
+
+describe("exact routes", () => {
+  const T = { x: 0, y: 0, w: 120, h: 80 };
+  const P = { x: 320, y: 140, w: 140, h: 80 };
+  const R = [{ x: 120, y: 40 }, { x: 220, y: 40 }, { x: 220, y: 180 }, { x: 320, y: 180 }];
+  it("segment dragged past the node: leaves its left side and runs around", () => {
+    expect(dragSegment(R, 1, -300, T, P)).toEqual([{ x: 0, y: 40 }, { x: -80, y: 40 }, { x: -80, y: 180 }, { x: 320, y: 180 }]);
+  });
+  it("bend dragged beside the node: leaves through the bottom, three points", () => {
+    expect(dragBend(R, 1, -150, 90, T, P)).toEqual([{ x: 70, y: 80 }, { x: 70, y: 180 }, { x: 320, y: 180 }]);
+  });
+  it("a loop is cut at its crossing", () => {
+    const loop = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 50, y: 50 }, { x: 50, y: -50 }, { x: 200, y: -50 }];
+    expect(simplify(loop)).toEqual([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: -50 }, { x: 200, y: -50 }]);
+  });
+  it("a route running back over itself is not simple and is simplified", () => {
+    const ov = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 10 }, { x: 50, y: 10 }, { x: 50, y: 0 }, { x: 150, y: 0 }];
+    expect(isSimple(ov)).toBe(false);
+    expect(simplify(ov)).toEqual([{ x: 0, y: 0 }, { x: 150, y: 0 }]);
+    expect(isSimple([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 10 }, { x: 50, y: 10 }])).toBe(true);
+  });
+});

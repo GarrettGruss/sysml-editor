@@ -44,7 +44,14 @@ function dragRaw(pts: readonly Pt[], i: number, d: number, src: Box, tgt: Box): 
 /** Crossing point of two segments that are perpendicular or share a line only in a point, if any. */
 function crossing(a: Pt, b: Pt, c: Pt, d: Pt): Pt | undefined {
   const ah = isHorizontal(a, b), ch = isHorizontal(c, d);
-  if (ah === ch) return undefined;
+  if (ah === ch) {
+    // Parallel segments on one line whose spans overlap run over each other.
+    const same = ah ? eq(a.y, c.y) : eq(a.x, c.x);
+    if (!same) return undefined;
+    const lo = ah ? Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) : Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y));
+    const hi = ah ? Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) : Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y));
+    return lo <= hi + 0.01 ? (ah ? { x: lo, y: a.y } : { x: a.x, y: lo }) : undefined;
+  }
   const [h0, h1, v0, v1] = ah ? [a, b, c, d] : [c, d, a, b];
   const x = v0.x, y = h0.y;
   const inH = x >= Math.min(h0.x, h1.x) - 0.01 && x <= Math.max(h0.x, h1.x) + 0.01;
@@ -78,13 +85,21 @@ export function isSimple(pts: readonly Pt[]): boolean {
 }
 
 /** The ends of a (dragged) route attached to the nearer side of their nodes. */
-function reattach(input: readonly Pt[], src: Box, tgt: Box): Pt[] | undefined {
-  const pts = clean(input.map((p) => ({ ...p })));
+function reattach(input: readonly Pt[], src: Box, tgt: Box, head: boolean, tail: boolean): Pt[] | undefined {
+  let pts = clean(input.map((p) => ({ ...p })));
   if (pts.length < 3) return undefined;
-  const head = repairStart(pts, src);
-  if (!head) return undefined;
-  const tail = repairStart(clean([...head]).reverse(), tgt);
-  return tail && clean(tail.reverse());
+  // Only an end the drag touched is attached again; the other end stays where the user left it.
+  if (head) {
+    const h = repairStart(pts, src);
+    if (!h) return undefined;
+    pts = clean(h);
+  }
+  if (tail) {
+    const t = repairStart([...pts].reverse(), tgt);
+    if (!t) return undefined;
+    pts = clean(t.reverse());
+  }
+  return pts;
 }
 
 /** The simplest valid route among the candidates (fewest points, the first wins ties), or the first valid one with `firstWins`. */
@@ -100,7 +115,7 @@ export function dragSegment(pts: readonly Pt[], i: number, d: number, src: Box, 
   const horiz = isHorizontal(pts[i]!, pts[i + 1]!);
   const naive = pts.map((p, k) => (k === i || k === i + 1 ? (horiz ? { x: p.x, y: p.y + d } : { x: p.x + d, y: p.y }) : { ...p }));
   // The route that keeps its end points and goes around the node wins; the others are for when that one does not fit.
-  return pick([stub, naive, reattach(naive, src, tgt)], src, tgt, true) ?? clean(stub);
+  return pick([stub, naive, reattach(naive, src, tgt, i <= 1, i >= pts.length - 3)], src, tgt, true) ?? clean(stub);
 }
 
 /** Move the bend point `k` (an inner point) by (dx, dy): the corner follows the pointer, the two segments meeting there stretch and the corner flips when it crosses over. */
@@ -115,7 +130,7 @@ export function dragBend(pts: readonly Pt[], k: number, dx: number, dy: number, 
     if (j === k + 1) return first ? { x: p.x + dx, y: p.y } : { x: p.x, y: p.y + dy };
     return { ...p };
   });
-  return pick([stub, naive, reattach(naive, src, tgt)], src, tgt) ?? clean(stub);
+  return pick([stub, naive, reattach(naive, src, tgt, k <= 2, k >= pts.length - 3)], src, tgt) ?? clean(stub);
 }
 
 /** Distance from `p` to the segment `a`-`b`, and the nearest point on it. */
