@@ -114,6 +114,7 @@ export type Gesture =
   | { kind: "labelMenu"; id: string; action: "reset" | "wrap" }
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
+  | { kind: "hover"; id?: string }
   | { kind: "flush" };
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
 export interface Metrics {
@@ -361,7 +362,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 18; // four model read tools, six diagram tools, six model edit tools (one sets a transition) and two requirements tools
+  const TOOL_COUNT = 19; // four model read tools, seven diagram tools (one reads the editor context), six model edit tools (one sets a transition) and two requirements tools
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {

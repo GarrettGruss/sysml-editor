@@ -40,8 +40,8 @@
 
 ## 6. Layout editing additions
 
-- [ ] 6.1 Auto-layout of the selection only (unselected nodes fixed, crossing lines re-routed); whole diagram when nothing is selected; verify with metrics and an integration test
+- [x] 6.1 Auto-layout of the selection only (unselected nodes fixed, crossing lines re-routed); whole diagram when nothing is selected; verify with metrics and an integration test
 - [x] 6.2 Draggable orthogonal line routes (draw.io conventions): segment drag, end segments routed around their node when dragged past it, bend points added by double-click or segment-midpoint handles, collinear bends removed; derived lines and sequence messages fixed; stored as `points`, saved with the layout; verify with unit tests of the route geometry and integration tests
 - [x] 6.3 Adjustable line labels: move and resize by handle, wrapping by default, right-click menu "Reset Position and Size" and "Wrap Text"; stored in the diagram file as layout; document the format in `docs/diagram-format.md`; verify with unit and integration tests
-- [ ] 6.4 Agent tool `sysml_get_editor_context`: active diagram, element under the pointer (nodes and lines; cleared when the pointer leaves), selection, and other open diagrams; the webview reports hover and selection changes to the host (throttled); read-only, both channels, manifest and `docs/agents.md` updated; verify with unit tests and an integration test that hovers a node and a line through the webview test hooks
+- [x] 6.4 Agent tool `sysml_get_editor_context`: active diagram, element under the pointer (nodes and lines; cleared when the pointer leaves), selection, and other open diagrams; the webview reports hover and selection changes to the host (throttled); read-only, both channels, manifest and `docs/agents.md` updated; verify with unit tests and an integration test that hovers a node and a line through the webview test hooks
 

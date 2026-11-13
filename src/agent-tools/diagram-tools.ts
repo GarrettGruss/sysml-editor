@@ -267,4 +267,42 @@ const layoutDiagram: ToolDefinition = {
   },
 };
 
-export const diagramToolDefinitions: readonly ToolDefinition[] = [listDiagrams, readDiagram, createDiagramTool, addToDiagram, removeFromDiagram, layoutDiagram];
+// ------------------------------------------------------------------ sysml_get_editor_context
+
+const getEditorContext: ToolDefinition = {
+  name: "sysml_get_editor_context",
+  description:
+    "Read what the user is looking at in the diagram editor right now: the active diagram, the node or line under the pointer, the selected elements and the other open diagrams. " +
+    "Use it to resolve \"this\", \"here\" or \"the selected part\" in the user's request. Returns JSON { activeDiagram: { path, kind, root } | null, hovered: item | null, selected: item[], openDiagrams: string[] }. " +
+    "`activeDiagram` is null when no diagram editor is the active tab (then `hovered` is null and `selected` is empty). Each item is { id, type: node | edge, element?, resolved } as in sysml_read_diagram (a line the view derives from the model, such as typing or composition, has `derived: true` with its relationship and end node ids instead of an element): " +
+    "`id` is the diagram node or edge id; `element` has the qualified name (or, for an unnamed statement such as a succession, a locator) to use with the other tools. " +
+    "`hovered` is cleared when the pointer leaves the diagram or the tab is hidden or inactive. `openDiagrams` lists the other diagrams open in editors. Read-only.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  readOnly: true,
+  async handler(_input, ctx) {
+    const svc = service(ctx);
+    const st = svc.editorState();
+    const openDiagrams = [...st.open].sort();
+    if (!st.active) return json({ activeDiagram: null, hovered: null, selected: [], openDiagrams });
+    const c = await svc.read(st.active.path);
+    const d = describeDiagram(c.doc, ctx.index, { sourceOf: c.sourceOf });
+    const items = new Map<string, Record<string, unknown>>();
+    for (const n of d.nodes) items.set(n.id, { id: n.id, type: "node", element: n.element, resolved: n.resolved });
+    for (const e of d.edges) items.set(e.id, { id: e.id, type: "edge", element: e.element, resolved: e.resolved });
+    const item = (id: string) => {
+      const known = items.get(id);
+      if (known) return known;
+      // A line the view derives from the model (typing, composition, ...) is not stored in the diagram: `d:<relationship>:<source>:<target>`.
+      const m = /^d:([^:]+):(.+):([^:]+)$/.exec(id);
+      return m ? { id, type: "edge", derived: true, relationship: m[1], source: m[2], target: m[3], resolved: true } : { id, resolved: false };
+    };
+    return json({
+      activeDiagram: { path: c.path, kind: c.doc.kind, root: c.doc.root },
+      hovered: st.active.hover !== undefined ? item(st.active.hover) : null,
+      selected: st.active.selection.map(item),
+      openDiagrams,
+    });
+  },
+};
+
+export const diagramToolDefinitions: readonly ToolDefinition[] = [listDiagrams, readDiagram, createDiagramTool, addToDiagram, removeFromDiagram, layoutDiagram, getEditorContext];

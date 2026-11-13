@@ -51,7 +51,7 @@ A `.sysmld` file opens in a graphical editor: a General View, an Interconnection
 | `Show in Diagram` (`sysml.showInDiagram`) | Tree context menu. Lists the `.sysmld` files in the workspace that show the element, opens the chosen one and selects the node. |
 | `Add to Active Diagram` (`sysml.addToActiveDiagram`) | Tree context menu, enabled while a diagram editor is active. Adds the element as a node (inside the node of its owner in an Interconnection View when that is shown, otherwise at top level), with relationship edges to elements already shown. |
 | `SysML: Show Element on Diagram…` (`sysml.diagram.showElement`, toolbar **Show Element…**) | Quick pick of the model's named elements; the chosen one is added like above. |
-| `SysML: Auto-layout Diagram` (`sysml.diagram.autoLayout`, toolbar **Auto-layout**) | Lays out every node again, ignoring stored positions. |
+| `SysML: Auto-layout Diagram` (`sysml.diagram.autoLayout`, toolbar **Auto-layout**) | Lays out the selected nodes again (and the lines among them), keeping them near where they were and clear of the other nodes; with nothing selected, every node. Other nodes keep their positions. |
 
 **Mouse**: click selects, Shift-click toggles, Shift-drag on the background selects with a rubber band, drag moves (children move with their container and cannot leave it; ports slide along their owner's border), drag a handle of a selected node to resize (not below its content, nor under its nested nodes). Drag the background, use the middle button or hold Space and drag to pan. Ctrl/Cmd + wheel zooms, the wheel pans; the toolbar has **Fit**, zoom in and out. Right-click a node for **Remove from Diagram**; on an unresolved item also **Re-link…**.
 Positions and sizes snap to an 8 px grid. A drag or resize is one edit when you release the button.
@@ -101,4 +101,4 @@ offers Satisfy, Verify and Derivation tools, and agents get `sysml_read_requirem
 
 ## AI agents
 
-Agents can read and validate the open SysML model, edit diagrams and edit the model (create, delete, rename, change properties, connect and satisfy) through Language Model Tools and MCP (the behaviour views included: actions, states, successions, transitions, messages); model edits go through the same operations as the tree and the diagrams, are saved at once, are one undo step and are refused in untrusted workspaces. See [docs/agents.md](docs/agents.md).
+Agents can read and validate the open SysML model, edit diagrams and edit the model (create, delete, rename, change properties, connect and satisfy) through Language Model Tools and MCP (the behaviour views included: actions, states, successions, transitions, messages), and can ask what the user is looking at (`sysml_get_editor_context`: active diagram, hovered and selected elements); model edits go through the same operations as the tree and the diagrams, are saved at once, are one undo step and are refused in untrusted workspaces. See [docs/agents.md](docs/agents.md).

@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { entryExists, fsPathToToolPath, resolveToolPath, type FolderInfo } from "../agent-paths.js";
 import { validateDiagramPath } from "../agent-tools/diagram-tools.js";
-import { ToolError, type DiagramContent, type DiagramFileInfo, type DiagramImage, type DiagramService, type DiagramWriteResult } from "../agent-tools/types.js";
+import { ToolError, type DiagramContent, type EditorState, type DiagramFileInfo, type DiagramImage, type DiagramService, type DiagramWriteResult } from "../agent-tools/types.js";
 import { diagramTargetFolder, type DiagramFiles } from "./commands.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument } from "./format.js";
@@ -60,6 +60,13 @@ export class VsCodeDiagramService implements DiagramService {
     const uri = await this.toUri(path);
     if (!(await Promise.resolve(vscode.workspace.fs.stat(uri)).then(() => true, () => false))) throw new ToolError(`No diagram file "${path}". Use sysml_list_diagrams for the available paths.`);
     return uri.toString();
+  }
+
+  editorState(): EditorState {
+    const s = this.provider.editorState();
+    const a = s.active && this.toPath(vscode.Uri.parse(s.active.uri));
+    const open = s.open.flatMap((u) => this.toPath(vscode.Uri.parse(u)) ?? []).sort();
+    return a !== undefined && s.active ? { active: { path: a, ...(s.active.hover !== undefined ? { hover: s.active.hover } : {}), selection: s.active.selection }, open } : { open };
   }
 
   async list(): Promise<DiagramFileInfo[]> {

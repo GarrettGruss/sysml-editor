@@ -57,6 +57,13 @@ export interface DiagramWriteResult {
   path: string;
 }
 
+/** What the user is looking at, as the diagram editors report it. Ids are diagram node and edge ids. */
+export interface EditorState {
+  active?: { path: string; hover?: string; selection: string[] };
+  /** Workspace-relative paths of the other open diagrams. */
+  open: string[];
+}
+
 /**
  * What the diagram tools need from the editor. All paths are workspace-relative with forward slashes.
  * Methods throw `ToolError` for expected failures (missing file, invalid path, unparsed file).
@@ -72,6 +79,8 @@ export interface DiagramService {
   create(request: { path?: string; root: Element; make(sourceOf: SourceMapper): DiagramDocument }): Promise<DiagramWriteResult>;
   /** One edit: `change` returns the new document, or undefined for no change. Open diagram: undoable and unsaved; otherwise the file. */
   edit(path: string, label: string, change: (doc: DiagramDocument, sourceOf: SourceMapper) => DiagramDocument | undefined): Promise<DiagramWriteResult>;
+  /** The active diagram editor with the id under the pointer and the selected ids (diagram node and edge ids), and the paths of the other open diagrams. */
+  editorState(): EditorState;
   /** Open diagram: the Auto-layout command (undoable, unsaved). Closed: stored positions are cleared in the file. */
   layout(path: string): Promise<DiagramWriteResult>;
 }

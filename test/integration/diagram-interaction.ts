@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync,
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { DiagramDoc, Gesture, Metrics, MNode, ModelNode, PickItem, TestApi } from "./index.js";
+import { viaLm, viaMcp } from "./diagram-agent.js";
 import { elementRoots } from "./tree-util.js";
 
 type Test = [name: string, fn: () => Promise<void>];
@@ -234,6 +235,75 @@ export function interactionTests(c: Ctx): Test[] {
       // the toolbar button is the same code path: it posts one autoLayout edit
       await waitFor(() => c.tabDirty(uriOf(f)) === false, 5000, "the tab is clean again");
     })],
+
+    ["Auto-layout of a selection moves only the selected nodes and leaves no overlaps", withCopy("ports-general.sysmld", "tmp-auto-sel.sysmld", async () => {
+      const f = "tmp-auto-sel.sysmld";
+      const before = JSON.stringify(doc(f));
+      const picked = ["n1", "n2", "n3"];
+      const prior = new Map(doc(f).nodes.map((n) => [n.id, JSON.stringify(n)] as const));
+      await gesture(f, { kind: "select", id: "n1" });
+      await gesture(f, { kind: "select", id: "n2", shift: true });
+      await gesture(f, { kind: "select", id: "n3", shift: true });
+      await c.eventually(async () => assert.deepStrictEqual([...(await metrics(f)).selected].sort(), picked), "three nodes are selected");
+      await vscode.commands.executeCommand("sysml.diagram.autoLayout");
+      await waitFor(() => dirty(f), 10000, "Auto-layout dirties the diagram");
+      for (const n of doc(f).nodes) {
+        if (picked.includes(n.id)) continue;
+        assert.strictEqual(JSON.stringify(n), prior.get(n.id), `${n.id} was not selected and stays where it is`);
+      }
+      assert.ok(picked.some((id) => JSON.stringify(node(f, id)) !== prior.get(id)), "a selected node was laid out again");
+      await settled(f);
+      assert.strictEqual((await metrics(f)).overlaps, 0, "no overlaps");
+      await isUndone(f, before);
+    })],
+
+    ["the editor context follows the pointer and the selection, through both channels", withCopy("drivetrain-interconnection.sysmld", "tmp-ctx.sysmld", async () => {
+      const f = "tmp-ctx.sysmld";
+      const ctxOf = async (via: "lm" | "mcp") => {
+        const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
+        assert.strictEqual(r.isError, false, r.text);
+        return JSON.parse(r.text) as { activeDiagram: { path: string; kind: string; root: string } | null; hovered: { id: string; type: string; element?: { qualifiedName?: string; locator?: unknown } } | null; selected: { id: string }[]; openDiagrams: string[] };
+      };
+      const both = async (check: (r: Awaited<ReturnType<typeof ctxOf>>) => void, what: string, again?: Gesture) => {
+        for (const via of ["lm", "mcp"] as const) await c.eventually(async () => { if (again) await gesture(f, again); const r = await ctxOf(via); try { check(r); } catch (e) { throw new Error(JSON.stringify(r) + " " + String(e)); } }, `${what} (${via})`, 5000);
+      };
+      await both((r) => {
+        assert.deepStrictEqual(r.activeDiagram, { path: f, kind: "interconnection", root: "Ports::Drivetrain" });
+        assert.strictEqual(r.hovered, null);
+        assert.deepStrictEqual(r.selected, []);
+      }, "the active diagram with nothing under the pointer");
+      await both((r) => {
+        assert.strictEqual(r.hovered?.id, "n1");
+        assert.strictEqual(r.hovered?.type, "node");
+        assert.strictEqual(r.hovered?.element?.qualifiedName, "Ports::Drivetrain::battery");
+      }, "a hovered node", { kind: "hover", id: "n1" });
+      await both((r) => {
+        assert.strictEqual(r.hovered?.id, "e1");
+        assert.strictEqual(r.hovered?.type, "edge");
+        assert.ok(r.hovered?.element?.locator, "an unnamed statement carries a locator");
+      }, "a hovered line", { kind: "hover", id: "e1" });
+      await gesture(f, { kind: "select", id: "n2" });
+      await both((r) => assert.deepStrictEqual(r.selected.map((s) => s.id), ["n2"]), "the selection");
+      await gesture(f, { kind: "hover" });
+      await both((r) => assert.strictEqual(r.hovered, null), "hover cleared when the pointer leaves");
+    })],
+
+    ["the editor context has no active diagram when another editor is active", async () => {
+      await close();
+      const doc2 = await vscode.workspace.openTextDocument(uriOf("ports.sysml"));
+      await vscode.window.showTextDocument(doc2);
+      try {
+        for (const via of ["lm", "mcp"] as const) {
+          const r = via === "lm" ? await viaLm("sysml_get_editor_context", {}) : await viaMcp(api, "sysml_get_editor_context", {});
+          const j = JSON.parse(r.text) as { activeDiagram: unknown; hovered: unknown; selected: unknown[] };
+          assert.strictEqual(j.activeDiagram, null);
+          assert.strictEqual(j.hovered, null);
+          assert.deepStrictEqual(j.selected, []);
+        }
+      } finally {
+        await close();
+      }
+    }],
 
     ["keyboard: Tab selects nodes with an accessible name, Ctrl+A selects all, arrows nudge one grid step, Escape clears", withCopy("ports-general.sysmld", "tmp-keys.sysmld", async () => {
       const f = "tmp-keys.sysmld";

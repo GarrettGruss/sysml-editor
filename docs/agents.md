@@ -18,6 +18,7 @@ VS Code is open on that workspace.
 | `sysml_add_to_diagram` | Add elements (qualified names) to a diagram. |
 | `sysml_remove_from_diagram` | Remove nodes or edges (ids from `sysml_read_diagram`) from a diagram. |
 | `sysml_layout_diagram` | Arrange a diagram again (automatic layout). |
+| `sysml_get_editor_context` | What the user is looking at: the active diagram (path, kind, root), the node or line under the pointer, the selected elements (each identified by qualified name or locator plus the diagram node or edge id) and the other open diagrams. Read-only; `activeDiagram` is null when no diagram editor is active. |
 | `sysml_create_element` | Create an element (part, port, definition, ...) in an owner's `.sysml` source; optionally also place it on a diagram. |
 | `sysml_delete_element` | Delete an element from the model (its declaration and body, and its entries on every diagram). Not the same as removing it from a diagram. |
 | `sysml_rename_element` | Rename an element, every reference to it, and the diagram files that refer to it. |
@@ -27,7 +28,7 @@ VS Code is open on that workspace.
 | `sysml_create_requirement` | Create a requirement (or `requirement def`) with an optional id (`<'R1'>`) and documentation. |
 | `sysml_read_requirements_document` | Read a package as a specification document in Markdown: generated section numbers, table of contents, paragraphs, requirement items and appendices, each heading and requirement followed by a `<!-- qn: ... -->` marker with its qualified name. Read-only; output is cut at 60000 characters with a note. |
 
-Results are JSON text. The model tools (`sysml_list_files`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_validate`) never write
+Results are JSON text. The read-only tools (`sysml_list_files`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_validate`, `sysml_get_editor_context`) never write
 files. The four diagram write tools (`sysml_create_diagram`, `sysml_add_to_diagram`, `sysml_remove_from_diagram`,
 `sysml_layout_diagram`) change only `.sysmld` files, never the model or any `.sysml` file; they are marked as not read-only
 (`readOnlyHint: false` over MCP, the `edits-diagram` tag in the manifest).

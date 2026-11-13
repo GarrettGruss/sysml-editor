@@ -592,6 +592,23 @@
         }
       },
       {
+        "name": "sysml_get_editor_context",
+        "displayName": "SysML: Get Editor Context",
+        "modelDescription": "Read what the user is looking at in the diagram editor right now: the active diagram, the node or line under the pointer, the selected elements and the other open diagrams. Use it to resolve \"this\", \"here\" or \"the selected part\" in the user's request. Returns JSON { activeDiagram: { path, kind, root } | null, hovered: item | null, selected: item[], openDiagrams: string[] }. `activeDiagram` is null when no diagram editor is the active tab (then `hovered` is null and `selected` is empty). Each item is { id, type: node | edge, element?, resolved } as in sysml_read_diagram (a line the view derives from the model, such as typing or composition, has `derived: true` with its relationship and end node ids instead of an element): `id` is the diagram node or edge id; `element` has the qualified name (or, for an unnamed statement such as a succession, a locator) to use with the other tools. `hovered` is cleared when the pointer leaves the diagram or the tab is hidden or inactive. `openDiagrams` lists the other diagrams open in editors. Read-only.",
+        "toolReferenceName": "sysmlGetEditorContext",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
         "name": "sysml_create_element",
         "displayName": "SysML: Create Element",
         "modelDescription": "Create a new element in the model by inserting its declaration into the owner's .sysml source, exactly as the diagram palette and the tree's Add Child do (minimal text edit, indentation copied, a body created when the owner ends in `;`). `owner` is the qualified name of the package, definition or usage to add it to (a feature a usage only inherits cannot be the owner; add to the usage itself). `kind` is one of: package, part def, port def, attribute def, item def, action def, state def, requirement def, verification def, part, port, attribute, item, action, state, requirement, verification, fork, join, decide, merge. `state` and `state def` add states (inside a state or state definition they are nested states); `fork`, `join`, `decide` and `merge` add control nodes and are only allowed inside an action or action definition: give them a name, because successions refer to nodes by name. Optional `type` (qualified name or name of a definition of the matching kind; an import is added when needed), `multiplicity` (e.g. 0..1 or *), `shortName` and `documentation`. With `diagram`, a node for the new element is also placed on that diagram. The edit is applied directly, the file is saved, and the user can undo it in one step. Returns JSON with the new element's qualifiedName, the files changed and (with `diagram`) the placement. Refused for files with syntax errors, in an untrusted workspace and for names that already exist in the owner. Not for deleting (sysml_delete_element) or changing (sysml_set_element_properties).",

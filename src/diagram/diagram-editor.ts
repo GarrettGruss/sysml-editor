@@ -84,6 +84,10 @@ interface Panel {
   pageKey?: string;
   /** Hash of the last view model posted. */
   lastHash?: string;
+  /** Node or edge id under the pointer, as last reported by this panel's webview. */
+  hover?: string;
+  /** Ids selected in this panel, as last reported. */
+  selection: string[];
 }
 
 interface Pending {
@@ -272,13 +276,15 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     const webview = webviewPanel.webview;
     webview.options = { enableScripts: true, localResourceRoots: [root] };
     const key = doc.key;
-    const p: Panel = { panel: webviewPanel, ready: false };
+    const p: Panel = { panel: webviewPanel, ready: false, selection: [] };
     this.panels.set(key, (this.panels.get(key) ?? new Set()).add(p));
     webviewPanel.onDidDispose(() => {
       const set = this.panels.get(key);
       set?.delete(p);
       if (set && !set.size) this.panels.delete(key);
     });
+    // Hover belongs to the pointer: a hidden or inactive panel has none.
+    webviewPanel.onDidChangeViewState(() => { if (!webviewPanel.active || !webviewPanel.visible) p.hover = undefined; });
     webview.onDidReceiveMessage((m: WebviewToHost) => this.onMessage(doc, p, m));
     this.syncPage(doc, p);
     // The model must have loaded before references can resolve.
@@ -358,7 +364,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         else this.userEdit(doc, m.edit);
         if (m.edit?.kind === "autoLayout") this.layoutDone(doc);
         break;
+      case "hover":
+        p.hover = typeof m.id === "string" && m.id.length > 0 && m.id.length <= 500 ? m.id : undefined;
+        break;
       case "selection":
+        p.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
         doc.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
         this.followSelection(doc);
         break;
@@ -878,6 +888,16 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     return this.docs.get(uri.toString());
   }
 
+  /** What the user is looking at: the active diagram editor with its hover and selection, and the other open diagrams. */
+  editorState(): { active?: { uri: string; hover?: string; selection: string[] }; open: string[] } {
+    const doc = this.activeDocument();
+    const open = [...this.docs.keys()].filter((k) => k !== doc?.key);
+    if (!doc) return { open };
+    const panels = [...(this.panels.get(doc.key) ?? [])];
+    const p = panels.find((x) => x.panel.active && x.panel.visible) ?? panels.find((x) => x.panel.visible);
+    return { active: { uri: doc.key, ...(p?.hover !== undefined ? { hover: p.hover } : {}), selection: [...(p?.selection ?? doc.selection)] }, open };
+  }
+
   /** URIs of the diagrams open in editors. */
   openUris(): string[] {
     return [...this.docs.keys()];
@@ -935,7 +955,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
       { enableScripts: true, localResourceRoots: [root], retainContextWhenHidden: true },
     );
-    const p: Panel = { panel, ready: false };
+    const p: Panel = { panel, ready: false, selection: [] };
     this.panels.set(key, new Set([p]));
     const subs = [panel.webview.onDidReceiveMessage((m: WebviewToHost) => this.onMessage(doc, p, m)), panel.onDidDispose(() => this.panels.delete(key))];
     try {

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseDiagram, type DiagramDocument } from "../diagram/format.js";
 import { makeSourceMapper } from "../diagram/resolve.js";
-import { ToolError, type DiagramFileInfo, type DiagramImage, type DiagramService, type DiagramWriteResult } from "./types.js";
+import { ToolError, type DiagramFileInfo, type DiagramImage, type DiagramService, type EditorState, type DiagramWriteResult } from "./types.js";
 
 export const fixtures = resolve(__dirname, "../../test/fixtures/workspace-basic");
 export const fixtureText = (f: string) => readFileSync(resolve(fixtures, f), "utf8");
@@ -23,6 +23,8 @@ export class FakeDiagrams implements DiagramService {
   trusted = true;
   image: DiagramImage = { ok: true, png: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) };
   laidOut: string[] = [];
+  editor: EditorState = { open: [] };
+  editorState() { return this.editor; }
   isTrusted() { return this.trusted; }
   async list(): Promise<DiagramFileInfo[]> {
     return [...this.files].map(([path, d]) => (d === "invalid" ? { path, open: this.open.has(path), problems: [{ path: "", message: "not valid" }] } : { path, open: this.open.has(path), doc: d }));

@@ -114,6 +114,8 @@ export type TestGesture =
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   /** Edit a field of the properties panel as the user would: sets the value and fires `change`. */
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
+  /** Move the pointer over a node or line (no button pressed), or off the diagram when `id` is absent. */
+  | { kind: "hover"; id?: string }
   | { kind: "flush" };
 
 export type HostToWebview =
@@ -209,6 +211,8 @@ export type WebviewToHost =
   /** `generation` is that of the last render the edit was made on. */
   | { type: "edit"; edit: DiagramEdit; generation?: number }
   | { type: "selection"; ids: string[] }
+  /** The node or edge id under the pointer; `id` absent when the pointer left the diagram. Throttled by the webview. */
+  | { type: "hover"; id?: string }
   | { type: "relink"; id: string }
   | { type: "model"; intent: ModelIntent; generation?: number }
   /** Completion for the type field of the properties panel. */
