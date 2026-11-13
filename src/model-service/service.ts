@@ -102,9 +102,9 @@ export interface ModelHost {
   warn?(message: string, action?: { label: string; command: string }): void;
   /**
    * A model edit was made from a diagram: record one undo entry there, as soon as the text is changed. `result` settles
-   * when the operation is complete (undefined if it failed after the text was changed, in which case undo does nothing).
+   * when the operation is complete (to a text-only result if it failed after the text was changed).
    */
-  recordUndoEntry?(originDiagram: string, description: string, result: Promise<OpOk | undefined>): void;
+  recordUndoEntry?(originDiagram: string, description: string, result: Promise<OpOk>): void;
 }
 
 export interface ForceOutcome {
@@ -277,15 +277,17 @@ export class ModelService {
       // that belongs to the operation still happens, and the result says what was and was not saved.
       // The undo entry exists from the moment the text changed: an Undo pressed while the diagram files are still being
       // updated must reverse this edit, not the one before it. Its undo runs after this operation (they are serialized).
-      let settle!: (r: OpOk | undefined) => void;
-      const done = new Promise<OpOk | undefined>((r) => (settle = r));
-      if (origin?.diagram) this.host.recordUndoEntry?.(origin.diagram, p.description, done);
+      let settle!: (r: OpOk) => void;
+      const done = new Promise<OpOk>((r) => (settle = r));
+      if (origin?.diagram && p.edits.length > 0) this.host.recordUndoEntry?.(origin.diagram, p.description, done);
       try {
         const result = await this.finish(p, record, base, sources, outcome, hooks);
         settle(result);
         return result;
       } catch (e) {
-        settle(undefined);
+        // The text edit is saved but the rest failed: Undo still reverts the text (there is no diagram part to revert).
+        settle({ ok: true, description: p.description, files: [...base.keys()], record, diagramFiles: [] });
+        this.warn(`${p.description}: the text was changed, but the diagrams could not be updated (${e instanceof Error ? e.message : String(e)}); they may not match the model.`);
         throw e;
       }
     }

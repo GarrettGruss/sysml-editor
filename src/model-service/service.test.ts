@@ -73,6 +73,55 @@ describe("ModelService operations", () => {
     expect(await host.entries[0]!.result).toBe(r);
   });
 
+  test("undo and redo issued while the operation is still finishing wait for it, then revert and repeat text and diagram", async () => {
+    const { host, svc, q } = setup(true);
+    const force = host.forceDiagramChange.bind(host);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let first = true;
+    host.forceDiagramChange = async (change, mode) => {
+      if (first) {
+        first = false;
+        await gate;
+      }
+      return force(change, mode);
+    };
+    const wheelOnDiagram = () => host.diagramOnDisk("file:///w/d.sysmld").nodes.some((n) => n.ref?.endsWith("wheel"));
+    const op = svc.addElement(q("Model::Vehicle"), { kind: "part", name: "wheel" }, { placement: { diagram: "file:///w/d.sysmld", x: 1, y: 2 }, diagram: "file:///w/d.sysmld" });
+    while (host.entries.length === 0) await new Promise((r) => setTimeout(r, 0));
+    expect(host.buffers.get(URI)).toContain("part wheel;"); // the text is changed, the diagram not yet
+    expect(wheelOnDiagram()).toBe(false);
+    const entry = host.entries[0]!;
+    const undone = entry.result.then((r) => svc.undo(r));
+    const redone = undone.then(() => entry.result).then((r) => svc.redo(r));
+    release();
+    ok(await op);
+    expect((await undone).textReverted).toBe(true);
+    expect((await redone).textApplied).toBe(true);
+    expect(host.buffers.get(URI)).toContain("part wheel;");
+    expect(wheelOnDiagram()).toBe(true);
+    expect((await svc.undo(await entry.result)).textReverted).toBe(true);
+    expect(host.buffers.get(URI)).toBe(MODEL);
+    expect(host.disk.get(URI)).toBe(MODEL);
+    expect(wheelOnDiagram()).toBe(false);
+  });
+
+  test("an operation that fails after the text was saved still leaves an entry whose undo reverts the text, with a warning", async () => {
+    const { host, svc, q } = setup(true);
+    host.forceDiagramChange = async () => {
+      throw new Error("disk full");
+    };
+    await expect(svc.addElement(q("Model::Vehicle"), { kind: "part", name: "wheel" }, { placement: { diagram: "file:///w/d.sysmld", x: 1, y: 2 }, diagram: "file:///w/d.sysmld" })).rejects.toThrow("disk full");
+    expect(host.buffers.get(URI)).toContain("part wheel;");
+    expect(host.warnings.some((w) => /diagrams could not be updated \(disk full\)/.test(w.message))).toBe(true);
+    expect(host.entries).toHaveLength(1);
+    const r = await host.entries[0]!.result;
+    expect(r.diagramChange).toBeUndefined();
+    expect((await svc.undo(r)).textReverted).toBe(true);
+    expect(host.buffers.get(URI)).toBe(MODEL);
+    expect(host.disk.get(URI)).toBe(MODEL);
+  });
+
   test("undo reverts text and diagram, redo repeats both; a changed text skips the text revert with a warning", async () => {
     const { host, svc, q } = setup(true);
     const r = ok(await svc.addElement(q("Model::Vehicle"), { kind: "part", name: "wheel" }, { placement: { diagram: "file:///w/d.sysmld", x: 1, y: 2 } }));
