@@ -101,8 +101,11 @@ export interface ModelHost {
   editBlocker?(uri: string): string | undefined;
   /** Show the user a warning, with an optional action (a VS Code command). */
   warn?(message: string, action?: { label: string; command: string }): void;
-  /** A model edit was made from a diagram: record one undo entry there. */
-  recordUndoEntry?(originDiagram: string, result: OpOk): void;
+  /**
+   * A model edit was made from a diagram: record one undo entry there, as soon as the text is changed. `result` settles
+   * when the operation is complete (to a text-only result if it failed after the text was changed).
+   */
+  recordUndoEntry?(originDiagram: string, description: string, result: Promise<OpOk>): void;
 }
 
 export interface ForceOutcome {
@@ -273,6 +276,35 @@ export class ModelService {
       if (!outcome.ok) return fail(outcome.reason);
       // From here the edit IS applied (documents that could not be saved keep it as unsaved changes): everything
       // that belongs to the operation still happens, and the result says what was and was not saved.
+      // The undo entry exists from the moment the text changed: an Undo pressed while the diagram files are still being
+      // updated must reverse this edit, not the one before it. Its undo runs after this operation (they are serialized).
+      let settle!: (r: OpOk) => void;
+      const done = new Promise<OpOk>((r) => (settle = r));
+      if (origin?.diagram && p.edits.length > 0) this.host.recordUndoEntry?.(origin.diagram, p.description, done);
+      try {
+        const result = await this.finish(p, record, base, sources, outcome, hooks);
+        settle(result);
+        return result;
+      } catch (e) {
+        // The text edit is saved but the rest failed: Undo still reverts the text (there is no diagram part to revert).
+        settle({ ok: true, description: p.description, files: [...base.keys()], record, diagramFiles: [] });
+        this.warn(`${p.description}: the text was changed, but the diagrams could not be updated (${e instanceof Error ? e.message : String(e)}); they may not match the model.`);
+        throw e;
+      }
+    }
+    return fail("The file changed while the edit was being prepared, twice. Nothing was changed; try again.");
+  }
+
+  /** The rest of an applied edit: diagram files, forced diagram changes, the result and its warnings. */
+  private async finish(
+    p: PlanOk,
+    record: EditRecord,
+    base: ReadonlyMap<string, string>,
+    sources: readonly PlanSource[],
+    outcome: { unsaved?: string[] },
+    hooks: { element?: () => Element | undefined; change?: () => DiagramChange | undefined; extra?: Partial<OpOk> },
+  ): Promise<OpOk> {
+    {
       const unsaved = outcome.unsaved ?? [];
       await this.host.sync();
       const diagramFiles: string[] = [];
@@ -313,7 +345,6 @@ export class ModelService {
         ...(changedMeanwhile.length ? { diagramsChangedMeanwhile: changedMeanwhile } : {}),
         ...hooks.extra,
       };
-      if (origin?.diagram) this.host.recordUndoEntry?.(origin.diagram, result);
       this.noteUnsaved(unsaved);
       if (diagramProblems) {
         const names = [...diagramProblems.failed, ...diagramProblems.skipped].map(nameOfUri);
@@ -324,7 +355,6 @@ export class ModelService {
       }
       return result;
     }
-    return fail("The file changed while the edit was being prepared, twice. Nothing was changed; try again.");
   }
 
   /** The user is told which files could not be saved, with a "Save All" action. */
