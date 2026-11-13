@@ -44,7 +44,9 @@ describe("parameter pins", () => {
   it("draws inherited directed features of an action as pins, labelled with the name and the type in the tooltip", () => {
     const { vm } = setup();
     const pins = vm.nodes.filter((n) => n.pin);
-    expect(pins.map((p) => `${p.label}:${p.pin!.direction}`).sort()).toEqual(["done:out", "report:in", "scanReport:out"]);
+    expect(pins.map((p) => `${p.id}|${p.attachedTo}|${p.label}:${p.pin!.direction}`).sort()).toEqual(["pin:n1:scanReport|n1|scanReport:out", "pin:n2:done|n2|done:out", "pin:n2:report|n2|report:in"]);
+    // the nodes of the diagram are exactly the three it stores plus the pins
+    expect(vm.nodes.filter((n) => !n.pin).map((n) => n.id).sort()).toEqual(["n0", "n1", "n2"]);
     const scan = pins.find((p) => p.label === "scanReport")!;
     expect(scan.shape).toBe("port");
     expect(scan.tooltip).toContain("Report");
@@ -75,5 +77,36 @@ describe("parameter pins", () => {
     const { vm } = setup([{ id: "n9", ref: "P::Detect::scanReport", parent: "n1", x: 100, y: 52 }]);
     expect(vm.nodes.filter((n) => n.label === "scanReport")).toHaveLength(1);
     expect(vm.nodes.find((n) => n.id === "n9")?.attachedTo).toBe("n1");
+  });
+});
+
+describe("pins of two usages of one definition", () => {
+  it("gives each action its own pins and ends each flow at the pin of the right action", () => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///ws/m.sysmld.sysml", `package Q {
+    item def Report;
+    action def Detect { out item scanReport : Report; }
+    action def Engage { in item report : Report; }
+    action def Main {
+        action d1 : Detect;
+        action d2 : Detect;
+        action e : Engage;
+        flow from d1.scanReport to e.report;
+        flow from d2.scanReport to e.report;
+    }
+}
+`);
+    const doc = parseDiagram(JSON.stringify({
+      version: 1, kind: "actionFlow", root: "Q::Main", sources: ["m.sysml"],
+      nodes: [{ id: "n0", ref: "Q::Main" }, { id: "n1", ref: "Q::Main::d1", parent: "n0" }, { id: "n2", ref: "Q::Main::d2", parent: "n0" }, { id: "n3", ref: "Q::Main::e", parent: "n0" }],
+      edges: [
+        { id: "e1", locator: { owner: "Q::Main", kind: "flow", ends: ["d1.scanReport", "e.report"] }, source: "n1", target: "n3" },
+        { id: "e2", locator: { owner: "Q::Main", kind: "flow", ends: ["d2.scanReport", "e.report"] }, source: "n2", target: "n3" },
+      ],
+    }));
+    if (!doc.ok) throw new Error("bad diagram");
+    const vm = buildViewModel(doc.doc, resolveDiagram(doc.doc, ix), ix);
+    expect(vm.nodes.filter((n) => n.pin).map((n) => n.id).sort()).toEqual(["pin:n1:scanReport", "pin:n2:scanReport", "pin:n3:report"]);
+    expect(vm.edges.map((e) => [e.id, e.source, e.target])).toEqual([["e1", "pin:n1:scanReport", "pin:n3:report"], ["e2", "pin:n2:scanReport", "pin:n3:report"]]);
   });
 });

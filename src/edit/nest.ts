@@ -2,7 +2,7 @@
  * Nesting by drop (design D33): move the declaration of a state, action or part into another owner, and rewrite
  * the references that would stop resolving to it, or refuse with a reason. Nothing here imports `vscode`.
  */
-import { quoteName, splitQualified, type Element, type ModelIndex } from "../model/index.js";
+import { isLibraryUri, quoteName, splitQualified, type Element, type ModelIndex } from "../model/index.js";
 import { describeElement } from "./guard.js";
 import { namedOwnerQn } from "./rename.js";
 import { declsOf, resolutionKey, scanReferences, snapshotResolutions, walkReferences } from "./refscan.js";
@@ -53,6 +53,7 @@ const swap = (qn: string, oldSegs: readonly string[], newSegs: readonly string[]
 export function planNest(index: ModelIndex, element: Element, owner: Element): PlanResult {
   const problem = nestProblem(element, owner);
   if (problem) return fail(problem);
+  for (const e of [element, owner]) if (isLibraryUri(e.uri) || index.isReadOnly(e.uri)) return fail(`${describeElement(e)} is standard library or read-only content, so it cannot be moved.`);
   if (element.name === undefined || element.qualifiedName === undefined) return fail(`${describeElement(element)} has no name, so it cannot be moved by dropping.`);
   if (element.owner === owner) return fail("The element is already there.");
   if (owner.qualifiedName === undefined) return fail(`${describeElement(owner)} has no name, so the moved element could not be referred to afterwards.`);

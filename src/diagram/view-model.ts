@@ -233,7 +233,8 @@ function behaviorEdge(index: ModelIndex, el: Element): Partial<VmEdge> {
  * Parameter pins (D36): the directed features of every action node, own and inherited. One the diagram stores (a node of the
  * feature under the action) becomes the pin; the others are drawn from the model with ids that start with `pin:`.
  */
-function addPins(nodes: VmNode[], resolution: Resolution, index: ModelIndex, nodeOfElement: Map<Element, string>): void {
+function addPins(nodes: VmNode[], resolution: Resolution, index: ModelIndex): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>();
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   for (const n of [...nodes]) {
     if (n.shape !== "action" || !n.resolved) continue;
@@ -247,10 +248,11 @@ function addPins(nodes: VmNode[], resolution: Resolution, index: ModelIndex, nod
       const type = member.types.join(", ");
       const pin = { direction: member.direction!, ...(member.qualifiedName !== undefined ? { qualifiedName: member.qualifiedName } : {}), ...(type ? { type } : {}) };
       const tooltip = `${member.direction} ${member.name}${type ? ` : ${type}` : ""}${from ? ` (inherited from ${from.name ?? from.kind})` : ""}`;
-      const stored = nodeOfElement.get(member);
-      const existing = stored !== undefined ? byId.get(stored) : undefined;
+      // Pins belong to their action: two usages of one definition each get their own.
+      const mine = out.get(n.id) ?? out.set(n.id, new Map()).get(n.id)!;
+      const existing = nodes.find((x) => x.parent === n.id && resolution.get(x.id) === member);
       if (existing) {
-        if (existing.parent !== undefined && existing.parent !== n.id) continue;
+        mine.set(member.name!, existing.id);
         existing.shape = "port";
         existing.attachedTo = n.id;
         delete existing.parent;
@@ -263,9 +265,10 @@ function addPins(nodes: VmNode[], resolution: Resolution, index: ModelIndex, nod
       const vm: VmNode = { id: `pin:${n.id}:${member.name}`, shape: "port", label: member.name!, resolved: true, attachedTo: n.id, pin, tooltip, ...(from ? { inherited: { from: from.qualifiedName ?? from.name ?? "" } } : {}) };
       nodes.push(vm);
       byId.set(vm.id, vm);
-      if (!nodeOfElement.has(member)) nodeOfElement.set(member, vm.id);
+      mine.set(member.name!, vm.id);
     }
   }
+  return out;
 }
 
 /** `readOnly` tells why an element's document must not be edited (see `ModelService.blockedReason`). */
@@ -353,7 +356,7 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     return out;
   });
 
-  if (doc.kind === "actionFlow") addPins(nodes, resolution, index, nodeOfElement);
+  const pinsOf = doc.kind === "actionFlow" ? addPins(nodes, resolution, index) : new Map<string, Map<string, string>>();
 
   const edges: VmEdge[] = [];
   const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
@@ -379,8 +382,14 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
           // A flow runs from pin to pin: the ends are written as paths to features (`a.x`).
           const f = analyze(index, el.owner).flows.find((x) => x.statement === el);
           if (f) {
-            source = endNode({ scope: el.owner, text: f.sourceText }) ?? source;
-            target = endNode({ scope: el.owner, text: f.targetText }) ?? target;
+            const pinEnd = (text: string, dflt: string): string => {
+              const segs = text.replace(/\s+/g, "").split(".");
+              const last = segs.pop();
+              const action = segs.length ? endNode({ scope: el.owner!, text: segs.join(".") }) : undefined;
+              return (action !== undefined && last !== undefined ? pinsOf.get(action)?.get(last.replace(/^'|'$/g, "")) : undefined) ?? dflt;
+            };
+            source = pinEnd(f.sourceText, source);
+            target = pinEnd(f.targetText, target);
           }
         }
         if (rel.kind === "derivation") { style = "derivation"; label = "«derive»"; }

@@ -135,7 +135,7 @@ export interface DiagramTestApi {
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlDiagramDocument>, vscode.Disposable {
-  private readonly _onDidChange = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<SysmlDiagramDocument>>();
+  private readonly _onDidChange = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<SysmlDiagramDocument> | vscode.CustomDocumentContentChangeEvent<SysmlDiagramDocument>>();
   readonly onDidChangeCustomDocument = this._onDidChange.event;
   private readonly docs = new Map<string, SysmlDiagramDocument>();
   private readonly panels = new Map<string, Set<Panel>>();
@@ -203,7 +203,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       state = new DiagramState("");
       state.loadDirty(await read(vscode.Uri.parse(ctx.backupId)), disk ?? "");
       // A backup of a new diagram that was never saved comes back as one.
-      if (disk === undefined) pendingText = "";
+      if (disk === undefined) pendingText = await read(vscode.Uri.parse(ctx.backupId + ".initial")).then((t) => t, () => "");
     } else {
       state = new DiagramState(await read(uri));
     }
@@ -286,7 +286,13 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (dest.toString() === doc.uri.toString()) {
       doc.pending = false;
       doc.initialText = "";
-    } else void vscode.commands.executeCommand("vscode.openWith", dest, VIEW_TYPE);
+    } else {
+      // Saved under another name: that file is the diagram now. Open it, and close this tab (it is clean) so no editor stays on the old path.
+      await vscode.commands.executeCommand("vscode.openWith", dest, VIEW_TYPE);
+      for (const group of vscode.window.tabGroups.all) {
+        for (const tab of group.tabs) if (tab.input instanceof vscode.TabInputCustom && tab.input.viewType === VIEW_TYPE && tab.input.uri.toString() === doc.uri.toString()) void vscode.window.tabGroups.close(tab);
+      }
+    }
   }
 
   async saveCustomDocument(doc: SysmlDiagramDocument): Promise<void> {
@@ -336,7 +342,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
 
   async backupCustomDocument(doc: SysmlDiagramDocument, ctx: vscode.CustomDocumentBackupContext): Promise<vscode.CustomDocumentBackup> {
     await vscode.workspace.fs.writeFile(ctx.destination, encoder.encode(doc.state.text()));
-    return { id: ctx.destination.toString(), delete: () => void vscode.workspace.fs.delete(ctx.destination).then(undefined, () => {}) };
+    // A new diagram also keeps its generated text, which Revert restores after the window was reloaded.
+    const initial = vscode.Uri.parse(ctx.destination.toString() + ".initial");
+    if (doc.pending) await vscode.workspace.fs.writeFile(initial, encoder.encode(doc.initialText));
+    return { id: ctx.destination.toString(), delete: () => { void vscode.workspace.fs.delete(ctx.destination).then(undefined, () => {}); if (doc.pending) void vscode.workspace.fs.delete(initial).then(undefined, () => {}); } };
   }
 
   // ---- editor ----------------------------------------------------------------------------
@@ -517,6 +526,9 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
           st.doc = fn(st.doc);
         }
         st.snapshot = undefined;
+        // A new diagram has no file to hold the change: it is now content the user would lose, so it is dirty (close asks, hot exit backs it up).
+        st.touch();
+        this._onDidChange.fire({ document: doc });
       }
       this.rerender(doc);
       return false;
@@ -751,12 +763,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       }
       case "nest": {
         const t = this.targetOf(doc, intent.id);
-        let owner: Element | undefined;
-        if (intent.targetId !== undefined) owner = this.targetOf(doc, intent.targetId)?.element;
-        else {
-          // Out onto the canvas: the diagram's root, or the root's owner when the element already sits in the root.
-          const rootEl = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
-          owner = rootEl && t?.element.owner === rootEl ? rootEl.owner : rootEl;
+        // Out of a parent: one level up, the parent's owner (refused when there is none).
+        const owner: Element | undefined = intent.targetId !== undefined ? this.targetOf(doc, intent.targetId)?.element : t?.element.owner?.owner;
+        if (t && intent.targetId === undefined && !owner) {
+          this.notice(doc, `${t.element.name ?? "The element"} is not inside anything that is itself owned, so there is nowhere further out to move it.`);
+          return this.rerender(doc);
         }
         if (!t || !owner) {
           this.notice(doc, "The element or the target could not be found; it may be unresolved.");
@@ -836,7 +847,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         if (x.name === undefined) return undefined;
         names.unshift(/^[A-Za-z_][A-Za-z0-9_]*$/.test(x.name) ? x.name : `'${x.name.replace(/[\\']/g, (c) => "\\" + c)}'`);
       }
-      return [...names, /^[A-Za-z_][A-Za-z0-9_]*$/.test(e.pin) ? e.pin : `'${e.pin}'`].join(".");
+      return [...names, /^[A-Za-z_][A-Za-z0-9_]*$/.test(e.pin) ? e.pin : `'${e.pin.replace(/[\\']/g, (c) => "\\" + c)}'`].join(".");
     };
     const from = path(a), to = path(b);
     if (!from || !to) return this.notice(doc, "An action on the way has no name, so the flow end cannot be written.");

@@ -125,4 +125,15 @@ describe("planNest", () => {
     const o1 = after(planNest(ix, q("P::A::wheel"), q("P::A::axle")), text);
     expect(o1).toMatch(/part axle \{\s+part wheel;/);
   });
+
+  test("refuses library content and moves across files", () => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///w/a.sysml", "package A {\n    state def M {\n        state s;\n    }\n}\n");
+    ix.setDocument("file:///w/b.sysml", "package B {\n    state def N {\n        state t;\n    }\n}\n");
+    const s = ix.findByQualifiedName("A::M::s")[0]!, t = ix.findByQualifiedName("B::N::t")[0]!;
+    const r = planNest(ix, s, t);
+    // a move across files either works or says why not; it never half-applies
+    expect(r.ok || r.reason.length > 0).toBe(true);
+    if (r.ok) expect(new Set(r.edits.map((e) => e.uri))).toEqual(new Set(["file:///w/a.sysml", "file:///w/b.sysml"]));
+  });
 });

@@ -627,7 +627,7 @@ export function behaviorTests(c: Ctx): Test[] {
     ["Nest a state by dropping it on another state: the declaration moves into the target, references are rewritten, one undo restores the text byte for byte", scenario("AuNest", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
       const m = await metrics(diagram);
       const off = nodeOf(m, id("lamp::off")), op = nodeOf(m, id("lamp::operating"));
-      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + op.w / 2 - (off.x + off.w / 2)), dy: Math.round(op.y + 10 - (off.y + off.h / 2)) });
+      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + op.w / 2 - (off.x + off.w / 2)), dy: Math.round(op.y + 20 - (off.y + off.h / 2)), hold: 700 });
       await waitFor(() => /state operating \{[^}]*state off;/.test(onDisk(model)), 20000, "off is declared inside operating");
       await savedAndClean(model);
       const text = onDisk(model);
@@ -642,7 +642,7 @@ export function behaviorTests(c: Ctx): Test[] {
     ["Drag a nested state out onto the diagram root: it is declared in the root again; a name clash is refused with a reason and nothing changes", scenario("AuOut", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
       const m = await metrics(diagram);
       const low = nodeOf(m, id("lamp::operating::low")), lamp = nodeOf(m, id("lamp"));
-      await gesture(diagram, { kind: "drag", id: low.id, dx: Math.round(lamp.x + lamp.w - 20 - (low.x + low.w / 2)), dy: Math.round(lamp.y + lamp.h - 12 - (low.y + low.h / 2)) });
+      await gesture(diagram, { kind: "drag", id: low.id, dx: Math.round(lamp.x + lamp.w - 30 - (low.x + low.w / 2)), dy: Math.round(lamp.y + lamp.h - 20 - (low.y + low.h / 2)), hold: 700 });
       await waitFor(() => /^ {4}state low;$/m.test(onDisk(model)) && !/state operating \{[^}]*state low;/.test(onDisk(model)), 20000, "low is declared in lamp");
       await savedAndClean(model);
       await c.eventually(async () => assert.strictEqual((await metrics(diagram)).nodes.find((n) => n.id === low.id)?.parent, id("lamp")), "the node now sits in lamp");
@@ -650,11 +650,21 @@ export function behaviorTests(c: Ctx): Test[] {
       await waitFor(() => onDisk(model) === original, 20000, "undo moves it back").catch((e: Error) => assert.fail(`${e.message}\n${onDisk(model)}`));
     })],
 
+    ["A drop on the edge of a sibling (pointer less than 12 px inside it) does not nest: the move is a layout edit and the .sysml is untouched", scenario("AuEdge", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
+      const m = await metrics(diagram);
+      const off = nodeOf(m, id("lamp::off")), op = nodeOf(m, id("lamp::operating"));
+      await api.diagram.save(uriOf(diagram));
+      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + 4 - (off.x + off.w / 2)), dy: Math.round(op.y + op.h / 2 - (off.y + off.h / 2)), hold: 700 });
+      await waitFor(() => dirty(diagram), 10000, "the move is an unsaved layout edit");
+      assert.strictEqual(onDisk(model), original, "nothing was nested");
+      assert.deepStrictEqual(rec.fails, []);
+    })],
+
     ["A move that cannot be done is refused with the reason, and the text is unchanged", scenario("AuRef", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id, original }) => {
       const m = await metrics(diagram);
       const off = nodeOf(m, id("lamp::off")), op = nodeOf(m, id("lamp::operating"));
       assert.ok(original.includes("state operating {\n      state off;"), "the fixture has the clash");
-      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + op.w / 2 - (off.x + off.w / 2)), dy: Math.round(op.y + 10 - (off.y + off.h / 2)) });
+      await gesture(diagram, { kind: "drag", id: off.id, dx: Math.round(op.x + op.w / 2 - (off.x + off.w / 2)), dy: Math.round(op.y + 20 - (off.y + off.h / 2)), hold: 700 });
       await waitFor(() => rec.fails.length > 0, 20000, "the move is refused");
       assert.match(rec.fails[0]!.reason, /off/, rec.fails[0]!.reason);
       assert.strictEqual(onDisk(model), original, "nothing was written");
@@ -747,7 +757,7 @@ export function behaviorTests(c: Ctx): Test[] {
         await gesture(f, { kind: "palette", item: "state", id: root.id, x: 30, y: 40 });
         await waitFor(() => onDisk("tmp-au-new2.sysml").includes("state running;"), 20000, "the state is written to the .sysml at once");
         assert.ok(!existsSync(uriOf(f).fsPath), "the diagram file still does not exist");
-        assert.strictEqual(api.diagram.state(uriOf(f)).dirty, false, "a model edit does not dirty the diagram");
+        assert.strictEqual(api.diagram.state(uriOf(f)).dirty, true, "the new node is content only this unsaved diagram holds, so it is dirty");
         await c.eventually(async () => assert.ok((await metrics(f)).nodes.some((n) => n.text?.includes("running"))), "the new state is drawn");
         const idle = mem(f).nodes.find((n) => n.ref === "AuMach::idle")!;
         await api.diagram.gesture(uriOf(f), { kind: "flush" });

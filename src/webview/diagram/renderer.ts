@@ -834,10 +834,16 @@ export class SvgRenderer implements DiagramRenderer {
   }
 
   /** Replay a gesture as DOM events on the diagram, so it takes the paths real input takes. */
-  testGesture(g: TestGesture): void {
+  testGesture(g: TestGesture): void | Promise<void> {
     switch (g.kind) {
       case "select": this.click(this.pointOn(g.id), g.shift); break;
-      case "drag": this.dragFrom(this.pointOn(g.id), g.dx, g.dy, g.steps); break;
+      case "drag": {
+        if (!g.hold) { this.dragFrom(this.pointOn(g.id), g.dx, g.dy, g.steps); break; }
+        const p = this.pointOn(g.id), steps = g.steps ?? 6;
+        this.fire("pointerdown", p, { shift: false });
+        for (let i = 1; i <= steps; i++) this.fire("pointermove", { x: p.x + (g.dx * i) / steps, y: p.y + (g.dy * i) / steps }, { shift: false });
+        return new Promise<void>((r) => setTimeout(() => { this.fire("pointerup", { x: p.x + g.dx, y: p.y + g.dy }, { shift: false }); r(); }, g.hold));
+      }
       case "resize": {
         if (!(this.ia.selection.length === 1 && this.ia.selection[0] === g.id)) this.click(this.pointOn(g.id));
         const b = this.scene.get(g.id)?.abs;

@@ -96,7 +96,7 @@ export interface DiagramDoc {
 }
 export type Gesture =
   | { kind: "select"; id: string; shift?: boolean }
-  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number; hold?: number }
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }

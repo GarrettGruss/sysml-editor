@@ -245,39 +245,56 @@ describe("nesting by dropping", () => {
       item("part", { x: 500, y: 300, w: 80, h: 40 }, { nest: "part", movable: true }),
       item("inh", { x: 500, y: 400, w: 80, h: 40 }, { nest: "state", movable: false }),
     ]);
-  it("targets a node of the same family under the pointer", () => {
+  it("targets a node of the same family with the pointer well inside it", () => {
     expect(dropTargetAt(states(), "test", { x: 300, y: 250 })).toEqual({ id: "big" });
   });
-  it("does not target a node of another family, the owner it already has, or itself", () => {
+  it("does not nest when the pointer is within 12 px of the target's border (a sibling overlap)", () => {
+    expect(dropTargetAt(states(), "test", { x: 105, y: 250 })).toBeUndefined();
+    expect(dropTargetAt(states(), "test", { x: 300, y: 295 })).toBeUndefined();
+  });
+  it("does not target another family, the owner it already has, or itself", () => {
     const s = states();
     expect(dropTargetAt(s, "part", { x: 300, y: 250 })).toBeUndefined();
     expect(dropTargetAt(s, "inner", { x: 300, y: 250 })).toBeUndefined();
     expect(dropTargetAt(s, "test", { x: 540, y: 120 })).toBeUndefined();
   });
-  it("targets the way out when a nested node is released over nothing", () => {
-    expect(dropTargetAt(states(), "inner", { x: 700, y: 600 })).toEqual({});
-    expect(dropTargetAt(states(), "test", { x: 700, y: 600 })).toBeUndefined();
+  it("moves out only when the whole dragged box is outside its parent; an overshoot stays a layout move", () => {
+    const s = states();
+    expect(dropTargetAt(s, "inner", { x: 700, y: 600 }, { x: 40, y: 0 })).toBeUndefined(); // box still overlaps big
+    expect(dropTargetAt(s, "inner", { x: 700, y: 600 }, { x: 400, y: 0 })).toEqual({});
+    expect(dropTargetAt(s, "test", { x: 700, y: 600 }, { x: 400, y: 0 })).toBeUndefined();
   });
   it("does not move inherited nodes", () => {
     expect(dropTargetAt(states(), "inh", { x: 300, y: 250 })).toBeUndefined();
   });
-  it("ends a drag on a target as a model edit, not a layout edit", () => {
+  function drag(dwell: boolean) {
     const nests: [string, string | undefined][] = [];
     const edits: DiagramEdit[] = [];
     const targets: (string | undefined)[] = [];
+    const timers: (() => void)[] = [];
     const ia = new Interaction({
       onSelection: () => {}, onPreview: () => {}, onEdit: (e) => edits.push(e), onPan: () => {}, onPanEnd: () => {}, onMenu: () => {}, zoom: () => 1,
-      setTimer: () => 0, clearTimer: () => {},
+      setTimer: (fn) => timers.push(fn), clearTimer: () => {},
       onDropTarget: (t) => targets.push(t?.id), onNest: (id, t) => nests.push([id, t]),
     });
     ia.setScene(states());
     const p = (x: number, y: number): PointerInput => ({ x, y, sx: x, sy: y, button: 0, shift: false, mod: false, space: false });
     ia.pointerDown(p(540, 120));
     ia.pointerMove(p(300, 250));
-    expect(targets.at(-1)).toBe("big");
+    if (dwell) for (const t of timers) t();
     ia.pointerUp(p(300, 250));
-    expect(nests).toEqual([["test", "big"]]);
-    expect(edits).toEqual([]);
-    expect(targets.at(-1)).toBeUndefined();
+    return { nests, edits, targets };
+  }
+  it("shows the highlight and nests only after the target stayed the candidate for the dwell time", () => {
+    const r = drag(true);
+    expect(r.targets).toContain("big");
+    expect(r.nests).toEqual([["test", "big"]]);
+    expect(r.edits).toEqual([]);
+  });
+  it("a release before the dwell time is a layout move, not a nest, and shows no highlight", () => {
+    const r = drag(false);
+    expect(r.targets.filter((t) => t !== undefined)).toEqual([]);
+    expect(r.nests).toEqual([]);
+    expect(r.edits).toHaveLength(1);
   });
 });

@@ -36,11 +36,16 @@ export interface DropTarget {
   id?: string;
 }
 
+/** The pointer must be this far inside a target, and the target highlighted for this long, before a drop nests (no accidental nesting). */
+export const NEST_INSET = 12;
+export const NEST_DWELL_MS = 400;
+
 /**
  * The drop target of one dragged node at pointer `p` (design D33): the topmost node under the pointer that can own it (a
- * package, or one of its own family) and is not where it already is; or, over nothing at all, out of its parent.
+ * package, or one of its own family) and is not where it already is, with the pointer at least `NEST_INSET` inside it; or, when the
+ * dragged box (moved by `delta`) lies wholly outside its parent, out of the parent (`{}`). Anything else is a plain layout move.
  */
-export function dropTargetAt(scene: Scene, id: string, p: Pt): DropTarget | undefined {
+export function dropTargetAt(scene: Scene, id: string, p: Pt, delta: Pt = { x: 0, y: 0 }): DropTarget | undefined {
   const it = scene.get(id);
   if (!it || !it.movable || it.owner !== undefined) return undefined;
   const skip = new Set([id]);
@@ -48,10 +53,15 @@ export function dropTargetAt(scene: Scene, id: string, p: Pt): DropTarget | unde
     const c = scene.items[i]!;
     if (c.owner !== undefined || skip.has(c.id) || scene.hasAncestorIn(c.id, skip) || !inside(c.abs, p)) continue;
     if (c.id === it.parent) return undefined;
-    if (c.nest !== undefined && (c.nest === "package" || c.nest === it.nest)) return { id: c.id };
+    const deep = p.x - c.abs.x >= NEST_INSET && c.abs.x + c.abs.w - p.x >= NEST_INSET && p.y - c.abs.y >= NEST_INSET && c.abs.y + c.abs.h - p.y >= NEST_INSET;
+    if (deep && c.nest !== undefined && (c.nest === "package" || c.nest === it.nest)) return { id: c.id };
     return undefined;
   }
-  return it.parent !== undefined ? {} : undefined;
+  const parent = it.parent !== undefined ? scene.get(it.parent) : undefined;
+  if (!parent) return undefined;
+  const b = { x: it.abs.x + delta.x, y: it.abs.y + delta.y, w: it.abs.w, h: it.abs.h }, pb = parent.abs;
+  const apart = b.x >= pb.x + pb.w || b.x + b.w <= pb.x || b.y >= pb.y + pb.h || b.y + b.h <= pb.y;
+  return apart ? {} : undefined;
 }
 
 export type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
@@ -252,7 +262,7 @@ export interface InteractionHost {
 }
 
 type Gesture =
-  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; plan?: Plan; drop?: DropTarget }
+  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; plan?: Plan; drop?: DropTarget; dropKey?: string; armed?: boolean; timer?: unknown }
   | { kind: "resize"; start: Pt; id: string; handle: Handle; plan?: Plan }
   | { kind: "band"; start: Pt; cur: Pt; add: boolean; base: string[] }
   | { kind: "pan"; sx: number; sy: number; moved: boolean; clear: boolean };
@@ -354,8 +364,21 @@ export class Interaction {
       if (!g.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
       g.moved = true;
       g.plan = planMove(this.scene, g.ids, dx, dy);
-      g.drop = g.ids.length === 1 ? dropTargetAt(this.scene, g.ids[0]!, e) : undefined;
-      this.host.onDropTarget?.(g.drop, g.ids[0]);
+      const cand = g.ids.length === 1 ? dropTargetAt(this.scene, g.ids[0]!, e, { x: dx, y: dy }) : undefined;
+      const key = cand ? cand.id ?? "" : undefined;
+      if (key !== g.dropKey) {
+        // A new candidate is highlighted (and can be dropped on) only after it has stayed the candidate for the dwell time.
+        if (g.timer !== undefined) this.host.clearTimer(g.timer);
+        g.timer = undefined;
+        g.dropKey = key;
+        g.drop = cand;
+        g.armed = false;
+        this.host.onDropTarget?.(undefined);
+        if (cand) {
+          const id = g.ids[0];
+          g.timer = this.host.setTimer(() => { g.armed = true; g.timer = undefined; this.host.onDropTarget?.(cand, id); }, NEST_DWELL_MS);
+        }
+      }
     } else g.plan = planResize(this.scene, g.id, g.handle, dx, dy);
     this.host.onPreview(applyPlan(this.scene, g.plan), undefined);
   }
@@ -369,7 +392,8 @@ export class Interaction {
       this.host.onPanEnd();
       return;
     }
-    if (g.kind === "move" && g.drop) {
+    if (g.kind === "move" && g.timer !== undefined) this.host.clearTimer(g.timer);
+    if (g.kind === "move" && g.drop && g.armed) {
       // Nesting is a model edit: the gesture ends in the host, which moves the declaration or refuses.
       this.host.onDropTarget?.(undefined);
       this.host.onNest?.(g.ids[0]!, g.drop.id);
@@ -390,7 +414,10 @@ export class Interaction {
     if (!this.g) return false;
     const was = this.g;
     this.g = undefined;
-    if (was.kind === "move") this.host.onDropTarget?.(undefined);
+    if (was.kind === "move") {
+      if (was.timer !== undefined) this.host.clearTimer(was.timer);
+      this.host.onDropTarget?.(undefined);
+    }
     if (was.kind === "pan") this.host.onPanEnd();
     this.host.onPreview(undefined, undefined);
     return true;

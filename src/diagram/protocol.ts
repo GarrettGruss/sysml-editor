@@ -85,7 +85,7 @@ export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "sele
 /** Test-only gestures, replayed as DOM events so they take the code paths real input takes. */
 export type TestGesture =
   | { kind: "select"; id: string; shift?: boolean }
-  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number; /** Keep the pointer down this many ms before releasing (a nest needs the target highlighted for a while). */ hold?: number }
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }

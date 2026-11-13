@@ -173,17 +173,15 @@ export function interactionTests(c: Ctx): Test[] {
       const f = "tmp-contain.sysmld";
       const m0 = await metrics(f);
       const cont = nodeOf(m0, "n0");
-      // the pointer stays over the container: releasing outside it would move the declaration out (nesting by dropping)
-      const k0 = nodeOf(m0, "n1");
-      await gesture(f, { kind: "drag", id: "n1", dx: Math.round(cont.x + 3 - (k0.x + k0.w / 2)), dy: Math.round(cont.y + 3 - (k0.y + k0.h / 2)) });
+      // released at once (no dwell on a target): a plain layout move, clamped; moving out of the container needs the hold of a nest gesture
+      await gesture(f, { kind: "drag", id: "n1", dx: -2000, dy: -2000 });
       await waitFor(() => dirty(f), 5000, "the clamped move is still an edit");
       await settled(f);
       const m = await metrics(f);
       assert.strictEqual(m.outsideParent, 0, "no child outside its parent");
       const k = nodeOf(m, "n1");
       assert.ok(k.x >= cont.x && k.y >= cont.y && k.x + k.w <= cont.x + cont.w && k.y + k.h <= cont.y + cont.h, "the child stays inside");
-      const k2 = nodeOf(await metrics(f), "n2");
-      await gesture(f, { kind: "drag", id: "n2", dx: Math.round(cont.x + cont.w - 3 - (k2.x + k2.w / 2)), dy: Math.round(cont.y + cont.h - 3 - (k2.y + k2.h / 2)) });
+      await gesture(f, { kind: "drag", id: "n2", dx: 5000, dy: 5000 });
       await settled(f);
       const m2 = await metrics(f);
       assert.strictEqual(m2.outsideParent, 0);
