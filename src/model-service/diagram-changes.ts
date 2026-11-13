@@ -10,6 +10,7 @@ import { removeItems } from "../diagram/edits.js";
 import type { DiagramDocument, DiagramEdge, DiagramNode } from "../diagram/format.js";
 import { referenceFor, referenceKey, type SourceMapper } from "../diagram/resolve.js";
 import type { ElementLocator, ElementReference } from "../diagram/format.js";
+import { quoteName, splitQualified } from "../model/index.js";
 
 export interface ChangeContext {
   uri: string;
@@ -332,6 +333,77 @@ export function composeChanges(first: DiagramChange, second: DiagramChange, labe
     label,
     apply: (doc, ctx) => second.apply(first.apply(doc, ctx), ctx),
     revert: (doc, ctx) => first.revert(second.revert(doc, ctx), ctx),
+  };
+}
+
+const joinSegs = (segs: readonly string[]) => segs.map(quoteName).join("::");
+
+/** `s` with the prefix `old` (unquoted segments) replaced by `next`; undefined when `s` does not start with it. */
+function mapPrefix(old: readonly string[], next: readonly string[], s: string): string | undefined {
+  const segs = splitQualified(s);
+  if (segs.length < old.length || !old.every((o, i) => segs[i] === o)) return undefined;
+  return joinSegs([...next, ...segs.slice(old.length)]);
+}
+
+/**
+ * Nesting moved an element (design D33): every reference to it and to what it owns follows the new qualified name, the ends of
+ * lines written with the old text follow, and its node moves into the node of its new owner (when that is on the diagram; the
+ * position is dropped so the webview places it). Applies to the saved state of every diagram file and to open documents.
+ */
+export function nestChange(oldQn: string, newQn: string, ownerQn: string, endsChanges: readonly { ownerQn: string | undefined; kind: string; oldEnds: string[]; newEnds: string[] }[], label: string): DiagramChange {
+  const was = new Map<string, DiagramNode>();
+  const key = (e: readonly string[]) => e.map((x) => splitQualified(x).join("\0")).join("\u0001");
+  const remap = (doc: DiagramDocument, from: string, to: string, ends: typeof endsChanges, fwd: boolean): DiagramDocument => {
+    const oldS = splitQualified(from), newS = splitQualified(to);
+    const fixRef = <T extends { ref?: string; locator?: ElementLocator }>(i: T): T => {
+      let out = i;
+      if (i.ref !== undefined) {
+        const n = mapPrefix(oldS, newS, i.ref);
+        if (n !== undefined) out = { ...out, ref: n };
+      }
+      if (i.locator) {
+        let l: ElementLocator = { ...i.locator, ends: [...i.locator.ends] };
+        for (const c of ends) {
+          const a = fwd ? c.oldEnds : c.newEnds, b = fwd ? c.newEnds : c.oldEnds;
+          if (c.kind === l.kind && c.ownerQn !== undefined && key([c.ownerQn]) === key([l.owner]) && key(a) === key(l.ends)) {
+            l = { ...l, ends: [...b] };
+            break;
+          }
+        }
+        const o = mapPrefix(oldS, newS, l.owner);
+        if (o !== undefined) l = { ...l, owner: o };
+        out = { ...out, locator: l };
+      }
+      return out;
+    };
+    const root = mapPrefix(oldS, newS, doc.root) ?? doc.root;
+    return { ...doc, root, nodes: doc.nodes.map(fixRef), edges: doc.edges.map(fixRef) };
+  };
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      let next = remap(doc, oldQn, newQn, endsChanges, true);
+      if (JSON.stringify(next) === JSON.stringify(doc)) return doc;
+      const moved = next.nodes.find((n) => n.ref === newQn);
+      if (moved) {
+        const ownerNode = next.nodes.find((n) => n.ref === ownerQn);
+        was.set(ctx.uri + "\0" + moved.id, doc.nodes.find((n) => n.id === moved.id)!);
+        const { x: _x, y: _y, parent: _p, ...rest } = moved;
+        const fresh: DiagramNode = { ...rest, ...(ownerNode ? { parent: ownerNode.id } : {}) } as DiagramNode;
+        next = { ...next, nodes: next.nodes.map((n) => (n.id === moved.id ? fresh : n)) };
+      }
+      return next;
+    },
+    revert(doc, ctx) {
+      let next = remap(doc, newQn, oldQn, endsChanges, false);
+      const nodes = next.nodes.map((n) => {
+        const old = was.get(ctx.uri + "\0" + n.id);
+        return old ? { ...old, ref: oldQn } as DiagramNode : n;
+      });
+      next = { ...next, nodes };
+      return next;
+    },
   };
 }
 

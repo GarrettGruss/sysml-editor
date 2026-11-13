@@ -91,7 +91,7 @@ export class WorkspaceModel implements vscode.Disposable {
     } else {
       void this.loadCreatedFolder(uri);
     }
-    this.folderEmitter.fire({ parent: key.slice(0, key.lastIndexOf("/")), path: key, deleted });
+    this.folderEmitter.fire({ parent: key.slice(0, key.lastIndexOf("/")), path: key, deleted, uri });
   }
 
   private sortedUris: string[] | undefined;

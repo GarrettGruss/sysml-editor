@@ -148,6 +148,11 @@
           "group": "diagram@1"
         },
         {
+          "command": "sysml.newDiagram",
+          "when": "view == sysmlModel && viewItem == sysmlFile",
+          "group": "diagram@1"
+        },
+        {
           "command": "sysml.showInDiagram",
           "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
           "group": "diagram@2"
@@ -227,6 +232,11 @@
         }
       ],
       "explorer/context": [
+        {
+          "command": "sysml.newDiagram",
+          "when": "resourceExtname == .sysml",
+          "group": "navigation@8"
+        },
         {
           "command": "sysml.openRequirementsEditor",
           "when": "resourceExtname == .sysml",

@@ -78,16 +78,18 @@ export type ModelIntent =
   | { kind: "deleteFromModel"; ids: string[] }
   | { kind: "rename"; id: string; name: string }
   | { kind: "setProperties"; id: string; changes: PropertyChanges }
-  | { kind: "goToDefinition"; id: string };
+  | { kind: "goToDefinition"; id: string }
+  /** Nest by dropping (D33): move the declaration of node `id` into the element of node `targetId` (the diagram's root when absent). */
+  | { kind: "nest"; id: string; targetId?: string };
 
-export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message";
+export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
 
 export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
 
 /** Test-only gestures, replayed as DOM events so they take the code paths real input takes. */
 export type TestGesture =
   | { kind: "select"; id: string; shift?: boolean }
-  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number; /** Keep the pointer down this many ms before releasing (a nest needs the target highlighted for a while). */ hold?: number }
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }

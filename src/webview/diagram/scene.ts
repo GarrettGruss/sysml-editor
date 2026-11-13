@@ -21,6 +21,7 @@ export function buildScene(vm: ViewModel, rel: ReadonlyMap<string, Box>, mins: R
     items.push({
       id: n.id, rel: { ...r }, abs: { ...a },
       ...(parent !== undefined ? { parent } : {}), ...(owner !== undefined ? { owner } : {}),
+      ...(n.nest ? { nest: n.nest.family, movable: n.nest.movable && n.inherited === undefined } : {}),
       min: mins.get(n.id) ?? { w: 20, h: 20 },
       headerH: n.shape === "port" ? 0 : describeBox(n, measure).headerH,
     });

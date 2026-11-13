@@ -85,11 +85,23 @@ Double-clicking the description SHALL open a multi-line inline input: Enter or a
 - **THEN** descriptions are hidden, the `.sysml` file is unchanged, and the diagram is marked changed
 
 ### Requirement: Nest by dropping
-Dropping a state, action, or part onto another node of a kind that can own it SHALL move its declaration into that node (model edit, saved at once, undoable), with the target highlighted while dragging. Dragging it onto another owner or the root SHALL move it out. References SHALL be rewritten to still resolve or the move SHALL be refused with a reason. Inherited elements SHALL NOT be movable from a usage.
+Dropping a state, action, or part onto a node of a kind that can own it SHALL move its declaration into that node (model edit, saved at once, undoable), only after a deliberate drop. Moving a node out SHALL move it one level up, to its parent's owner. References SHALL be rewritten to still resolve or the move SHALL be refused with a reason. Inherited elements SHALL NOT be movable from a usage.
 
 #### Scenario: Nest a state
 - **WHEN** the user drops `test` onto the state `big`
 - **THEN** the declaration of `test` is inside `big` and moving `big` moves `test`
+
+#### Scenario: Deliberate drop
+- **WHEN** the pointer is at least 12 px inside the target and the target has been highlighted for 400 ms
+- **THEN** the drop nests, and the highlight appeared only then
+
+#### Scenario: Move out
+- **WHEN** the whole box of a nested node ends outside its parent (a small overshoot stays a clamped layout move)
+- **THEN** the declaration moves to the parent's owner, or the move is refused when there is none
+
+#### Scenario: Edge of a sibling
+- **WHEN** the user releases a state with the pointer within 12 px of another state's border, or before the target has been highlighted for 400 ms
+- **THEN** nothing is nested and the move is a layout edit
 
 #### Scenario: Refused move
 - **WHEN** a reference cannot be rewritten

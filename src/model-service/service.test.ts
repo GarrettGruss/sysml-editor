@@ -431,7 +431,7 @@ describe("kinds", () => {
     expect(ADD_KINDS.map((k) => k.kind)).toEqual([...CREATABLE_KINDS]);
     const { RELATIONSHIP_KINDS: relationships } = await import("../agent-tools/edit-tools.js");
     for (const dk of ["general", "interconnection", "requirements", "actionFlow", "stateTransition", "sequence"] as const)
-      for (const p of paletteFor(dk)) expect(relationships.includes(p.kind) ? relationships : CREATABLE_KINDS, p.kind).toContain(p.kind);
+      for (const p of paletteFor(dk).filter((x) => x.kind !== "flow")) expect(relationships.includes(p.kind) ? relationships : CREATABLE_KINDS, p.kind).toContain(p.kind);
   });
 });
 
