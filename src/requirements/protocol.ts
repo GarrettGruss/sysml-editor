@@ -1,8 +1,10 @@
 /** Messages between the extension host and the requirements editor webview, and the view models. No `vscode`, no DOM. */
 import type { TocEntry } from "./document-model.js";
+import type { MatrixVM } from "./matrix-shape.js";
 
 export type RequirementsScope = { kind: "package"; qualifiedName: string } | { kind: "file"; uri: string };
-export type ViewMode = "table" | "document";
+/** "matrix" is the verification matrix, the tabular view; "table" is the older editing table, no longer offered as a tab. */
+export type ViewMode = "table" | "matrix" | "document";
 
 export interface RelationVM {
   /** Opaque key of the statement (`uri#offset`), used to remove it. */
@@ -46,7 +48,18 @@ export interface ItemVM {
   name: string;
   text: string;
   summary: { satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] };
+  /** "Satisfied by: ... · Verified by: ..." with plain words for gaps (see `traceLine`). */
+  trace?: string;
+  /** The status of the matrix row of this requirement (inheritance-aware, from the same model as the matrix). */
+  status?: import("./matrix-shape.js").MatrixStatus;
   editable: boolean;
+  /** Computed numbering (`2`, `2.1`). */
+  number: string;
+  /** The package, section or requirement that owns it. */
+  ownerQn: string;
+  children: ItemVM[];
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }
 export interface ParagraphVM {
   kind: "paragraph";
@@ -79,6 +92,8 @@ export interface SectionVM {
 
 export interface DocumentVM {
   rootQn: string;
+  /** A package, or a requirement (definition) opened as the document. */
+  rootKind: "package" | "requirement";
   title: string;
   version?: string;
   annotated: boolean;
@@ -94,6 +109,7 @@ export interface RequirementsState {
   /** The package that new requirements and sections go into. */
   scopeQn?: string;
   table: TableVM;
+  matrix?: MatrixVM;
   document?: DocumentVM;
   /** Why the scope cannot be shown (no such package, file without a package), when it cannot. */
   problem?: string;
@@ -103,7 +119,10 @@ export interface RequirementsState {
 export type Intent =
   /** `expected` is the text the field was opened with; the host applies the edit only when the element still has it. */
   | { type: "setCell"; qn: string; field: "id" | "name" | "text"; value: string; expected: string }
-  | { type: "addRequirement"; kind: "requirement" | "requirement def"; id: string; name: string; ownerQn?: string; afterQn?: string }
+  /** `beforeQn`: insert just above that member of the owner (default: at the end). The owner may be a requirement (a child). */
+  | { type: "addRequirement"; kind: "requirement" | "requirement def"; id: string; name: string; ownerQn?: string; afterQn?: string; beforeQn?: string }
+  /** Move a requirement up or down among its siblings, or to a gap (`ownerQn`, above `beforeQn` or at the end); onto a requirement is a gap at the end of it. */
+  | { type: "moveRequirement"; qn: string; how: "up" | "down" | { ownerQn: string; beforeQn?: string } }
   | { type: "deleteRequirement"; qn: string }
   | { type: "addSatisfy"; qn: string }
   | { type: "addVerify"; qn: string }
@@ -115,16 +134,20 @@ export type Intent =
   | { type: "navigate"; qn: string; to: "tree" | "text" | "diagram" }
   | { type: "setHeading"; qn: string; value: string; expected: string }
   | { type: "setParagraph"; key: string; value: string; expected: string }
-  | { type: "addSection"; parentQn: string; name: string; appendix?: boolean; afterQn?: string }
+  | { type: "addSection"; parentQn: string; name: string; appendix?: boolean; afterQn?: string; beforeQn?: string }
   | { type: "addParagraph"; pkgQn: string; text: string }
   | { type: "moveSection"; qn: string; how: "up" | "down" | { beforeQn: string } | { afterQn: string } }
-  | { type: "deleteSection"; qn: string };
+  | { type: "deleteSection"; qn: string }
+  /** Write the matrix as CSV or Markdown to a file the user chooses. */
+  | { type: "exportMatrix"; format: "csv" | "markdown" };
 
 export type Gesture =
   | { kind: "click"; selector: string }
   | { kind: "input"; selector: string; value: string; event?: "change" | "input" }
   | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
-  | { kind: "key"; selector: string; key: string };
+  | { kind: "key"; selector: string; key: string; alt?: boolean }
+  /** A mouse or pointer event at a point of an element (`at`: where in its box), for the palette, the ghost and dragging. */
+  | { kind: "mouse"; type: "contextmenu" | "pointermove" | "pointerdown" | "pointerup" | "click"; selector: string; at?: "center" | "top" | "bottom" | "left"; dy?: number };
 
 export type HostToWebview =
   | { type: "render"; state: RequirementsState; scope: RequirementsScope; view?: ViewMode; generation: number }
@@ -153,11 +176,23 @@ export interface RequirementsMetrics {
     title: string;
     version?: string;
     outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[];
-    toc: { number: string; heading: string; level: number }[];
+    toc: { number: string; heading: string; level: number; kind: string; qn: string }[];
     appendixLetters: string[];
     paragraphs: { section: string; text: string; lists: number; links: number }[];
-    items: { section: string; id: string; name: string; text: string }[];
+    items: { section: string; id: string; name: string; text: string; number: string; owner: string; collapsed: boolean; visible: boolean; trace: string; status: string }[];
     rootBlocks: number;
+    /** Heading of the document (the owner) and whether it is editable. */
+    heading: string;
+    /** What the ghost and the gaps are doing now. */
+    authoring: { mode: "none" | "palette" | "add" | "drag" | "naming"; what?: string; ghost: boolean; activeGap?: { owner: string; before?: string; level: number; target: "requirement" | "section" }; visibleGaps: number; inputs: boolean; nestTarget?: string; refusal?: string };
+    gapCount: number;
+  };
+  matrix: {
+    /** The drawn rows: the requirement cell's id and name, and the texts of the other cells. */
+    rows: { qn: string; kind: "section" | "requirement"; number: string; depth: number; id: string; satisfiedBy: string[]; usages: string; method: string; verifiedBy: string[]; status: string; links: string[]; selected: boolean }[];
+    filter: string;
+    summary: string;
+    columns: string[];
   };
   /** Controls being edited and not yet committed. */
   pendingEdits: string[];

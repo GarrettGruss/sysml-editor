@@ -43,6 +43,7 @@ export interface ControllerResult {
   conflict?: { fieldKey: string; current: string };
 }
 
+const sameDecl = (a: Element, b: Element): boolean => a === b || (a.qualifiedName !== undefined && a.qualifiedName === b.qualifiedName && a.uri === b.uri);
 const isPkg = (e: Element) => e.kind === "package" || e.kind === "library package";
 const done = (r: OpResult): ControllerResult => (r.ok ? { ok: true } : { ok: false, message: r.reason });
 const cancelled: ControllerResult = { ok: true, message: "cancelled" };
@@ -59,6 +60,19 @@ export class RequirementsController {
 
   private pkg(qn: string): Element | undefined {
     return this.index.findByQualifiedName(qn).find(isPkg);
+  }
+
+  /** A package, or a requirement that owns requirements (the document can be opened on either). */
+  private container(qn: string): Element | undefined {
+    return this.index.findByQualifiedName(qn).find((e) => isPkg(e) || isRequirement(e));
+  }
+
+  /** True when the element is the root of the open document or inside it. */
+  private inScope(el: Element): boolean {
+    const rootQn = this.scopeQn();
+    if (rootQn === undefined) return true;
+    for (let o: Element | undefined = el; o; o = o.owner) if (o.qualifiedName === rootQn) return true;
+    return false;
   }
 
   private requirement(qn: string): Element | undefined {
@@ -159,11 +173,14 @@ export class RequirementsController {
       }
       case "addRequirement": {
         const ownerQn = intent.ownerQn ?? this.scopeQn();
-        const owner = ownerQn ? this.pkg(ownerQn) : undefined;
+        const owner = ownerQn ? this.container(ownerQn) : undefined;
         if (!owner) return { ok: false, message: "Choose a package to add the requirement to." };
+        const before = intent.beforeQn ? this.requirement(intent.beforeQn) : undefined;
+        if (intent.beforeQn && (!before || !before.owner || !sameDecl(before.owner, owner))) return gone("The requirement the new one goes above");
+        if (!this.inScope(owner)) return { ok: false, message: "A requirement can only be added within the document that is open." };
         if (!allowedChildKinds(owner).includes(intent.kind)) return { ok: false, message: `A requirement cannot be added to ${owner.kind} ${owner.name ?? ""}.` };
         if (intent.name.trim() === "") return { ok: false, message: "A requirement needs a name." };
-        return this.run(this.service.createRequirement(owner, { definition: intent.kind === "requirement def", name: intent.name.trim(), ...(intent.id.trim() ? { id: intent.id.trim() } : {}) }), `Added requirement ${intent.name}`);
+        return this.run(this.service.createRequirement(owner, { definition: intent.kind === "requirement def", name: intent.name.trim(), ...(intent.id.trim() ? { id: intent.id.trim() } : {}), ...(before ? { before } : {}) }), `Added requirement ${intent.name}`);
       }
       case "deleteRequirement": {
         const el = this.requirement(intent.qn);
@@ -236,7 +253,7 @@ export class RequirementsController {
         return { ok: true };
       }
       case "setHeading": {
-        const p = this.pkg(intent.qn);
+        const p = this.container(intent.qn);
         if (!p) return gone("The section");
         if ((p.name ?? "") !== intent.expected) return this.conflict(cellFieldKey(intent.qn, "heading"), p.name ?? "");
         if (intent.value.trim() === "") return { ok: false, message: "A heading cannot be empty." };
@@ -251,8 +268,10 @@ export class RequirementsController {
         const parent = this.pkg(intent.parentQn);
         if (!parent) return gone("The package");
         const after = intent.afterQn ? this.pkg(intent.afterQn) : undefined;
+        const beforeSection = intent.beforeQn ? this.pkg(intent.beforeQn) : undefined;
+        if (intent.beforeQn && (!beforeSection || !beforeSection.owner || !sameDecl(beforeSection.owner, parent))) return gone("The section the new one goes above");
         if (intent.name.trim() === "") return { ok: false, message: "A heading cannot be empty." };
-        return this.run(this.service.addSection(parent, intent.name, { ...(intent.appendix ? { appendix: true } : {}), ...(after ? { after } : {}) }), `Added ${intent.appendix ? "appendix" : "section"} ${intent.name}`);
+        return this.run(this.service.addSection(parent, intent.name, { ...(intent.appendix ? { appendix: true } : {}), ...(after ? { after } : {}), ...(beforeSection ? { before: beforeSection } : {}) }), `Added ${intent.appendix ? "appendix" : "section"} ${intent.name}`);
       }
       case "addParagraph": {
         const p = this.pkg(intent.pkgQn);
@@ -278,6 +297,29 @@ export class RequirementsController {
         if (!to) return { ok: false, message: "The section cannot move further." };
         return this.run(this.service.moveMember(el, to), `Moved ${intent.qn}`);
       }
+      case "moveRequirement": {
+        const el = this.requirement(intent.qn);
+        if (!el?.owner) return gone("The requirement");
+        const siblings = el.owner.members.filter(isRequirement);
+        const at = siblings.indexOf(el);
+        let to: { before: Element } | { after: Element } | { owner: Element; before?: Element; position?: "end" } | undefined;
+        if (intent.how === "up") to = at > 0 ? { before: siblings[at - 1]! } : undefined;
+        else if (intent.how === "down") to = at >= 0 && at < siblings.length - 1 ? { after: siblings[at + 1]! } : undefined;
+        else {
+          const owner = this.container(intent.how.ownerQn);
+          if (!owner) return gone("The target");
+          if (!this.inScope(owner) || !this.inScope(el)) return { ok: false, message: "The requirement can only be moved within the document that is open." };
+          if (!allowedChildKinds(owner).includes(el.kind)) return { ok: false, message: `A ${el.kind} cannot be moved into ${owner.kind} ${owner.name ?? ""}.` };
+          const before = intent.how.beforeQn ? this.requirement(intent.how.beforeQn) : undefined;
+          if (intent.how.beforeQn && !before) return gone("The target requirement");
+          if (before && !(before.owner && sameDecl(before.owner, owner))) return { ok: false, message: "The requirement it should go above is not in that owner; the view was refreshed." };
+          to = before ? { owner, before } : { owner, position: "end" };
+        }
+        if (!to) return { ok: false, message: intent.how === "up" ? "The requirement is already first." : "The requirement is already last." };
+        return this.run(this.service.moveMember(el, to), `Moved ${intent.qn}`);
+      }
+      case "exportMatrix":
+        return { ok: false, message: "Exporting the matrix is handled by the editor." };
       case "deleteSection": {
         const p = this.pkg(intent.qn);
         if (!p) return gone("The section");

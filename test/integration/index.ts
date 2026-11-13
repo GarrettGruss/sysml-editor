@@ -10,10 +10,11 @@ import { interactionTests } from "./diagram-interaction.js";
 import { foldersTests } from "./folders.js";
 import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
+import { requirementsAuthoringTests } from "./requirements-authoring.js";
 import { elementRoots } from "./tree-util.js";
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
-export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" | "diagram" | "message" }
+export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" | "diagram" | "message" | "placeholder" }
 export interface TestApi {
   model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[]; pendingDetails(): string[] } };
   provider: {
@@ -32,10 +33,21 @@ export interface TestApi {
     readonly ioCalls: number;
     /** Re-reads of newly created folders still scheduled. */
     readonly pendingFolderRescans: number;
+    readonly diagramUris: string[];
+    readonly diagramLog: string[];
+    readonly query: string;
     setExpanded(n: ModelNode, expanded: boolean): void;
   };
   /** The search box above the tree; `post` delivers a message as its webview would. */
   search: { post(message: unknown): void; query(): string };
+  /** The input box of New File and New Folder. */
+  newEntry: {
+    active(): { kind: "file" | "folder"; value: string; validation: { severity: "error" | "info"; message: string } | undefined; label: string | undefined } | undefined;
+    type(text: string): void;
+    accept(): Promise<void>;
+    cancel(): Promise<void>;
+    setTrusted(trusted: boolean | undefined): void;
+  };
   view: vscode.TreeView<ModelNode>;
   agent: {
     apply(): Promise<void>;
@@ -51,23 +63,24 @@ export interface TestApi {
     pngWindow(uri: vscode.Uri, theme: "editor-dark" | "editor-light"): Promise<string>;
     save(uri: vscode.Uri): Promise<void>;
     edit(uri: vscode.Uri, moves: { id: string; x: number; y: number }[]): void;
-    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; problems: unknown[]; doc?: DiagramDoc };
+    state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; pending: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
-    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void> } | undefined): void;
+    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined>; saveAs?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined> } | undefined): void;
     activeUri(): string | undefined;
     hoverOf(uri: vscode.Uri): string | undefined;
   };
   dnd: { handleDrag(source: readonly ModelNode[], data: vscode.DataTransfer): void };
   requirements: {
-    open(scope: ReqScope, view?: "table" | "document"): Promise<void>;
+    open(scope: ReqScope, view?: "table" | "matrix" | "document"): Promise<void>;
     close(scope: ReqScope): Promise<void>;
     metrics(scope: ReqScope): Promise<ReqMetrics>;
     png(scope: ReqScope): Promise<string>;
     gesture(scope: ReqScope, g: ReqGesture): Promise<void>;
     setWidth(scope: ReqScope, width: number | null): Promise<void>;
     intent(scope: ReqScope, intent: Record<string, unknown>): Promise<{ ok: boolean; message?: string }>;
-    setView(scope: ReqScope, view: "table" | "document"): Promise<void>;
+    setView(scope: ReqScope, view: "table" | "matrix" | "document"): Promise<void>;
+    exportMatrix(scope: ReqScope, format: "csv" | "markdown", path: string): Promise<string>;
     setUi(ui: { confirm?: (m: string, d: string, a: string) => Promise<boolean>; pickOne?: (items: { id: string; label: string }[], title: string) => Promise<string | undefined>; pickMany?: (items: { id: string; label: string }[], title: string) => Promise<string[] | undefined>; pickVerification?: (cases: { id: string; label: string }[], title: string) => Promise<{ existing: string } | { create: string } | undefined>; inputName?: (p: string) => Promise<string | undefined> } | undefined): void;
     navigation(): string[];
     errors(): string[];
@@ -79,11 +92,13 @@ export type ReqGesture =
   | { kind: "click"; selector: string }
   | { kind: "input"; selector: string; value: string; event?: "change" | "input" }
   | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
-  | { kind: "key"; selector: string; key: string };
+  | { kind: "key"; selector: string; key: string; alt?: boolean }
+  | { kind: "mouse"; type: "contextmenu" | "pointermove" | "pointerdown" | "pointerup" | "click"; selector: string; at?: "center" | "top" | "bottom" | "left"; dy?: number };
 export interface ReqMetrics {
-  view: "table" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
+  view: "table" | "matrix" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
   table: { rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[]; selected?: string; counts: { total: number; unsatisfied: number; unverified: number }; detail?: { qn: string; satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] } };
-  document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string }[]; rootBlocks: number };
+  document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number; kind: string; qn: string }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string; number: string; owner: string; collapsed: boolean; visible: boolean; trace: string; status: string }[]; rootBlocks: number; heading: string; gapCount: number; authoring: { mode: string; what?: string; ghost: boolean; activeGap?: { owner: string; before?: string; level: number; target: string }; visibleGaps: number; inputs: boolean; nestTarget?: string } };
+  matrix: { rows: { qn: string; kind: "section" | "requirement"; number: string; depth: number; id: string; satisfiedBy: string[]; usages: string; method: string; verifiedBy: string[]; status: string; links: string[]; selected: boolean }[]; filter: string; summary: string; columns: string[] };
   pendingEdits: string[]; conflicts: string[]; overflow: { count: number; horizontalScroll: boolean; samples: string[] }; notice?: { level: string; message: string }; errors: string[]; size: { width: number; height: number };
   layout: { width: number; mode: "table" | "card"; detail: "beside" | "below"; textWidths: number[]; rowWidths: number[] };
 }
@@ -96,15 +111,24 @@ export interface DiagramDoc {
 }
 export type Gesture =
   | { kind: "select"; id: string; shift?: boolean }
-  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number; hold?: number }
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" }
   | { kind: "contextmenu"; id: string }
-  | { kind: "drop"; names: string[] }
-  | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
-  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" }
+  | { kind: "drop"; names: string[]; x?: number; y?: number }
+  | { kind: "palette"; item: string; id?: string; x?: number; y?: number; name?: string; hold?: boolean }
+  | { kind: "ghostMove"; x: number; y: number }
+  | { kind: "inline"; text?: string; end?: "enter" | "shiftEnter" | "escape" | "blur" }
+  | { kind: "dblclick"; id: string; area?: "name" | "doc" }
+  | { kind: "descriptions"; show: boolean }
+  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow" }
+  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow"; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "connectRelease" }
+  | { kind: "quickBar"; item?: string }
+  | { kind: "reconnectDrag"; id: string; end: "source" | "target"; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "hoverNode"; id: string }
   | { kind: "selectEdge"; id: string }
   | { kind: "dragEdge"; id: string; dy: number }
   | { kind: "dragSegment"; id: string; index: number; d: number }
@@ -116,13 +140,18 @@ export type Gesture =
   | { kind: "inlineRename"; id: string; text: string; commit: boolean }
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
   | { kind: "hover"; id?: string }
+  | { kind: "labelClick"; id: string }
+  | { kind: "wheel"; deltaY: number; ctrl?: boolean }
+  | { kind: "focusCanvas"; mouse: boolean }
   | { kind: "flush" };
-export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean }
+export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean; tooltip?: string }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean; labelBox?: { x: number; y: number; w: number; h: number }; labelLines?: string[]; labelLaidOut?: boolean }[];
   overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number; userLabelsOverNodes: number; userLabelsOffCanvas: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; routeHandles: number; labelHandles: number; focusable: boolean; zoom: number;
-  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
+  view: { x: number; y: number; k: number }; canvas: { w: number; h: number }; highlights: number; staleDraws: number; focusOutline: boolean;
+  ghost?: { target?: string; invalid?: string; points: number }; quickBar: string[]; quickAnchor?: { bar: { x: number; y: number }; ghostEnd: { x: number; y: number } }; connectHandles: number; reconnectHandles: number;
+  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; inline?: { value: string; error?: string; purpose: string }; paletteGhost?: { kind: string; name: string; placed: boolean }; descriptions: boolean; theme: string;
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }
 
@@ -363,7 +392,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 19; // four model read tools, seven diagram tools (one reads the editor context), six model edit tools (one sets a transition) and two requirements tools
+  const TOOL_COUNT = 20; // four model read tools, seven diagram tools (one reads the editor context), six model edit tools (one sets a transition) and three requirements tools (document, matrix, create)
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {
@@ -660,6 +689,7 @@ export async function run(): Promise<void> {
     ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...requirementsTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...requirementsAuthoringTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...foldersTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];

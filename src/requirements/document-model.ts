@@ -21,6 +21,10 @@ export interface Paragraph {
 export interface RequirementItem {
   kind: "item";
   info: RequirementInfo;
+  /** Computed from nesting and order (`2`, `2.1`), never stored. */
+  number: string;
+  /** The requirements this one owns, in order (any depth). */
+  children: RequirementItem[];
   /** Short relationship summary: names as written. */
   summary: { satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] };
 }
@@ -44,6 +48,8 @@ export interface Section {
 }
 
 export interface TocEntry {
+  /** A section (package) or a requirement heading. */
+  kind: "section" | "requirement";
   qualifiedName: string;
   number: string;
   heading: string;
@@ -88,25 +94,62 @@ export const isAppendix = (index: ModelIndex, pkg: Element): boolean => annotati
 
 const EXCLUDED_FROM_LISTING = new Set(["import", "expose", "metadata", "comment", "doc", "satisfy", "verify"]);
 
-function blocksOf(index: ModelIndex, pkg: Element, rel: Relations): SectionBlock[] {
+/**
+ * Numbers in source order: one counter over the members of an owner that are sections (packages) or requirements, so the
+ * numbers read as the text does and adding a member only shifts the ones after it. Appendices of the root are lettered instead.
+ */
+export function numbered(index: ModelIndex, owner: Element, prefix: string, root: boolean): Map<Element, string> {
+  const nums = new Map<Element, string>();
+  let n = 0;
+  let app = 0;
+  for (const m of owner.members) {
+    if (root && isPackage(m) && isAppendix(index, m)) nums.set(m, letter(app++));
+    else if (isRequirement(m) || isPackage(m)) {
+      n++;
+      nums.set(m, prefix === "" ? String(n) : `${prefix}.${n}`);
+    }
+  }
+  return nums;
+}
+
+/** The requirement items owned by `owner`, with the numbers from `nums`; they own requirements in turn. */
+function itemsOf(index: ModelIndex, owner: Element, rel: Relations, nums: Map<Element, string>): RequirementItem[] {
+  const out: RequirementItem[] = [];
+  for (const m of owner.members) {
+    if (!isRequirement(m)) continue;
+    const number = nums.get(m) ?? "";
+    const info = describeRequirement(m, rel);
+    const label = (e: Element | undefined, fallback: string) => (e ? [e.shortName, e.name].filter(Boolean).join(" ") || fallback : fallback);
+    out.push({
+      kind: "item",
+      info,
+      number,
+      children: itemsOf(index, m, rel, numbered(index, m, number, false)),
+      summary: {
+        satisfiedBy: info.satisfiedBy.map((x) => label(x.byElement, x.by)),
+        verifiedBy: info.verifiedBy.map((v) => v.verifier.name ?? "verification"),
+        derivedFrom: info.derivedFrom.map((d) => label(d.other, d.otherRef)),
+        derives: info.derives.map((d) => label(d.other, d.otherRef)),
+      },
+    });
+  }
+  return out;
+}
+
+function blocksOf(index: ModelIndex, pkg: Element, rel: Relations, nums: Map<Element, string>): SectionBlock[] {
   const blocks: SectionBlock[] = [];
   const listing: ModelElementsListing = { kind: "elements", items: [] };
+  let items: RequirementItem[] | undefined;
+  let queue: RequirementItem[] = [];
   for (const m of pkg.members) {
     if (m.kind === "doc" || m.kind === "comment") {
       blocks.push({ kind: "paragraph", source: m.kind, text: unescapeTerminator(m.documentation ?? ""), element: m });
     } else if (isRequirement(m)) {
-      const info = describeRequirement(m, rel);
-      const label = (e: Element | undefined, fallback: string) => (e ? [e.shortName, e.name].filter(Boolean).join(" ") || fallback : fallback);
-      blocks.push({
-        kind: "item",
-        info,
-        summary: {
-          satisfiedBy: info.satisfiedBy.map((s) => label(s.byElement, s.by)),
-          verifiedBy: info.verifiedBy.map((v) => v.verifier.name ?? "verification"),
-          derivedFrom: info.derivedFrom.map((d) => label(d.other, d.otherRef)),
-          derives: info.derives.map((d) => label(d.other, d.otherRef)),
-        },
-      });
+      if (!items) {
+        items = itemsOf(index, pkg, rel, nums);
+        queue = items.slice();
+      }
+      blocks.push(queue.shift()!);
     } else if (isPackage(m) || EXCLUDED_FROM_LISTING.has(m.kind) || derivationOf(index, m)) continue;
     else listing.items.push({ kind: m.kind, name: m.name ?? m.shortName ?? "(unnamed)", ...(m.qualifiedName !== undefined ? { qualifiedName: m.qualifiedName } : {}), element: m });
   }
@@ -115,7 +158,8 @@ function blocksOf(index: ModelIndex, pkg: Element, rel: Relations): SectionBlock
 }
 
 function sectionOf(index: ModelIndex, pkg: Element, level: number, number: string, appendix: boolean, rel: Relations): Section {
-  const children = pkg.members.filter((m) => isPackage(m) && !(level === 0 && isAppendix(index, m)));
+  const nums = numbered(index, pkg, number, false);
+  const children = pkg.members.filter(isPackage);
   return {
     qualifiedName: pkg.qualifiedName ?? pkg.name ?? "",
     heading: pkg.name ?? pkg.shortName ?? "(unnamed)",
@@ -123,12 +167,12 @@ function sectionOf(index: ModelIndex, pkg: Element, level: number, number: strin
     number,
     appendix,
     element: pkg,
-    blocks: blocksOf(index, pkg, rel),
-    children: children.map((c, i) => sectionOf(index, c, level + 1, `${number}.${i + 1}`, appendix, rel)),
+    blocks: blocksOf(index, pkg, rel, nums),
+    children: children.map((c) => sectionOf(index, c, level + 1, nums.get(c)!, appendix, rel)),
   };
 }
 
-const letter = (i: number): string => {
+export const letter = (i: number): string => {
   let s = "";
   for (let n = i; n >= 0; n = Math.floor(n / 26) - 1) s = String.fromCharCode(65 + (n % 26)) + s;
   return s;
@@ -139,13 +183,24 @@ export function buildDocumentModel(index: ModelIndex, root: Element, rel: Relati
   const title = ann?.values.get("title") ?? root.name ?? "Untitled";
   const version = ann?.values.get("version");
   const nested = root.members.filter(isPackage);
-  const sections = nested.filter((p) => !isAppendix(index, p)).map((p, i) => sectionOf(index, p, 1, String(i + 1), false, rel));
-  const appendices = nested.filter((p) => isAppendix(index, p)).map((p, i) => sectionOf(index, p, 1, letter(i), true, rel));
+  const rootNums = numbered(index, root, "", true);
+  const sections = nested.filter((p) => !isAppendix(index, p)).map((p) => sectionOf(index, p, 1, rootNums.get(p)!, false, rel));
+  const appendices = nested.filter((p) => isAppendix(index, p)).map((p) => sectionOf(index, p, 1, rootNums.get(p)!, true, rel));
   const toc: TocEntry[] = [];
+  const addItems = (list: SectionBlock[], level: number) => {
+    const walk = (it: RequirementItem, l: number) => {
+      toc.push({ kind: "requirement", qualifiedName: it.info.qualifiedName, number: it.number, heading: [it.info.shortName, it.info.name].filter(Boolean).join(" : ") || it.info.qualifiedName, level: l, appendix: false });
+      it.children.forEach((c) => walk(c, l + 1));
+    };
+    for (const b of list) if (b.kind === "item") walk(b, level);
+  };
   const add = (s: Section) => {
-    toc.push({ qualifiedName: s.qualifiedName, number: s.number, heading: s.heading, level: s.level, appendix: s.appendix });
+    toc.push({ kind: "section", qualifiedName: s.qualifiedName, number: s.number, heading: s.heading, level: s.level, appendix: s.appendix });
+    addItems(s.blocks, s.level + 1);
     s.children.forEach(add);
   };
+  const rootBlocks = blocksOf(index, root, rel, rootNums);
+  addItems(rootBlocks, 1);
   [...sections, ...appendices].forEach(add);
   return {
     qualifiedName: root.qualifiedName ?? root.name ?? "",
@@ -154,7 +209,7 @@ export function buildDocumentModel(index: ModelIndex, root: Element, rel: Relati
     ...(version !== undefined ? { version } : {}),
     annotated: !!ann?.values.has("title"),
     root,
-    blocks: blocksOf(index, root, rel),
+    blocks: rootBlocks,
     sections,
     appendices,
     toc,

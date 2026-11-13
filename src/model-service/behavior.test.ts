@@ -137,4 +137,105 @@ describe("behaviour operations", () => {
     expect(r.ok).toBe(false);
     expect((r as { reason: string }).reason).toMatch(/syntax error/);
   });
+
+  describe("nested ends", () => {
+    const MODEL = "package P { state def M { entry; then idle; state idle; state operating { entry; then low; state low; state high; } state off; } action def A { action pre; action grp { action inner; } action post; } }";
+    test("a transition to a nested state is written with a dotted path in the owner", async () => {
+      const { host, svc, q } = setup(MODEL);
+      ok(await svc.addTransition(q("P::M"), q("P::M::idle"), q("P::M::operating::high")));
+      expect(host.disk.get(U)).toContain("transition first idle then operating.high;");
+    });
+    test("the statement goes into the nearest common owner of the ends", async () => {
+      const { host, svc, q } = setup(MODEL);
+      ok(await svc.addTransition(q("P"), q("P::M::operating::low"), q("P::M::operating::high")));
+      const op = q("P::M::operating");
+      expect(op.members.some((m) => m.kind === "transition" && m.ends.join() === "low,high")).toBe(true);
+      expect(host.disk.get(U)).toContain("transition first low then high;");
+    });
+    test("a succession reaches into a nested action", async () => {
+      const { host, svc, q } = setup(MODEL);
+      ok(await svc.addSuccession(q("P::A"), q("P::A::pre"), q("P::A::grp::inner")));
+      expect(host.disk.get(U)).toContain("first pre then grp.inner;");
+    });
+    test("an end that cannot be reached says why", async () => {
+      const { svc, q } = setup(MODEL);
+      const r = await svc.addTransition(q("P::M"), q("P::M::idle"), q("P::A::pre"));
+      expect(r.ok).toBe(false);
+      expect((r as { reason: string }).reason).toMatch(/common owner|not both inside|not an action|not a state/);
+      expect((r as { reason: string }).reason).not.toMatch(/out of date/);
+    });
+  });
+
+  describe("unnamed control nodes as ends", () => {
+    const MODEL = "package P { action def A { action a; action b; then fork; action c; fork fork1; } }";
+    const fork = (q: (n: string) => ReturnType<typeof setup>["q"] extends (n: string) => infer R ? R : never) => q("P::A").members.find((m) => m.kind === "fork" && m.name === undefined)!;
+    test("the node is named with the next free name and the succession is written in the same edit", async () => {
+      const { host, svc, q } = setup(MODEL);
+      const r = ok(await svc.addSuccession(q("P::A"), q("P::A::a"), fork(q)));
+      const text = host.disk.get(U)!;
+      expect(text).toContain("then fork fork2;");
+      expect(text).toContain("first a then fork2;");
+      expect(host.applied).toHaveLength(1);
+      expect(r.ok).toBe(true);
+    });
+    test("the diagram entry of the node follows the new name, later twins move up, and undo restores them", async () => {
+      const model = "package P { action def A { action a; action b; then fork; fork; action c; } }";
+      const d = diagram("actionFlow", "P::A", [
+        { id: "n1", ref: "P::A" },
+        { id: "n2", ref: "P::A::a", parent: "n1" },
+        { id: "n3", locator: { owner: "P::A", kind: "fork", ends: [], index: 0 }, parent: "n1" },
+        { id: "n4", locator: { owner: "P::A", kind: "fork", ends: [], index: 1 }, parent: "n1" },
+      ]);
+      const { host, svc, q } = setup(model, d);
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!, { diagram: D, placement: { diagram: D } }));
+      const doc = host.diagramOnDisk(D);
+      expect(doc.nodes.find((n) => n.id === "n3")).toMatchObject({ ref: "P::A::fork1" });
+      expect(doc.nodes.find((n) => n.id === "n3")!.locator).toBeUndefined();
+      expect(doc.nodes.find((n) => n.id === "n4")!.locator).toMatchObject({ kind: "fork" });
+      expect(doc.nodes.find((n) => n.id === "n4")!.locator!.index ?? 0).toBe(0);
+      expect(doc.edges.some((e) => e.source === "n2" && e.target === "n3")).toBe(true);
+    });
+    test("a comment and the statements after the node stay attached", async () => {
+      const { host, svc, q } = setup("package P { action def A { action a; action b; then fork; // split here\n action c; } }");
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!));
+      expect(host.disk.get(U)).toContain("then fork fork1; // split here");
+    });
+  });
+
+  describe("review findings", () => {
+    test("two unnamed decide nodes in one succession are named decide1 and decide2, in the diagram too, and undo restores both", async () => {
+      const model = "package P { action def A { action a; decide; decide; action c; } }";
+      const d = diagram("actionFlow", "P::A", [
+        { id: "n1", ref: "P::A" },
+        { id: "n2", locator: { owner: "P::A", kind: "decide", ends: [], index: 0 }, parent: "n1" },
+        { id: "n3", locator: { owner: "P::A", kind: "decide", ends: [], index: 1 }, parent: "n1" },
+      ]);
+      const { host, svc, q } = setup(model, d);
+      const [x, y] = q("P::A").members.filter((m) => m.kind === "decide");
+      ok(await svc.addSuccession(q("P::A"), x!, y!, { diagram: D, placement: { diagram: D } }));
+      expect(host.disk.get(U)).toContain("first decide1 then decide2;");
+      const doc = host.diagramOnDisk(D);
+      expect(doc.nodes.find((n) => n.id === "n2")).toMatchObject({ ref: "P::A::decide1" });
+      expect(doc.nodes.find((n) => n.id === "n3")).toMatchObject({ ref: "P::A::decide2" });
+    });
+    test("an end with a short name is used by it and not renamed", async () => {
+      const { host, svc, q } = setup("package P { action def A { action a; action b; then fork <f1>; action c; } }");
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!));
+      expect(host.disk.get(U)).toContain("first a then f1;");
+      expect(host.disk.get(U)).not.toContain("fork1");
+    });
+    test("the new name avoids inherited names", async () => {
+      const { host, svc, q } = setup("package P { action def B { action fork1; } action def A :> B { action a; action b; then fork; action c; } }");
+      ok(await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A").members.find((m) => m.kind === "fork")!));
+      expect(host.disk.get(U)).toContain("fork fork2;");
+    });
+    test("nothing is written into a definition from a usage's diagram", async () => {
+      const { host, svc, q } = setup("package P { action def A { action a; action b; } action x : A; }");
+      const before = host.disk.get(U);
+      const r = await svc.addSuccession(q("P::A"), q("P::A::a"), q("P::A::b"), { context: q("P::x") });
+      expect(r.ok).toBe(false);
+      expect((r as { reason: string }).reason).toMatch(/inherited|Change it in/);
+      expect(host.disk.get(U)).toBe(before);
+    });
+  });
 });

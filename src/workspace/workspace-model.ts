@@ -6,7 +6,7 @@
 import * as path from "node:path";
 import { existsSync } from "node:fs";
 import * as vscode from "vscode";
-import { ModelIndex, loadLibraryChunked } from "../model/index.js";
+import { ModelIndex, isLibraryUri, loadLibraryChunked } from "../model/index.js";
 import { inBatches, yieldToEventLoop } from "./chunked.js";
 import { ParseWorkerClient } from "./parse-worker-client.js";
 import { makeIndexFilter } from "./exclude.js";
@@ -91,7 +91,7 @@ export class WorkspaceModel implements vscode.Disposable {
     } else {
       void this.loadCreatedFolder(uri);
     }
-    this.folderEmitter.fire({ parent: key.slice(0, key.lastIndexOf("/")), path: key, deleted });
+    this.folderEmitter.fire({ parent: key.slice(0, key.lastIndexOf("/")), path: key, deleted, uri });
   }
 
   private sortedUris: string[] | undefined;
@@ -109,14 +109,29 @@ export class WorkspaceModel implements vscode.Disposable {
     return lo < list.length && list[lo]!.startsWith(prefix);
   }
 
-  /** A moved or renamed folder may be reported as one created directory only: load the `.sysml` files inside it. */
+  /**
+   * A moved, renamed or just created folder may be reported as one created directory only, and the watcher can
+   * miss files written into it moments later: read it (directory listing, not the search index) now and again
+   * a few times over the next seconds.
+   */
   private async loadCreatedFolder(uri: vscode.Uri): Promise<void> {
-    try {
-      if (((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory) === 0) return;
-      const found = await vscode.workspace.findFiles(new vscode.RelativePattern(uri, GLOB));
-      for (const f of found) if (!this.disposed) await this.fromDisk(f);
-    } catch {
-      // vanished again, or not readable
+    for (const delay of [0, 1000, 2000, 5000]) {
+      if (delay) await new Promise<void>((r) => { const t = setTimeout(r, delay); this.subs.push({ dispose: () => clearTimeout(t) }); });
+      if (this.disposed) return;
+      try {
+        await this.loadFolderFiles(uri, 0);
+      } catch {
+        return; // vanished again, or not readable
+      }
+    }
+  }
+
+  private async loadFolderFiles(uri: vscode.Uri, depth: number): Promise<void> {
+    if (depth > 20 || this.disposed) return;
+    for (const [name, type] of await vscode.workspace.fs.readDirectory(uri)) {
+      const child = vscode.Uri.joinPath(uri, name);
+      if (type & vscode.FileType.Directory) await this.loadFolderFiles(child, depth + 1);
+      else if (isSysmlUri(child)) await this.fromDisk(child);
     }
   }
 
@@ -142,7 +157,22 @@ export class WorkspaceModel implements vscode.Disposable {
     for (const f of r.failed) this.log(`library file failed: ${f.path}: ${f.error}`);
   }
 
-  private async scanWorkspace(): Promise<void> {
+  /** Read the workspace's `.sysml` files again (the Refresh button): files the watchers missed are added or updated. */
+  async rescan(): Promise<void> {
+    await this.ready;
+    const found = await this.scanWorkspace();
+    if (this.disposed) return;
+    // Files gone from disk behind the watchers' backs leave the index (open editors keep theirs).
+    const present = new Set(found.map((u) => uriKey(u)));
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => uriKey(f.uri));
+    const open = new Set(vscode.workspace.textDocuments.map((d) => uriKey(d.uri)));
+    for (const key of this.index.uris()) {
+      if (isLibraryUri(key) || present.has(key) || open.has(key)) continue;
+      if (folders.some((f) => key.startsWith(f + "/"))) this.index.removeDocument(key);
+    }
+  }
+
+  private async scanWorkspace(): Promise<vscode.Uri[]> {
     // Passing no exclude keeps the user's `files.exclude`; sysml.exclude and search.exclude are applied below.
     const found = await vscode.workspace.findFiles(GLOB, undefined);
     const files = found.filter((u) => this.indexable(u));
@@ -165,6 +195,7 @@ export class WorkspaceModel implements vscode.Disposable {
       },
       { cancelled: () => this.disposed },
     );
+    return files;
   }
 
   private currentFilter(): (rel: string) => boolean {
@@ -229,6 +260,11 @@ export class WorkspaceModel implements vscode.Disposable {
     if (this.disposed) return;
     if (text !== undefined) this.index.setDocument(key, text);
     else this.index.removeDocument(key);
+  }
+
+  /** Index a file just created by the extension itself, without waiting for a watcher event (watchers can miss files in new folders). */
+  async indexFile(uri: vscode.Uri): Promise<void> {
+    await this.fromDisk(uri);
   }
 
   private async fromDisk(uri: vscode.Uri): Promise<void> {

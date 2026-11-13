@@ -11,6 +11,7 @@ import {
 import { HANDLES, handleBoxes } from "./interaction.js";
 import { laidOutLabel, labelHandleBoxes, LABEL_LINE, type LabelLayout } from "./labels.js";
 import { edgeRoute, placeLabel, routeFits } from "./routing.js";
+import { labelSize, loopSidesFor, planSelfLoops, type SelfLoop } from "./loops.js";
 import { repairRoute, routeHandles } from "./route-edit.js";
 
 export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel" | "inherited";
@@ -76,6 +77,14 @@ export function nodeName(n: VmNode): string {
   return `${kind} ${n.label}`.trim();
 }
 
+/** The hover tooltip of a node: why an inherited element cannot be edited here, and the full description. */
+export function nodeTooltip(n: VmNode): string | undefined {
+  const parts: string[] = [];
+  if (n.inherited) parts.push(`Inherited from ${n.inherited.from}: it cannot be renamed or changed here. Change it in the definition, which changes every usage.`);
+  if (n.doc) parts.push(n.doc);
+  return parts.length ? parts.join("\n\n") : undefined;
+}
+
 function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: boolean): string {
   const c = describeBox(n, measure);
   const warn = n.shape === "unresolved";
@@ -86,9 +95,13 @@ function drawNode(n: VmNode, b: Box, o: SvgOptions, measure: Measure, selected: 
   const sw = n.shape === "requirement" ? ' stroke-width="1.5"' : "";
   let g = `<g data-node="${esc(n.id)}" data-shape="${n.shape}" role="img" aria-label="${esc(nodeName(n) + (inh ? " (inherited from " + n.inherited!.from + ")" : ""))}"${inh ? ' data-inherited="true"' : ""}${selected ? ' data-selected="true" aria-current="true"' : ""} transform="translate(${f(b.x)} ${f(b.y)})">`;
   if (n.shape === "port") {
+    if (n.tooltip) g = g.replace(/^<g /, `<g data-pin="${esc(n.pin?.direction ?? "")}" `) + `<title>${esc(n.tooltip)}</title>`;
     g += `<rect width="${f(b.w)}" height="${f(b.h)}"${dash}${paint(o, fill, stroke)}/>`;
+    if (n.pin) g += `<path d="M${f(b.w * 0.25)} ${f(b.h * 0.2)} L${f(b.w * 0.8)} ${f(b.h / 2)} L${f(b.w * 0.25)} ${f(b.h * 0.8)} Z"${paint(o, stroke, stroke)}/>`;
     return g + "</g>";
   }
+  const tip = nodeTooltip(n);
+  if (tip) g += `<title>${esc(tip)}</title>`;
   const shapeG = drawSpecial(n, b, c, o, fill, stroke, dash);
   if (shapeG !== undefined) return g + shapeG + "</g>";
   const rx = n.shape === "usage" || n.shape === "action" ? ' rx="10"' : n.shape === "state" ? ' rx="16"' : n.shape === "requirement" ? ' rx="3"' : "";
@@ -150,7 +163,7 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, l
   const before = pts[pts.length - 2] ?? first;
   const dashed = DASHED.has(e.style) || !e.resolved;
   const roleLine: Role = e.resolved ? "edge" : "warn";
-  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"${e.order !== undefined ? ` data-order="${e.order}"` : ""}${e.unordered ? ' data-unordered="true"' : ""}${selected ? ' data-selected="true"' : ""}><polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
+  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"${e.order !== undefined ? ` data-order="${e.order}"` : ""}${e.unordered ? ' data-unordered="true"' : ""}${selected ? ' data-selected="true"' : ""}>${selected ? `<polyline data-highlight="true" points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="8" stroke-opacity="0.35" stroke-linecap="round" stroke-linejoin="round"${paint(o, "none", "sel")}/>` : ""}<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
   const poly = (ps: Pt[], fill: Role | "none") => `<polygon points="${ps.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${paint(o, fill, roleLine)}/>`;
   switch (e.style) {
     case "composition": g += poly(diamondPoints(first, second, 16, 5), "edge"); break;
@@ -164,8 +177,14 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, l
     default: break;
   }
   // A wide invisible line makes a thin edge easy to hit and select.
-  if (selected) g += `<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="4" stroke-opacity="0.35"${paint(o, "none", "sel")}/>`;
-  if (e.label && label) lines.forEach((l, i) => { g += text(o, label.x + label.w / 2, label.y + 10 + i * LABEL_LINE, (i === 0 && e.unordered ? "\u2248 " : "") + l, "small", e.resolved ? "subtext" : "warn", "middle"); });
+  return g + "</g>";
+}
+
+/** The text of a line's label, drawn after every node and edge so it is on top of them. */
+function drawEdgeLabel(e: VmEdge, o: SvgOptions, label: Box | undefined, lines: string[]): string {
+  if (!e.label || !label) return "";
+  let g = `<g data-edge-label="${esc(e.id)}">`;
+  lines.forEach((l, i) => { g += text(o, label.x + label.w / 2, label.y + 10 + i * LABEL_LINE, (i === 0 && e.unordered ? "\u2248 " : "") + l, "small", e.resolved ? "subtext" : "warn", "middle"); });
   return g + "</g>";
 }
 
@@ -206,6 +225,18 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
   };
   // Route every edge first, in document order: a later edge keeps off the lines of the earlier ones.
   const drawn: { e: VmEdge; pts: Pt[]; ends: Box[] }[] = [];
+  // Self-transitions are planned first (loops and labels together, once per node): other lines keep off them.
+  const loopEdges = new Map<string, VmEdge[]>();
+  const loopPlan = new Map<string, SelfLoop>();
+  const loopBoxes: { node: string; box: Box }[] = [];
+  for (const e of vm.edges) if (e.source === e.target && !e.fixed && abs.has(e.source)) loopEdges.set(e.source, [...(loopEdges.get(e.source) ?? []), e]);
+  for (const [id, es] of loopEdges) {
+    planSelfLoops(abs.get(id)!, es.map((x) => x.label), measure, loopSidesFor(vm.kind)).forEach((p, i) => {
+      loopPlan.set(es[i]!.id, p);
+      loopBoxes.push({ node: id, box: boundsOf(p.pts.map((q) => ({ x: q.x, y: q.y, w: 0, h: 0 })), 0) });
+      if (p.label) loopBoxes.push({ node: id, box: p.label });
+    });
+  }
   for (const e of vm.edges) {
     const s = abs.get(e.source);
     const t = abs.get(e.target);
@@ -219,10 +250,10 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     }
     if (!s || !t) continue;
     if (e.source === e.target) {
-      // A transition from a state to itself: a loop outside the right border.
-      const loop: Pt[] = [{ x: s.x + s.w, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.3 }, { x: s.x + s.w + 26, y: s.y + s.h * 0.7 }, { x: s.x + s.w, y: s.y + s.h * 0.7 }];
-      routes.set(e.id, loop);
-      drawn.push({ e, pts: loop, ends: [s, t] });
+      // A transition from a state to itself: its own loop, planned above with the node's other loops.
+      const pts = loopPlan.get(e.id)!.pts;
+      routes.set(e.id, pts);
+      drawn.push({ e, pts, ends: [s, t] });
       continue;
     }
     const related = (id: string) => {
@@ -233,7 +264,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
       return set;
     };
     const skip = new Set([...related(e.source), ...related(e.target)]);
-    const obstacles = vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!);
+    const obstacles = [...vm.nodes.filter((n) => n.shape !== "port" && !skip.has(n.id) && abs.has(n.id)).map((n) => abs.get(n.id)!), ...loopBoxes.filter((b) => b.node !== e.source && b.node !== e.target).map((b) => b.box)];
     // A stored route that no longer fits (an end moved or was resized) keeps its interior bends where it can.
     const stored = extras.overrides?.get(e.id)?.points ?? extras.routes?.get(e.id) ?? e.points;
     const kept = stored && !routeFits(stored as Pt[], s, t) ? repairRoute(stored, s, t) : undefined;
@@ -269,9 +300,20 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
       labelLines.set(d.e.id, [d.e.label]);
       continue;
     }
+    const own = d.e.source === d.e.target ? loopEdges.get(d.e.source) : undefined;
+    if (own) {
+      // A self-transition's label sits beside its own loop, stacked with the node's other loops' labels.
+      const plan = loopPlan.get(d.e.id)!;
+      if (plan.label) {
+        labels.set(d.e.id, plan.label);
+        labelLines.set(d.e.id, plan.lines);
+        continue;
+      }
+    }
     const others = drawn.filter((x) => x !== d).map((x) => x.pts);
-    labels.set(d.e.id, placeLabel(d.pts, measure(d.e.label, "small") + 4, 13, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
-    labelLines.set(d.e.id, [d.e.label]);
+    const size = labelSize(d.e.label, measure);
+    labels.set(d.e.id, placeLabel(d.pts, size.w, size.h, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
+    labelLines.set(d.e.id, size.lines);
   }
   for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id), labelLines.get(d.e.id) ?? [], selected.has(d.e.id));
   for (const n of order) {
@@ -281,6 +323,7 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const owner = n.attachedTo !== undefined && byId.has(n.attachedTo) ? abs.get(n.attachedTo) : undefined;
     if (owner) out += drawPortLabel(n, b, owner, o);
   }
+  for (const d of drawn) out += drawEdgeLabel(d.e, o, labels.get(d.e.id), labelLines.get(d.e.id) ?? []);
   return { content: out, bounds: boundsOf([...abs.values(), ...labels.values()], 0), routes, labels, labelLines, laidOut };
 }
 

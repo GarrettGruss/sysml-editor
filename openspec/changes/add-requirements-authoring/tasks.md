@@ -1,0 +1,19 @@
+# Tasks
+
+## 1. Document
+
+- [x] 1.1 Check whether the document view shows plain packages; make it the default and restyle it; verify both scenarios (this also covers the table layout fix, defect 7)
+- [x] 1.2 Add the inline "+ requirement" and remove the Add Requirement bar; verify the "Add at the end" scenario
+- [x] 1.3 Build the ownership hierarchy, numbering, collapse, and TOC; verify both scenarios
+
+## 2. Add and move
+
+- [x] 2.1 Implement the right-click palette, ghost, and live gaps; verify the three scenarios
+- [x] 2.2 Implement drag reorder and nest with `moveMember`, and Move up and Move down; verify both scenarios
+
+## 3. Matrix
+
+- [x] 3.1 Add the `VerificationMethod` metadata reading and the matrix replacing the table; verify both scenarios
+- [x] 3.2 Implement inheritance-aware status, the coverage summary, and filters; verify both scenarios
+- [x] 3.3 Implement CSV and Markdown export and the trace line; verify both scenarios
+- [x] 3.4 Implement `sysml_read_verification_matrix`; verify the "Read a matrix" scenario

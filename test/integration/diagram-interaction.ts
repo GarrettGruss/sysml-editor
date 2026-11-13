@@ -173,6 +173,7 @@ export function interactionTests(c: Ctx): Test[] {
       const f = "tmp-contain.sysmld";
       const m0 = await metrics(f);
       const cont = nodeOf(m0, "n0");
+      // released at once (no dwell on a target): a plain layout move, clamped; moving out of the container needs the hold of a nest gesture
       await gesture(f, { kind: "drag", id: "n1", dx: -2000, dy: -2000 });
       await waitFor(() => dirty(f), 5000, "the clamped move is still an edit");
       await settled(f);
@@ -417,7 +418,7 @@ export function interactionTests(c: Ctx): Test[] {
       await c.eventually(async () => assert.strictEqual((await metrics(f)).nodes.length, 6), "undo brings the nodes back");
       // the context menu performs the same action
       await gesture(f, { kind: "contextmenu", id: "n2" });
-      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).menu, ["Rename", "Go to Definition", "Remove from Diagram", "Delete from Model…"]), "the menu of a resolved node offers rename, go to definition, remove from diagram and delete from model");
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).menu, ["Rename", "Add Description", "Go to Definition", "Remove from Diagram", "Delete from Model…"]), "the menu of a resolved node offers rename, go to definition, remove from diagram and delete from model");
       await gesture(f, { kind: "select", id: "n0" }); // a click elsewhere closes the menu
       assert.deepStrictEqual((await metrics(f)).menu, []);
       await gesture(f, { kind: "menu", id: "n2", action: "remove" });
@@ -495,7 +496,7 @@ export function interactionTests(c: Ctx): Test[] {
     }],
 
     // ---- D: add existing elements --------------------------------------------------------
-    ["Add to Active Diagram, Show Element… and a drop add a node as one undoable edit and change only the diagram file", withCopy("ports-general.sysmld", "tmp-add.sysmld", async () => {
+    ["Add to Diagram and a drop add a node as one undoable edit and change only the diagram file", withCopy("ports-general.sysmld", "tmp-add.sysmld", async () => {
       const f = "tmp-add.sysmld";
       const before = JSON.stringify(doc(f));
       const vehicle = await rootOf("Vehicle");
@@ -510,14 +511,6 @@ export function interactionTests(c: Ctx): Test[] {
       const wheelId = doc(f).nodes.find((n) => n.ref === "Vehicle::Wheel")!.id;
       await c.eventually(async () => assert.deepStrictEqual((await metrics(f)).selected, [wheelId]), "the new node is selected");
       await isUndone(f, before);
-      // (3) the Show Element… picker
-      let offered: PickItem[] = [];
-      api.diagram.setUi({ pick: async (items: PickItem[]) => { offered = items; return items.find((i) => i.description === "Vehicle::Engine"); } });
-      await vscode.commands.executeCommand("sysml.diagram.showElement");
-      await waitFor(() => doc(f).nodes.some((n) => n.ref === "Vehicle::Engine"), 10000, "Engine is on the diagram");
-      assert.ok(offered.some((i) => i.description === "Vehicle::Car::engine"), "the picker lists model elements by qualified name");
-      assert.ok(!offered.some((i) => (i.description ?? "").startsWith("ScalarValues")), "not the standard library");
-      await isUndone(f, before);
       // (1) a drop: the webview's drop handler reads the tree's MIME type
       await gesture(f, { kind: "drop", names: ["Vehicle::Car"] });
       await waitFor(() => doc(f).nodes.some((n) => n.ref === "Vehicle::Car"), 10000, "the dropped element is on the diagram");
@@ -529,6 +522,23 @@ export function interactionTests(c: Ctx): Test[] {
       assert.strictEqual(dirty(f), false);
       api.diagram.setUi(undefined);
     })],
+
+    // ---- tree drag to every diagram kind, at the pointer ---------------------------------
+    ...(["ports-general", "drivetrain-interconnection", "lamp-state-transition", "delivery-action-flow", "ordering-sequence", "mobility-use-case", "requirements"] as const).map((base) => [
+      `a tree drag onto ${base} adds the node at the drop point`,
+      withCopy(`${base}.sysmld`, `tmp-drop-${base}.sysmld`, async () => {
+        const f = `tmp-drop-${base}.sysmld`;
+        await gesture(f, { kind: "drop", names: ["Vehicle::Wheel"], x: 900, y: 700 });
+        await waitFor(() => doc(f).nodes.some((n) => n.ref === "Vehicle::Wheel"), 10000, "the dropped element is in the file");
+        const n = doc(f).nodes.find((x) => x.ref === "Vehicle::Wheel")!;
+        assert.ok(Math.abs((n.x ?? NaN) - 900) <= 1 && Math.abs((n.y ?? NaN) - 700) <= 1, `stored at the drop point, got ${String(n.x)},${String(n.y)}`);
+        await c.eventually(async () => {
+          const m = (await metrics(f)).nodes.find((x) => x.id === n.id);
+          assert.ok(m, "the node is drawn");
+          assert.ok(base === "ordering-sequence" ? Math.abs(m.x - 900) <= 2 : Math.abs(m.x - 900) <= 2 && Math.abs(m.y - 700) <= 2, `drawn at the drop point, got ${String(m.x)},${String(m.y)}`);
+        }, "drawn at the drop point");
+      }),
+    ] as [string, () => Promise<void>]),
 
     ["the tree puts the dragged elements on the data transfer under the diagram MIME type", async () => {
       const wheel = childOf(await rootOf("Vehicle"), "Wheel");
@@ -555,24 +565,30 @@ export function interactionTests(c: Ctx): Test[] {
         assert.deepStrictEqual(asked, ["General View", "Interconnection View", "Requirements View"]);
         assert.strictEqual(path.basename(uri.fsPath), "Car.sysmld");
         assert.strictEqual(path.dirname(uri.fsPath), path.dirname(vehicleFile(folder)), "next to the element's source file");
+        assert.ok(!existsSync(uri.fsPath), "nothing is written until the diagram is saved");
+        const name = path.basename(uri.fsPath);
+        await c.eventually(async () => assert.deepStrictEqual((await metrics(name)).nodes.map((n) => n.id), ["n1", "n2", "n3"]), "it opens showing the element and its direct members");
+        assert.strictEqual(api.diagram.state(uri).pending, true);
+        assert.strictEqual(api.diagram.state(uri).dirty, false, "the generated layout does not dirty it");
+        const m = await metrics(name);
+        assert.ok(m.nodes[0]!.text?.includes("Car"));
+        assert.strictEqual(m.overlaps, 0);
+        await api.diagram.save(uri);
+        assert.strictEqual(api.diagram.state(uri).pending, false);
         const written = JSON.parse(readFileSync(uri.fsPath, "utf8")) as DiagramDoc;
         assert.strictEqual(written.version, 1);
         assert.strictEqual(written.kind, "general");
         assert.strictEqual(written.root, "Vehicle::Car");
         assert.deepStrictEqual(written.nodes.map((n) => n.ref), ["Vehicle::Car", "Vehicle::Car::engine", "Vehicle::Car::wheels"]);
-        assert.ok(written.nodes.every((n) => n.x === undefined), "no positions are written");
-        const name = path.basename(uri.fsPath);
-        await c.eventually(async () => assert.deepStrictEqual((await metrics(name)).nodes.map((n) => n.id), ["n1", "n2", "n3"]), "it opens showing the element and its direct members");
-        const m = await metrics(name);
-        assert.ok(m.nodes[0]!.text?.includes("Car"));
-        assert.strictEqual(m.overlaps, 0);
         await close();
         // a second diagram of the same element gets another name
         const again = (await vscode.commands.executeCommand("sysml.newDiagram", car)) as vscode.Uri;
         created.push(again.fsPath);
         assert.strictEqual(path.basename(again.fsPath), "Car 2.sysmld");
+        assert.ok(!existsSync(again.fsPath), "the second one is not written either");
         assert.ok(readFileSync(uri.fsPath).length > 0, "the first file is untouched");
         await close();
+        assert.ok(!existsSync(again.fsPath), "closing it untouched leaves no file");
         // from the command palette: the element is picked
         api.diagram.setUi({
           pick: async (items: PickItem[]) => items.find((i) => i.description === "Ports::Drivetrain") ?? items.find((i) => i.label === "Interconnection View"),
@@ -582,11 +598,123 @@ export function interactionTests(c: Ctx): Test[] {
         created.push(viaPalette.fsPath);
         assert.strictEqual(path.basename(viaPalette.fsPath), "Drivetrain.sysmld");
         assert.strictEqual(path.dirname(viaPalette.fsPath), folder.fsPath.replace(/\/$/, ""), "next to ports.sysml");
-        assert.strictEqual((JSON.parse(readFileSync(viaPalette.fsPath, "utf8")) as DiagramDoc).kind, "interconnection");
+        await c.eventually(async () => assert.ok((await metrics(path.basename(viaPalette.fsPath))).nodes.length > 0), "the palette-created diagram renders");
+        assert.strictEqual((api.diagram.state(viaPalette).doc as DiagramDoc).kind, "interconnection");
       } finally {
         api.diagram.setUi(undefined);
         await close();
         for (const p of created) rmSync(p, { force: true });
+      }
+    }],
+
+    ["a line drag stays drawn after release, routes around the end node and never leaves a bad route (D22, D23)", withCopy("lamp-state-transition.sysmld", "tmp-opt.sysmld", async () => {
+      const f = "tmp-opt.sysmld";
+      const edge = async () => (await metrics(f)).edges.find((e) => e.label?.startsWith("TurnOn"))!;
+      const e0 = await edge();
+      const src = nodeOf(await metrics(f), e0.source);
+      const horiz = Math.abs(e0.points[0]!.y - e0.points[1]!.y) < 0.5;
+      const d = horiz ? -(e0.points[0]!.y - src.y + 90) : -(e0.points[0]!.x - src.x + 90);
+      await gesture(f, { kind: "dragSegment", id: e0.id, index: 0, d });
+      await c.eventually(async () => assert.notDeepStrictEqual((await edge()).points, e0.points), "the route changed");
+      let m = await metrics(f);
+      assert.strictEqual(m.staleDraws, 0, "the old route is never drawn again between release and confirmation");
+      assert.strictEqual(m.diagonalSegments, 0);
+      assert.strictEqual(m.edgesThroughEndNodes, 0);
+      const mid = (await edge()).points;
+      if (mid.length > 3) {
+        await gesture(f, { kind: "dragBend", id: e0.id, index: 1, dx: -60, dy: 70 });
+        await c.eventually(async () => assert.strictEqual((await metrics(f)).staleDraws, 0), "no stale draw after the bend drag");
+        m = await metrics(f);
+        assert.strictEqual(m.diagonalSegments, 0);
+        assert.strictEqual(m.edgesThroughEndNodes, 0);
+      }
+      assert.strictEqual(m.staleDraws, 0);
+    })],
+
+    ["a click on a label selects its line at once and the label resizes in one go; a selected line has a highlight (screenshots)", withCopy("lamp-state-transition.sysmld", "tmp-lsel.sysmld", async () => {
+      const f = "tmp-lsel.sysmld";
+      const edge = async () => (await metrics(f)).edges.find((e) => e.label?.startsWith("TurnOn"))!;
+      const e0 = await edge();
+      assert.deepStrictEqual((await metrics(f)).selected, []);
+      assert.strictEqual((await metrics(f)).highlights, 0);
+      await gesture(f, { kind: "labelClick", id: e0.id });
+      await c.eventually(async () => {
+        const m = await metrics(f);
+        assert.deepStrictEqual(m.selected, [e0.id], "the first click selects the line");
+        assert.ok(m.labelHandles >= 2, "the label handles show at once");
+        assert.strictEqual(m.highlights, 1, "a highlight runs along the selected line");
+      }, "label click selects");
+      await gesture(f, { kind: "labelResize", id: e0.id, dw: -Math.round(e0.labelBox!.w / 2), dh: 20 });
+      await waitFor(() => doc(f).edges.find((e) => e.id === e0.id)?.label?.w !== undefined, 5000, "the size reaches the document");
+      mkdirSync(c.artifactDir, { recursive: true });
+      for (const theme of ["editor-dark", "editor-light"] as const) writeFileSync(path.join(c.artifactDir, `diagram-selected-line-${theme}.png`), Buffer.from(await api.diagram.pngWindow(uriOf(f), theme), "base64"));
+    })],
+
+    ["the canvas has no focus border after a mouse press, a thin line for the keyboard; the wheel zooms 1.5 times as fast and back; arrows pan only with nothing selected", withCopy("lamp-state-transition.sysmld", "tmp-view.sysmld", async () => {
+      const f = "tmp-view.sysmld";
+      await gesture(f, { kind: "focusCanvas", mouse: true });
+      assert.strictEqual((await metrics(f)).focusOutline, false, "no focus border on mouse focus");
+      await gesture(f, { kind: "focusCanvas", mouse: false });
+      // the outline appears only when the browser treats the focus as keyboard focus; it must never be the 2 px selection-like border
+      const z0 = (await metrics(f)).zoom;
+      await gesture(f, { kind: "wheel", deltaY: -100, ctrl: true });
+      const z1 = (await metrics(f)).zoom;
+      assert.ok(Math.abs(z1 / z0 - Math.exp(100 * 0.0015 * 1.5)) < 1e-6, `one step in: ${z1 / z0}`);
+      await gesture(f, { kind: "wheel", deltaY: 100, ctrl: true });
+      assert.ok(Math.abs((await metrics(f)).zoom - z0) < 1e-9, "one step in and one out return to the start");
+      const v0 = (await metrics(f)).view;
+      await gesture(f, { kind: "key", key: "Escape" });
+      await gesture(f, { kind: "key", key: "ArrowLeft" });
+      const v1 = (await metrics(f)).view;
+      assert.ok(Math.abs(v1.x - v0.x - 40) < 1e-9 && v1.y === v0.y, "pans 40 px");
+      await gesture(f, { kind: "key", key: "ArrowDown", shift: true });
+      assert.ok(Math.abs((await metrics(f)).view.y - (v1.y - 160)) < 1e-9, "Shift pans 160 px");
+      // with a selection the arrow keys nudge and the view stays
+      const n = (await metrics(f)).nodes[0]!;
+      await gesture(f, { kind: "select", id: n.id });
+      const v2 = (await metrics(f)).view;
+      await gesture(f, { kind: "key", key: "ArrowRight" });
+      await gesture(f, { kind: "flush" });
+      assert.deepStrictEqual((await metrics(f)).view, v2, "the view does not pan");
+      await waitFor(async () => nodeOf(await metrics(f), n.id).x === n.x + 1 || nodeOf(await metrics(f), n.id).x > n.x, 5000, "the node was nudged");
+    })],
+
+    ["a diagram with no stored view is fitted to the window on open and keeps a stored view", withCopy("lamp-state-transition.sysmld", "tmp-fit.sysmld", async () => {
+      const f = "tmp-fit.sysmld";
+      await c.eventually(async () => {
+        const m = await metrics(f);
+        const { x, y, k } = m.view;
+        for (const n of m.nodes.filter((b) => b.parent === undefined)) {
+          assert.ok(n.x * k + x >= -1 && n.y * k + y >= -1 && (n.x + n.w) * k + x <= m.canvas.w + 1 && (n.y + n.h) * k + y <= m.canvas.h + 1, `${n.id} is inside the window`);
+        }
+        const xs = m.nodes.filter((b) => b.parent === undefined);
+        const left = Math.min(...xs.map((b) => b.x * k + x)), right = m.canvas.w - Math.max(...xs.map((b) => (b.x + b.w) * k + x));
+        assert.ok(Math.abs(left - right) < 2, `centered horizontally (${left} / ${right})`);
+      }, "the content is fitted and centered");
+    })],
+
+    ["an Interconnection diagram rooted at a package opens with a message and the actions Change root and Convert to General; New Diagram on a package does not offer Interconnection", async () => {
+      const f = "tmp-badroot.sysmld";
+      const bad = { version: 1, kind: "interconnection", root: "Ports", sources: ["ports.sysml"], nodes: [{ id: "n1", ref: "Ports" }, { id: "n2", ref: "Ports::Power", parent: "n1" }], edges: [] };
+      writeFileSync(uriOf(f).fsPath, JSON.stringify(bad, null, 2));
+      const asked: { message: string; actions: readonly string[] }[] = [];
+      try {
+        api.diagram.setUi({ choose: async (message, actions) => { asked.push({ message, actions }); return "Convert to General"; } });
+        await api.diagram.open(uriOf(f));
+        await waitFor(() => asked.length > 0, 30000, "the message is shown");
+        assert.match(asked[0]!.message, /Interconnection View needs a part, item, interface or connection definition or usage/);
+        assert.deepStrictEqual(asked[0]!.actions, ["Change root", "Convert to General"]);
+        await waitFor(() => doc(f).kind === "general", 5000, "the diagram became a General View");
+        assert.ok(dirty(f), "the conversion is an edit of the diagram file");
+        await close();
+        const kinds: string[] = [];
+        api.diagram.setUi({ pick: async (items: PickItem[]) => { kinds.push(...items.map((i) => i.label)); return undefined; } });
+        await vscode.commands.executeCommand("sysml.newDiagram", await rootOf("Vehicle"));
+        assert.deepStrictEqual(kinds, ["General View", "Requirements View"]);
+      } finally {
+        api.diagram.setUi(undefined);
+        await close();
+        rm(f);
       }
     }],
 

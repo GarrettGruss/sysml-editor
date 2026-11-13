@@ -9,6 +9,7 @@ import { buildViewModel } from "./view-model.js";
 import { absoluteBoxes, countOutsideParent, countOverCompartments, countOverlaps, type Measure } from "../webview/diagram/geometry.js";
 import { layoutDiagram, type ElkLike } from "../webview/diagram/layout.js";
 import { checkEdges } from "../webview/diagram/metrics.js";
+import { routeThroughBox } from "../webview/diagram/routing.js";
 import { SEQ_FIRST, SEQ_ROW } from "../webview/diagram/sequence-layout.js";
 import { LIGHT_PALETTE, buildSvg, wrapStandalone } from "../webview/diagram/svg.js";
 
@@ -41,17 +42,18 @@ async function build(index: ModelIndex, root: string, kind: DiagramKind) {
 }
 
 const CASES: { name: string; file: string; root: string; kind: DiagramKind; nodes: number; edges: number }[] = [
-  { name: "Decision Example", file: REL + "training/17. Control/Decision Example.sysml", root: "'Decision Example'::ChargeBattery", kind: "actionFlow", nodes: 8, edges: 7 },
-  { name: "Fork Join Example", file: REL + "training/17. Control/Fork Join Example.sysml", root: "'Fork Join Example'::Brake", kind: "actionFlow", nodes: 8, edges: 10 },
-  { name: "Conditional Succession", file: REL + "training/16. Conditional Succession/Conditional Succession Example-1.sysml", root: "'Conditional Succession Example-1'::takePicture", kind: "actionFlow", nodes: 3, edges: 2 },
+  { name: "Decision Example", file: REL + "training/17. Control/Decision Example.sysml", root: "'Decision Example'::ChargeBattery", kind: "actionFlow", nodes: 11, edges: 7 },
+  { name: "Fork Join Example", file: REL + "training/17. Control/Fork Join Example.sysml", root: "'Fork Join Example'::Brake", kind: "actionFlow", nodes: 14, edges: 10 },
+  { name: "Conditional Succession", file: REL + "training/16. Conditional Succession/Conditional Succession Example-1.sysml", root: "'Conditional Succession Example-1'::takePicture", kind: "actionFlow", nodes: 9, edges: 2 },
   { name: "Transition Actions", file: REL + "training/25. Transitions/Transition Actions.sysml", root: "'Transition Actions'::vehicleStates", kind: "stateTransition", nodes: 5, edges: 4 },
   { name: "State Decomposition", file: REL + "training/24. States/State Decomposition-1.sysml", root: "'State Decomposition-1'::vehicleStates", kind: "stateTransition", nodes: 5, edges: 4 },
   { name: "ServerSequenceRealization serverBehavior", file: REL + "examples/Interaction Sequencing Examples/ServerSequenceRealization-2.sysml", root: "ServerSequenceRealization_2::Configuration::server_2::serverBehavior", kind: "stateTransition", nodes: 4, edges: 3 },
   { name: "Interaction Example-1", file: REL + "training/27. Occurrences/Interaction Example-1.sysml", root: "'Interaction Example-1'::CruiseControlInteraction", kind: "sequence", nodes: 2, edges: 3 },
   { name: "Message Payload Example", file: REL + "training/27. Occurrences/Message Payload Example.sysml", root: "'Message Payload Example'::CruiseControlInteraction", kind: "sequence", nodes: 2, edges: 4 },
   { name: "ServerSequenceModel", file: REL + "examples/Interaction Sequencing Examples/ServerSequenceModel.sysml", root: "ServerSequenceModel::PubSubSequence", kind: "sequence", nodes: 3, edges: 3 },
-  { name: "workspace actions", file: WS + "actions.sysml", root: "Delivery::deliverOrder", kind: "actionFlow", nodes: 7, edges: 7 },
+  { name: "workspace actions", file: WS + "actions.sysml", root: "Delivery::deliverOrder", kind: "actionFlow", nodes: 9, edges: 7 },
   { name: "workspace states", file: WS + "states.sysml", root: "Lamp::lamp", kind: "stateTransition", nodes: 6, edges: 4 },
+  { name: "many self-transitions with long labels", file: "test/fixtures/self-transitions.sysml", root: "Fleet::FleetStates", kind: "stateTransition", nodes: 7, edges: 12 },
   { name: "workspace interaction", file: WS + "interaction.sysml", root: "Ordering::OrderInteraction", kind: "sequence", nodes: 3, edges: 3 },
 ];
 
@@ -72,6 +74,26 @@ describe("diagrams of real release fixtures and the workspace fixtures", () => {
       expect(r.edges.labelsOnOwnEdge).toBe(0);
       expect(r.edges.labelsOverLabels).toBe(0);
       for (const e of r.vm.edges) if (!e.derived) expect(r.svg.routes.get(e.id), e.id).toBeDefined();
+      if (c.name.startsWith("many self-transitions")) {
+        // The routes ELK computed are kept for lines at nodes with loops (clipped to the node's own border).
+        for (const e of r.vm.edges) if (e.source !== e.target && r.abs.get(e.source) && !r.vm.nodes.some((k) => k.parent === e.source || k.parent === e.target)) expect(r.layout.routes.has(e.id), `route kept for ${e.id}`).toBe(true);
+        // No line runs through a node it does not end at, and every self-transition has its own loop.
+        for (const e of r.vm.edges) {
+          const pts = r.svg.routes.get(e.id)!;
+          for (const n of r.vm.nodes) {
+            if (n.id === e.source || n.id === e.target || r.vm.nodes.some((k) => k.parent === n.id)) continue;
+            expect(routeThroughBox(pts, r.abs.get(n.id)!), `${e.id} through ${n.id}`).toBe(false);
+          }
+        }
+        // No label runs past the frame of the state it belongs to.
+        const frame = r.abs.get(r.vm.nodes.find((n) => n.parent === undefined)!.id)!;
+        for (const [id, l] of r.svg.labels) {
+          expect(l.x, id).toBeGreaterThanOrEqual(frame.x);
+          expect(l.y, id).toBeGreaterThanOrEqual(frame.y);
+          expect(l.x + l.w, id).toBeLessThanOrEqual(frame.x + frame.w);
+          expect(l.y + l.h, id).toBeLessThanOrEqual(frame.y + frame.h);
+        }
+      }
     });
   }
 });
@@ -97,10 +119,27 @@ describe("diagram kinds", () => {
     expect(k("Lamp::lamp")).not.toContain("sequence");
     expect(k("Lamp::LampStates")).toContain("stateTransition");
     expect(k("Lamp::logEvent")).toContain("actionFlow");
-    expect(k("Lamp")).toEqual(["general", "interconnection", "requirements"]);
+    expect(k("Lamp")).toEqual(["general", "requirements"]);
     const inter = load(WS + "interaction.sysml");
     expect(k("Ordering::OrderInteraction", inter)).toContain("sequence");
     expect(k("Ordering::OrderInteraction", inter)).not.toContain("stateTransition");
+  });
+});
+
+describe("root rules per kind (D27)", () => {
+  const ix = new ModelIndex();
+  ix.setDocument("file:///w/r.sysml", "package P { part def Car { part wheel : Wheel; port p; } part def Wheel; item def Fuel; interface def Link; connection def Conn; part car : Car; attribute def A; action def Go; }");
+  const el = (qn: string) => ix.findByQualifiedName(qn)[0]!;
+  it("offers Interconnection only for part, item, interface and connection definitions and usages", () => {
+    for (const qn of ["P::Car", "P::car", "P::Fuel", "P::Link", "P::Conn", "P::Car::wheel"]) expect(diagramKindsFor(el(qn)), qn).toContain("interconnection");
+    for (const qn of ["P", "P::A", "P::Go", "P::Car::p"]) expect(diagramKindsFor(el(qn)), qn).not.toContain("interconnection");
+    expect(diagramKindsFor(el("P"))).toEqual(["general", "requirements"]);
+  });
+  it("refuses a package as the root of an Interconnection View with a message that names what it needs", () => {
+    expect(rootProblem("interconnection", el("P"))).toMatch(/needs a part, item, interface or connection definition or usage/);
+    expect(() => createDiagram(ix, "P", "interconnection")).toThrow(/Interconnection View needs a part/);
+    expect(rootProblem("interconnection", el("P::Car"))).toBeUndefined();
+    expect(rootProblem("general", el("P"))).toBeUndefined();
   });
 });
 
@@ -182,7 +221,7 @@ describe("notation", () => {
   it("action flow: guards in brackets, control nodes, start and done, a dashed flow", async () => {
     const r = await build(load(WS + "actions.sysml"), "Delivery::deliverOrder", "actionFlow");
     expect(r.vm.edges.filter((e) => e.style === "succession").map((e) => e.label ?? "")).toEqual(expect.arrayContaining(["[pack.weight >= 100]", "[else]"]));
-    expect(r.vm.nodes.map((n) => n.shape).sort()).toEqual(["action", "action", "action", "action", "decision", "done", "start"]);
+    expect(r.vm.nodes.map((n) => n.shape).sort()).toEqual(["action", "action", "action", "action", "decision", "done", "port", "port", "start"]);
     expect(r.svg.content).toContain('data-style="flow"');
     expect(r.vm.nodes.find((n) => n.shape === "action" && n.label === "pack : Pack")?.keyword).toBe("«action»");
   });

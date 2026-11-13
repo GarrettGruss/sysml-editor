@@ -22,7 +22,7 @@ export class FakeHost implements ModelHost {
   /** Diagram files: last saved text (disk) and in-memory document. */
   readonly diagramDisk = new Map<string, string>();
   readonly diagramMemory = new Map<string, DiagramDocument>();
-  readonly entries: { origin: string; result: OpOk }[] = [];
+  readonly entries: { origin: string; description: string; result: Promise<OpOk> }[] = [];
   /** Runs once before the next apply (to simulate a change between planning and applying). */
   beforeApply?: () => void;
   /** Saving fails for every document (true) or for the listed ones. */
@@ -136,7 +136,7 @@ export class FakeHost implements ModelHost {
     return { written, failed, skipped };
   }
 
-  recordUndoEntry(origin: string, result: OpOk): void {
-    this.entries.push({ origin, result });
+  recordUndoEntry(origin: string, description: string, result: Promise<OpOk>): void {
+    this.entries.push({ origin, description, result });
   }
 }

@@ -8,14 +8,15 @@ import {
   buildDeclaration, planConnect, planDeleteElement, planInsertMember, planRename, planSatisfy, planSetDocumentation,
   planSetMultiplicity, planSetShortName, planSetType, validatePlan,
   isPlanCurrent, sourceMatches, sourceOf,
-  detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, planRemoveDerivation, planRemoveSatisfy,
+  detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, positionBefore, planRemoveDerivation, planRemoveSatisfy,
   planRemoveVerify, planSetCommentBody, planVerify, type MoveTarget,
-  planAddMessage, planAddSuccession, planAddTransition, planDeleteBehavior, planSetTransition, type MessageSpec, type TransitionParts,
+  freeNodeName, planAddConnectedNode, planAddMessage, planAddSuccession, planReconnect, planAddTransition, planDeleteBehavior, planSetTransition, type MessageSpec, type TransitionParts,
   type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { placeElementChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { planFlow, planNest } from "../edit/index.js";
+import { composeChanges, nestChange, nameNodesChange, placeElementChange, placeNodeAndLineChange, reconnectChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
 import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
@@ -100,8 +101,11 @@ export interface ModelHost {
   editBlocker?(uri: string): string | undefined;
   /** Show the user a warning, with an optional action (a VS Code command). */
   warn?(message: string, action?: { label: string; command: string }): void;
-  /** A model edit was made from a diagram: record one undo entry there. */
-  recordUndoEntry?(originDiagram: string, result: OpOk): void;
+  /**
+   * A model edit was made from a diagram: record one undo entry there, as soon as the text is changed. `result` settles
+   * when the operation is complete (to a text-only result if it failed after the text was changed).
+   */
+  recordUndoEntry?(originDiagram: string, description: string, result: Promise<OpOk>): void;
 }
 
 export interface ForceOutcome {
@@ -117,6 +121,9 @@ export interface Origin {
   /** URI of the diagram the edit is made from (it gets the undo entry). */
   diagram?: string;
 }
+
+/** The same owner: the element itself, or another declaration of the same name in the same file. */
+const ownerIs = (a: Element, b: Element): boolean => a === b || (a.qualifiedName !== undefined && a.qualifiedName === b.qualifiedName && a.uri === b.uri);
 
 export interface AddSpec {
   /** Declaration kind, e.g. `part`, `part def`, `port`. */
@@ -165,6 +172,13 @@ export function commonOwner(a: Element, b: Element): Element | undefined {
 }
 
 export { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds };
+
+/** The message for an element that is no longer in the model: said once it really changed, and naming it. */
+function gone(what: string, el?: Element | Target | string): string {
+  const e = el !== undefined && typeof el !== "string" && "element" in el ? el.element : el;
+  const name = typeof e === "string" ? e : e?.qualifiedName ?? e?.name;
+  return `${what}${name ? ` (${name})` : ""} is no longer in the model: it was renamed, moved or deleted since it was read. Refresh and try again.`;
+}
 
 export class ModelService {
   /** Operations are serialised: two edits never plan against the same text at once. */
@@ -265,6 +279,35 @@ export class ModelService {
       if (!outcome.ok) return fail(outcome.reason);
       // From here the edit IS applied (documents that could not be saved keep it as unsaved changes): everything
       // that belongs to the operation still happens, and the result says what was and was not saved.
+      // The undo entry exists from the moment the text changed: an Undo pressed while the diagram files are still being
+      // updated must reverse this edit, not the one before it. Its undo runs after this operation (they are serialized).
+      let settle!: (r: OpOk) => void;
+      const done = new Promise<OpOk>((r) => (settle = r));
+      if (origin?.diagram && p.edits.length > 0) this.host.recordUndoEntry?.(origin.diagram, p.description, done);
+      try {
+        const result = await this.finish(p, record, base, sources, outcome, hooks);
+        settle(result);
+        return result;
+      } catch (e) {
+        // The text edit is saved but the rest failed: Undo still reverts the text (there is no diagram part to revert).
+        settle({ ok: true, description: p.description, files: [...base.keys()], record, diagramFiles: [] });
+        this.warn(`${p.description}: the text was changed, but the diagrams could not be updated (${e instanceof Error ? e.message : String(e)}); they may not match the model.`);
+        throw e;
+      }
+    }
+    return fail("The file changed while the edit was being prepared, twice. Nothing was changed; try again.");
+  }
+
+  /** The rest of an applied edit: diagram files, forced diagram changes, the result and its warnings. */
+  private async finish(
+    p: PlanOk,
+    record: EditRecord,
+    base: ReadonlyMap<string, string>,
+    sources: readonly PlanSource[],
+    outcome: { unsaved?: string[] },
+    hooks: { element?: () => Element | undefined; change?: () => DiagramChange | undefined; extra?: Partial<OpOk> },
+  ): Promise<OpOk> {
+    {
       const unsaved = outcome.unsaved ?? [];
       await this.host.sync();
       const diagramFiles: string[] = [];
@@ -305,7 +348,6 @@ export class ModelService {
         ...(changedMeanwhile.length ? { diagramsChangedMeanwhile: changedMeanwhile } : {}),
         ...hooks.extra,
       };
-      if (origin?.diagram) this.host.recordUndoEntry?.(origin.diagram, result);
       this.noteUnsaved(unsaved);
       if (diagramProblems) {
         const names = [...diagramProblems.failed, ...diagramProblems.skipped].map(nameOfUri);
@@ -316,7 +358,6 @@ export class ModelService {
       }
       return result;
     }
-    return fail("The file changed while the edit was being prepared, twice. Nothing was changed; try again.");
   }
 
   /** The user is told which files could not be saved, with a "Save All" action. */
@@ -367,7 +408,7 @@ export class ModelService {
 
   // ---- operations ----------------------------------------------------------------------------
 
-  addElement(owner: Element, spec: AddSpec, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string }; context?: Element } = {}): Promise<OpResult> {
+  addElement(owner: Element, spec: AddSpec, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string }; context?: Element; /** Insert just above this member of the owner (default: at the end). */ before?: Element } = {}): Promise<OpResult> {
     return this.serial(async () => {
       if (opts.context) {
         const refusal = this.inheritedRefusal({ element: owner, context: opts.context }, "extended");
@@ -385,7 +426,7 @@ export class ModelService {
       return this.run(
         () => {
           ownerNow = findOwner();
-          if (!ownerNow) return fail("The element to add to is out of date; refresh and try again.");
+          if (!ownerNow) return fail(gone("The element to add to", owner));
           const kindWrong = kindProblem(ownerNow, spec.kind);
           if (kindWrong) return fail(kindWrong);
           pre.clear();
@@ -397,13 +438,20 @@ export class ModelService {
             type = t;
           }
           const memberSpec = { kind: spec.kind, ...(spec.name !== undefined ? { name: spec.name } : {}), ...(spec.shortName ? { shortName: spec.shortName } : {}), ...(type !== undefined ? { type } : {}), ...(spec.multiplicity ? { multiplicity: spec.multiplicity } : {}) };
-          if (!spec.documentation) return planInsertMember(this.index, ownerNow, memberSpec);
+          let at: import("../edit/body.js").InsertPosition = "end";
+          if (opts.before) {
+            const bef = this.fresh(opts.before);
+            const pos = bef && bef.owner && ownerIs(bef.owner, ownerNow) ? positionBefore(this.index, bef) : undefined;
+            if (pos === undefined || pos === "same") return fail("The member the new element should go above is no longer in that owner; nothing was changed.");
+            at = pos;
+          }
+          if (!spec.documentation) return planInsertMember(this.index, ownerNow, memberSpec, at);
           const b = buildDeclaration(this.index, ownerNow, memberSpec);
           if (!b.ok) return b;
           const docText = newCommentDecl("doc", escapeTerminator(spec.documentation.replace(/\r\n/g, "\n").trim()), "\n", "");
           const unit = detectIndentUnit(this.index.getDocument(ownerNow.uri)?.text ?? "");
           const decl = b.text.replace(/;$/, ` {\n${unit}${docText.split("\n").join("\n" + unit)}\n}`);
-          return planInsertMember(this.index, ownerNow, decl);
+          return planInsertMember(this.index, ownerNow, decl, at);
         },
         () => ({
           element: () => {
@@ -434,7 +482,7 @@ export class ModelService {
       return this.run(
         () => {
           const el = this.fresh(t.element);
-          if (!el) return fail("The element is out of date; refresh and try again.");
+          if (!el) return fail(gone("The element", t.element));
           keys.length = 0;
           for (const d of [el, ...dependentStatements(this.index, el)]) {
             const ref = d.qualifiedName === undefined ? referenceFor(d, this.index) : undefined;
@@ -457,7 +505,7 @@ export class ModelService {
       return this.run(
         async () => {
           const el = this.fresh(t.element);
-          if (!el) return fail("The element is out of date; refresh and try again.");
+          if (!el) return fail(gone("The element", t.element));
           // Read inside the plan, so a re-plan sees the diagram files as they are now.
           const closed = await this.host.closedDiagrams();
           const r = planRename(this.index, el, newName, { diagrams: closed });
@@ -487,7 +535,7 @@ export class ModelService {
       return this.run(
         async () => {
           const el = this.fresh(t.element);
-          if (!el) return fail("The element is out of date; refresh and try again.");
+          if (!el) return fail(gone("The element", t.element));
           const plans: PlanResult[] = [];
           if (props.name !== undefined && props.name !== el.name) {
             const closed = await this.host.closedDiagrams();
@@ -564,13 +612,13 @@ export class ModelService {
       return this.run(
         () => {
           const o = findOwner();
-          if (!o) return fail("The element to add the connection to is out of date; refresh and try again.");
+          if (!o) return fail(gone("The element to add the connection to", owner));
           pre.clear();
           for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
           const a = typeof source === "string" ? source : this.freshEnd(source, o);
           const b = typeof target === "string" ? target : this.freshEnd(target, o);
-          if (typeof a !== "string" && !a) return fail("The source of the connection is out of date; refresh and try again.");
-          if (typeof b !== "string" && !b) return fail("The target of the connection is out of date; refresh and try again.");
+          if (typeof a !== "string" && !a) return fail(gone("The source of the connection", source));
+          if (typeof b !== "string" && !b) return fail(gone("The target of the connection", target));
           return planConnect(this.index, o, a as Element | string, b as Element | string);
         },
         () => ({
@@ -598,13 +646,16 @@ export class ModelService {
       const pre = new Map<string, number>();
       const ownerQn = owner.qualifiedName;
       const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === owner.uri && x.kind === owner.kind) ?? this.index.findByQualifiedName(ownerQn)[0] : this.fresh(owner));
+      let named: NonNullable<PlanOk["namedNodes"]> = [];
       return this.run(
         () => {
           const o = findOwner();
-          if (!o) return fail("The element to add to is out of date; refresh and try again.");
+          if (!o) return fail(gone("The element to add to", owner));
           pre.clear();
           for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
-          return plan(o);
+          const p = plan(o);
+          named = p.ok ? p.namedNodes ?? [] : [];
+          return p;
         },
         () => ({
           element: () => {
@@ -618,7 +669,11 @@ export class ModelService {
             });
             return created;
           },
-          change: () => addStatementChange(this.index, () => created, opts.placement?.diagram ? placeElementChange(this.index, () => created, { diagram: opts.placement.diagram }, label) : undefined, label),
+          change: () => {
+            const stmt = addStatementChange(this.index, () => created, opts.placement?.diagram ? placeElementChange(this.index, () => created, { diagram: opts.placement.diagram }, label) : undefined, label);
+            // Nodes the statement named follow in the same change, before the statement's edge is placed.
+            return named.length ? composeChanges(nameNodesChange(named, label), stmt, label) : stmt;
+          },
         }),
         opts.diagram ? { diagram: opts.diagram } : undefined,
         () => [owner.uri],
@@ -626,22 +681,64 @@ export class ModelService {
     });
   }
 
-  /** `first a then b;` in `owner` (the two nodes are its members, or its start and done nodes). */
-  addSuccession(owner: Element, source: Element, target: Element, opts: Origin & { guard?: string; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
-    return this.statementIn(owner, "succession", (o) => {
-      const a = this.resolveNode(o, source), b = this.resolveNode(o, target);
-      if (!a || !b) return fail("A node of the succession is out of date; refresh and try again.");
-      return planAddSuccession(this.index, o, a, b, opts.guard);
+  /**
+   * `first a then b;` in the nearest common owner of the two nodes: `owner` itself, or the action or state between
+   * them that holds both. An end nested below that owner is written as a dotted path (`first a then group.b;`).
+   */
+  addSuccession(owner: Element, source: Element, target: Element, opts: Origin & { guard?: string; context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    const o = this.commonOwner(owner, source, target, "succession", opts.context);
+    if (typeof o === "string") return Promise.resolve(fail(o));
+    return this.statementIn(o, "succession", (o2) => {
+      const a = this.resolveNode(o2, source, "source"), b = this.resolveNode(o2, target, "target");
+      if (typeof a === "string") return fail(a);
+      if (typeof b === "string") return fail(b);
+      return planAddSuccession(this.index, o2, a, b, opts.guard);
     }, opts, "Add succession");
   }
 
-  /** `transition first a [accept T] [if g] [do e] then b;` in `owner`. */
-  addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
-    return this.statementIn(owner, "transition", (o) => {
-      const a = this.resolveNode(o, source), b = this.resolveNode(o, target);
-      if (!a || !b) return fail("A state of the transition is out of date; refresh and try again.");
-      return planAddTransition(this.index, o, a, b, parts);
+  /** `flow from a.x to b.y;` in `owner`: the ends are dotted paths to features (pins), written as given. */
+  addFlow(owner: Element, from: string, to: string, opts: Origin & { placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    return this.statementIn(owner, "flow", (o2) => planFlow(this.index, o2, from, to), opts, "Add flow");
+  }
+
+  /** `transition first a [accept T] [if g] [do e] then b;` in the nearest common owner of the two states (see `addSuccession`). */
+  addTransition(owner: Element, source: Element, target: Element, parts: TransitionParts = {}, opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    const o = this.commonOwner(owner, source, target, "transition", opts.context);
+    if (typeof o === "string") return Promise.resolve(fail(o));
+    return this.statementIn(o, "transition", (o2) => {
+      const a = this.resolveNode(o2, source, "source"), b = this.resolveNode(o2, target, "target");
+      if (typeof a === "string") return fail(a);
+      if (typeof b === "string") return fail(b);
+      return planAddTransition(this.index, o2, a, b, parts);
     }, opts, "Add transition");
+  }
+
+  /** Where a statement between two nodes is written: the nearest element that holds both (at or below `owner`). */
+  private commonOwner(owner: Element, source: Element, target: Element, what: string, context?: Element): Element | string {
+    // Shown in a usage's diagram, an end it only inherits belongs to the definition: that is not changed from the usage (D18).
+    if (context) {
+      for (const e of [source, target]) {
+        const refusal = this.inheritedRefusal({ element: e, context }, `connected by a ${what}`);
+        if (refusal) return refusal.reason;
+      }
+    }
+    const chain = (e: Element): Element[] => {
+      const out: Element[] = [];
+      // Both a start or done node and any other node are held by the element that owns them.
+      for (let x: Element | undefined = e.owner; x; x = x.owner) out.push(x);
+      return out;
+    };
+    const ca = chain(source), cb = chain(target);
+    const shared = ca.find((x) => cb.includes(x));
+    const label = (e: Element) => e.name ?? e.kind;
+    if (!shared) return `The ${what} ends ${label(source)} and ${label(target)} are in different parts of the model (they have no common owner), so no ${what} can connect them.`;
+    if (shared !== owner && !chain(shared).includes(owner)) {
+      return `The ${what} ends ${label(source)} and ${label(target)} are not both inside ${owner.name ?? owner.kind}; their common owner is ${shared.name ?? shared.kind}.`;
+    }
+    if (context && shared !== context && !chain(shared).includes(context)) {
+      return `The common owner of the ${what} ends (${label(shared)}) is not ${label(context)} or inside it, so the ${what} would change ${label(shared)} from another element's diagram. Change it in ${label(shared)} instead.`;
+    }
+    return shared;
   }
 
   /** `message [name] [of T] from a to b;` in the interaction `owner`, after its last message. */
@@ -667,7 +764,7 @@ export class ModelService {
       return this.run(
         () => {
           const el = this.fresh(transition);
-          if (!el) return fail("The transition is out of date; refresh and try again.");
+          if (!el) return fail(gone("The transition", transition));
           const ref = referenceFor(el, this.index);
           oldKey = ref ? referenceKeyOf(ref) : undefined;
           const info = el.owner ? analyze(this.index, el.owner).transitions.find((t) => t.statement === el) : undefined;
@@ -691,10 +788,133 @@ export class ModelService {
     });
   }
 
-  /** The member of `owner` the element stands for now (or its start/done node), re-read from the current model. */
-  private resolveNode(owner: Element, el: Element): Element | undefined {
-    if (isSynthetic(el) && (el.kind === "start" || el.kind === "done")) return virtualNode(owner, el.kind);
-    return el.qualifiedName !== undefined ? owner.members.find((m) => m.qualifiedName === el.qualifiedName) : this.fresh(el);
+  /**
+   * A new node of `kind` and the succession or transition from `source` to it, as one edit (one undo step). The node gets the
+   * next free name of its kind in the source's owner; on a diagram it is placed at the placement, with the line.
+   */
+  addConnectedNode(source: Element, kind: string, relation: "succession" | "transition", opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string }; /** The name of the new node (the next free one when absent). */ name?: string } = {}): Promise<OpResult> {
+    return this.serial(async () => {
+      if (opts.context) {
+        const refusal = this.inheritedRefusal({ element: source, context: opts.context }, `connected by a ${relation}`);
+        if (refusal) return refusal;
+      }
+      const owner = source.owner;
+      if (!owner) return fail("The source has no owner, so there is nowhere to write the line.");
+      let node: Element | undefined;
+      let stmt: Element | undefined;
+      let name = "";
+      let named: NonNullable<PlanOk["namedNodes"]> = [];
+      const ownerQn = owner.qualifiedName;
+      const sig = (m: Element) => `${m.kind}\0${m.name ?? ""}\0${m.ends.join("|")}\0${this.index.getDocument(m.uri)?.text.slice(m.range.start.offset, m.range.end.offset) ?? ""}`;
+      const pre = new Map<string, number>();
+      const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === owner.uri && x.kind === owner.kind) ?? this.index.findByQualifiedName(ownerQn)[0] : this.fresh(owner));
+      const label = `Add ${kind} and ${relation}`;
+      // Looked up again on every apply, so a redo does not use elements of an older index.
+      const locateNode = () => findOwner()?.members.find((m) => m.name === name);
+      const locateStmt = () => (name === "" ? undefined : findOwner()?.members.find((m) => m.kind === relation && m.ends.some((e) => e.trim() === name)));
+      return this.run(
+        () => {
+          const o = findOwner();
+          if (!o) return fail(gone("The element to add to", owner));
+          const src = this.resolveNode(o, source, "source");
+          if (typeof src === "string") return fail(src);
+          pre.clear();
+          for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
+          name = opts.name ?? freeNodeName(this.index, o, kind);
+          const p = planAddConnectedNode(this.index, o, src, kind, relation, name);
+          named = p.ok ? p.namedNodes ?? [] : [];
+          return p;
+        },
+        () => ({
+          element: () => {
+            node = locateNode();
+            const seen = new Map<string, number>();
+            stmt = locateStmt() ?? findOwner()?.members.find((m) => {
+              if (m.kind !== relation) return false;
+              const k = sig(m);
+              const n = (seen.get(k) ?? 0) + 1;
+              seen.set(k, n);
+              return n > (pre.get(k) ?? 0);
+            });
+            return node;
+          },
+          change: () => {
+            const d = opts.placement?.diagram;
+            const place = d
+              ? placeNodeAndLineChange(
+                  placeElementChange(this.index, locateNode, { diagram: d, ...(opts.placement!.parentNode !== undefined ? { parentNode: opts.placement!.parentNode } : {}), ...(opts.placement!.x !== undefined ? { x: opts.placement!.x } : {}), ...(opts.placement!.y !== undefined ? { y: opts.placement!.y } : {}) }, label),
+                  placeElementChange(this.index, () => locateStmt() ?? stmt, { diagram: d }, label),
+                  label,
+                )
+              : undefined;
+            const change = addStatementChange(this.index, () => locateStmt() ?? stmt, place, label);
+            return named.length ? composeChanges(nameNodesChange(named, label), change, label) : change;
+          },
+        }),
+        opts.diagram ? { diagram: opts.diagram } : undefined,
+        () => [owner.uri],
+      );
+    });
+  }
+
+  /** Move one end of a succession, transition or item flow to `node`; the rest of the statement stays as written. */
+  reconnect(statement: Element, end: "source" | "target", node: Element, opts: Origin & { context?: Element } = {}): Promise<OpResult> {
+    return this.serial(async () => {
+      if (opts.context) {
+        for (const e of [statement, node]) {
+          const refusal = this.inheritedRefusal({ element: e, context: opts.context }, "connected");
+          if (refusal) return refusal;
+        }
+      }
+      let oldKey: string | undefined;
+      let nowStmt: Element | undefined;
+      let endKey: string | undefined;
+      let named: NonNullable<PlanOk["namedNodes"]> = [];
+      let at = -1;
+      const ownerQn = statement.owner?.qualifiedName;
+      const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === statement.uri) : statement.owner ? this.fresh(statement.owner) : undefined);
+      const label = `Move ${end} of line`;
+      return this.run(
+        () => {
+          const el = this.fresh(statement);
+          if (!el || !el.owner) return fail(gone("The line", statement));
+          const target = this.resolveNode(el.owner, node, end);
+          if (typeof target === "string") return fail(target);
+          const ref = referenceFor(el, this.index);
+          oldKey = ref ? referenceKeyOf(ref) : undefined;
+          at = el.owner.members.indexOf(el);
+          const p = planReconnect(this.index, el, end, target);
+          named = p.ok ? p.namedNodes ?? [] : [];
+          const r = referenceFor(target, this.index);
+          endKey = named.length ? `ref:${named[0]!.ref}` : r ? referenceKeyOf(r) : undefined;
+          return p;
+        },
+        () => ({
+          element: () => {
+            nowStmt = at >= 0 ? findOwner()?.members[at] : undefined;
+            return nowStmt;
+          },
+          change: () => {
+            // Re-resolved on every apply: a redo runs against a later index than the first apply.
+            const change = reconnectChange(oldKey, () => { const st = at >= 0 ? findOwner()?.members[at] : undefined; return st ? referenceFor(st, this.index) : undefined; }, end, () => endKey, label);
+            return named.length ? composeChanges(nameNodesChange(named, label), change, label) : change;
+          },
+        }),
+        opts.diagram ? { diagram: opts.diagram } : undefined,
+        () => [statement.uri],
+      );
+    });
+  }
+
+  /** The node `el` stands for now, re-read from the current model: a start or done node of `owner`, or a node below it. */
+  private resolveNode(owner: Element, el: Element, role: string): Element | string {
+    if (isSynthetic(el) && (el.kind === "start" || el.kind === "done")) {
+      if (el.owner?.qualifiedName !== undefined && el.owner.qualifiedName !== owner.qualifiedName) return `The ${role} ${el.kind} node belongs to ${el.owner.name ?? el.owner.kind}, not to ${owner.name ?? owner.kind}.`;
+      return virtualNode(owner, el.kind);
+    }
+    const now = el.qualifiedName !== undefined ? this.index.findByQualifiedName(el.qualifiedName).find((x) => x.uri === el.uri && x.kind === el.kind) ?? this.index.findByQualifiedName(el.qualifiedName)[0] : this.fresh(el);
+    if (!now) return `The ${role} ${el.name ?? el.kind} no longer exists in the model (it was renamed, moved or deleted since the diagram was drawn); reopen or refresh the diagram.`;
+    return now;
   }
 
   private freshEnd(t: Target, owner: Element): Element | string | undefined {
@@ -718,7 +938,7 @@ export class ModelService {
         const r = this.fresh(requirement);
         const b = this.fresh(by);
         const o = owner ? this.fresh(owner) : undefined;
-        if (!r || !b || (owner && !o)) return fail("An element is out of date; refresh and try again.");
+        if (!r || !b || (owner && !o)) return fail(gone(!r ? "The requirement" : !b ? "The element that satisfies it" : "The element to add to", !r ? requirement : !b ? by : owner));
         return planSatisfy(this.index, r, b, o);
       },
       () => [requirement.uri, ...(owner ? [owner.uri] : []), by.uri],
@@ -781,7 +1001,7 @@ export class ModelService {
           for (const e of elements) {
             if (!e) continue;
             const f = this.fresh(e);
-            if (!f) return fail("An element is out of date; refresh and try again.");
+            if (!f) return fail(gone("An element", e));
             fresh.push(f);
           }
           return plan(fresh);
@@ -801,7 +1021,7 @@ export class ModelService {
       () => {
         const r = this.fresh(requirement);
         const t = target ? this.fresh(target) : undefined;
-        if (!r || (target && !t)) return fail("An element is out of date; refresh and try again.");
+        if (!r || (target && !t)) return fail(gone(!r ? "The requirement" : "The target", !r ? requirement : target));
         return planVerify(this.index, r, "create" in to ? { create: to.create, ...(t ? { owner: t } : {}) } : t!);
       },
       () => [requirement.uri, ...(target ? [target.uri] : [])],
@@ -816,7 +1036,7 @@ export class ModelService {
       ["connection"],
       () => {
         const f = [original, ...derived, ...(owner ? [owner] : [])].map((e) => this.fresh(e));
-        if (f.some((e) => !e)) return fail("An element is out of date; refresh and try again.");
+        if (f.some((e) => !e)) return fail(gone("An element", [original, ...derived, ...(owner ? [owner] : [])][f.findIndex((e) => !e)]));
         return planDerivation(this.index, f[0]!, f.slice(1, 1 + derived.length) as Element[], owner ? f[f.length - 1]! : undefined);
       },
       () => [derived[0]?.uri ?? original.uri, ...(owner ? [owner.uri] : [])],
@@ -851,6 +1071,35 @@ export class ModelService {
     }, () => [...new Set([element.uri, ...(to.owner ? [to.owner.uri] : []), ...(to.after ? [to.after.uri] : []), ...(to.before ? [to.before.uri] : [])])], origin);
   }
 
+  /**
+   * Nesting by dropping (design D33): move the declaration of `t` into `owner` (the diagram's root for moving out),
+   * rewriting references, as one edit. Features a usage only inherits are refused (D18).
+   */
+  nest(t: Target, owner: Element, origin?: Origin): Promise<OpResult> {
+    return this.serial(async () => {
+      const refusal = this.inheritedRefusal(t, "moved");
+      if (refusal) return refusal;
+      let nested: { oldQn: string; newQn: string; ends: NonNullable<PlanOk["nest"]>["endsChanges"] } | undefined;
+      return this.run(
+        async () => {
+          const el = this.fresh(t.element);
+          const ow = this.fresh(owner);
+          if (!el) return fail(gone("The element", t.element));
+          if (!ow) return fail(gone("The target", owner));
+          const r = planNest(this.index, el, ow);
+          if (r.ok && r.nest?.newQn) nested = { oldQn: r.nest.oldQn, newQn: r.nest.newQn, ends: r.nest.endsChanges };
+          return r;
+        },
+        () => ({
+          element: () => (nested ? this.index.findByQualifiedName(nested.newQn)[0] : undefined),
+          change: () => (nested ? nestChange(nested.oldQn, nested.newQn, owner.qualifiedName ?? "", nested.ends, "Move into owner") : undefined),
+        }),
+        origin,
+        () => [t.element.uri, owner.uri],
+      );
+    });
+  }
+
   /** Replace the body of a `doc` or `comment` element (an empty text removes it). */
   setParagraph(comment: Element, text: string, origin?: Origin): Promise<OpResult> {
     return this.plain([comment], ([c]) => planSetCommentBody(this.index, c!, text), () => [comment.uri], origin);
@@ -862,18 +1111,18 @@ export class ModelService {
   }
 
   /** A new section (package) or appendix (package with `@Appendix;` and the library import when missing). */
-  addSection(parent: Element, name: string, opts: { appendix?: boolean; after?: Element } = {}, origin?: Origin): Promise<OpResult> {
-    return this.plain([parent, opts.after], (f) => planAddSection(this.index, f[0]!, name, { ...(opts.appendix ? { appendix: true } : {}), ...(opts.after ? { after: f[1]! } : {}) }), () => [parent.uri], origin);
+  addSection(parent: Element, name: string, opts: { appendix?: boolean; after?: Element; before?: Element } = {}, origin?: Origin): Promise<OpResult> {
+    return this.plain([parent, opts.after, opts.before], (f) => planAddSection(this.index, f[0]!, name, { ...(opts.appendix ? { appendix: true } : {}), ...(opts.after ? { after: f[1]! } : {}), ...(opts.before ? { before: f[2]! } : {}) }), () => [parent.uri], origin);
   }
 
   /** A new requirement (usage or definition) with an optional id (short name) and documentation. */
-  createRequirement(owner: Element, spec: { definition?: boolean; id?: string; name: string; documentation?: string }, origin?: Origin): Promise<OpResult> {
+  createRequirement(owner: Element, spec: { definition?: boolean; id?: string; name: string; documentation?: string; before?: Element }, origin?: Origin): Promise<OpResult> {
     return this.addElement(owner, {
       kind: spec.definition ? "requirement def" : "requirement",
       name: spec.name,
       ...(spec.id ? { shortName: spec.id } : {}),
       ...(spec.documentation ? { documentation: spec.documentation } : {}),
-    }, origin?.diagram ? { diagram: origin.diagram } : {});
+    }, { ...(origin?.diagram ? { diagram: origin.diagram } : {}), ...(spec.before ? { before: spec.before } : {}) });
   }
 
   // ---- undo and redo -------------------------------------------------------------------------

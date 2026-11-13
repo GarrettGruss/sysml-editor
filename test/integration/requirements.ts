@@ -9,6 +9,7 @@ import type { DiagramDoc, Failure, Gesture, Metrics, ModelNode, PickItem, ReqMet
 type Test = [name: string, fn: () => Promise<void>];
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const FIXTURE = path.resolve(__dirname, "../../../test/fixtures/requirements/vehicle-spec.sysml");
+const MATRIX_FIXTURE = path.resolve(__dirname, "../../../test/fixtures/requirements/verification-matrix.sysml");
 
 /** The requirements editor (table and document views), requirement relationships, the palette tools and the agent tools, through the real extension. */
 export function requirementsTests(c: Ctx): Test[] {
@@ -70,7 +71,7 @@ export function requirementsTests(c: Ctx): Test[] {
   };
 
   /** A copy of the fixture package (renamed), opened and in the model; cleaned up after. */
-  const scenario = (pkg: string, fn: (t: { file: string; scope: ReqScope; qn: (s: string) => string; m: () => Promise<ReqMetrics>; before: string }) => Promise<void>, opts: { text?: string; extra?: Record<string, string>; view?: "table" | "document"; probe?: string } = {}) => async () => {
+  const scenario = (pkg: string, fn: (t: { file: string; scope: ReqScope; qn: (s: string) => string; m: () => Promise<ReqMetrics>; before: string }) => Promise<void>, opts: { text?: string; extra?: Record<string, string>; view?: "table" | "matrix" | "document"; probe?: string } = {}) => async () => {
     const file = `tmp-${pkg.toLowerCase()}.sysml`;
     const before = opts.text ?? readFileSync(FIXTURE, "utf8").replace(/VehicleSpec/g, pkg);
     writeFileSync(uriOf(file).fsPath, before);
@@ -207,15 +208,20 @@ export function requirementsTests(c: Ctx): Test[] {
       await settle(scope);
       assert.strictEqual(row(await m(), "R1a").cells.name, "massLimit");
       // Add Requirement
-      await gesture(scope, { kind: "input", selector: "[data-testid=add-id]", value: "R9", event: "input" });
-      await gesture(scope, { kind: "input", selector: "[data-testid=add-name]", value: "rangeReq", event: "input" });
-      await gesture(scope, { kind: "click", selector: "[data-testid=add-req]" });
+      // (the table has no Add Requirement bar any more: the document view adds, with the inline "+ requirement")
+      await api.requirements.setView(scope, "document");
+      await eventually(async () => assert.strictEqual((await m()).view, "document"), "document view");
+      await gesture(scope, { kind: "click", selector: `section[data-qn="${qn(PR)}"] > .sec-body > .adds [data-testid=add-requirement]` });
+      await gesture(scope, { kind: "input", selector: "[data-testid=new-id]", value: "R9", event: "input" });
+      await gesture(scope, { kind: "input", selector: "[data-testid=new-name]", value: "rangeReq", event: "input" });
+      await gesture(scope, { kind: "key", selector: "[data-testid=new-name]", key: "Enter" });
       await waitFor(() => onDisk(file).includes("requirement <'R9'> rangeReq;"), 90000, "the requirement is inserted into the scope package");
       await clean(file);
       await parses(file);
+      await api.requirements.setView(scope, "table");
       await eventually(async () => assert.ok(row(await m(), "R9"), "the table shows the new row"), "new row");
       // Delete with confirmation
-      await gesture(scope, { kind: "click", selector: `tr[data-qn="${qn("rangeReq")}"]` });
+      await gesture(scope, { kind: "click", selector: `tr[data-qn="${qn(`${PR}::rangeReq`)}"]` });
       script.confirm = false;
       await gesture(scope, { kind: "click", selector: "[data-testid=delete-req]" });
       await sleep(500);
@@ -330,8 +336,8 @@ export function requirementsTests(c: Ctx): Test[] {
       const d = (await m()).document;
       assert.strictEqual(d.title, "Vehicle SRS");
       assert.strictEqual(d.version, "1.0");
-      assert.deepStrictEqual(d.toc.map((t) => `${t.number} ${t.heading}`), ["1 Performance Requirements", "1.1 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
-      assert.deepStrictEqual(d.outline.map((o) => o.number), ["1", "1.1", "2", "3", "4", "Appendix A"]);
+      assert.deepStrictEqual(d.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`), ["1 Performance Requirements", "1.3 Acceleration", "2 Safety", "3 Design", "4 Verification", "A Glossary"]);
+      assert.deepStrictEqual(d.outline.map((o) => o.number), ["1", "1.3", "2", "3", "4", "Appendix A"]);
       assert.deepStrictEqual(d.outline.map((o) => o.level), [1, 2, 1, 1, 1, 1]);
       assert.deepStrictEqual(d.appendixLetters, ["A"]);
       const perf = d.outline[0]!;
@@ -353,7 +359,7 @@ export function requirementsTests(c: Ctx): Test[] {
       const sec = (n: string) => `section[data-qn="${qn(n)}"]`;
       await api.requirements.setView(scope, "document");
       // add section "Reliability" after Safety
-      await gesture(scope, { kind: "click", selector: `${sec("Safety")} > .adds > [data-testid=add-section-after]` });
+      await gesture(scope, { kind: "click", selector: `${sec("Safety")} > .sec-body > .adds > [data-testid=add-section-after]` });
       await gesture(scope, { kind: "input", selector: "[data-testid=ask-section-after-input]", value: "Reliability", event: "input" });
       await gesture(scope, { kind: "click", selector: "[data-testid=ask-section-after-ok]" });
       await waitFor(() => onDisk(file).includes("package Reliability;"), 90000, "the package is inserted");
@@ -361,7 +367,7 @@ export function requirementsTests(c: Ctx): Test[] {
       assert.ok(t.indexOf("package Safety") < t.indexOf("package Reliability;") && t.indexOf("package Reliability;") < t.indexOf("package Design"), "after the Safety package, before Design");
       assert.strictEqual(t.replace("    package Reliability;\n", ""), before, "nothing else changed");
       await clean(file);
-      await eventually(async () => assert.deepStrictEqual((await m()).document.outline.map((o) => o.number), ["1", "1.1", "2", "3", "4", "5", "Appendix A"]), "the new section is number 3 and the rest are renumbered");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.outline.map((o) => o.number), ["1", "1.3", "2", "3", "4", "5", "Appendix A"]), "the new section is number 3 and the rest are renumbered");
       assert.ok(!/package\s+'?\d/.test(onDisk(file)), "no numbers are written into the text");
       // heading with spaces: rename Safety; the diagram file that refers to it follows
       await gesture(scope, { kind: "input", selector: `input[data-key="${qn("Safety")}|heading"]`, value: "Functional Safety" });
@@ -371,7 +377,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await parses(file);
       await eventually(async () => assert.ok((await m()).document.outline.some((o) => o.heading === "Functional Safety")), "the view shows the new heading", 60000);
       // paragraph with a terminator
-      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .sec-body > .para [data-testid=edit-para]` });
       await gesture(scope, { kind: "input", selector: `${sec("'Functional Safety'")} textarea.para-edit`, value: "Comments end with */ and start with /*." });
       await waitFor(() => onDisk(file).includes("Comments end with *\\/ and start with /*."), 90000, "stored as the escaped terminator");
       await clean(file);
@@ -382,7 +388,7 @@ export function requirementsTests(c: Ctx): Test[] {
         assert.strictEqual(p.text, "Comments end with */ and start with /*.", "shown with the terminator");
       }, "the document view shows */");
       // add a paragraph (a comment, since the package already has a doc)
-      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .adds > [data-testid=add-paragraph]` });
+      await gesture(scope, { kind: "click", selector: `${sec("'Functional Safety'")} > .sec-body > .adds > [data-testid=add-paragraph]` });
       await gesture(scope, { kind: "input", selector: "[data-testid=ask-paragraph-input]", value: "- first\n- second", event: "input" });
       await gesture(scope, { kind: "click", selector: "[data-testid=ask-paragraph-ok]" });
       await waitFor(() => /comment \/\*\n\s+\* - first\n\s+\* - second\n\s+\*\//.test(onDisk(file)), 90000, "a multi-line comment with margins");
@@ -404,10 +410,10 @@ export function requirementsTests(c: Ctx): Test[] {
       // move: Three up (button), then drag One after Three
       await gesture(scope, { kind: "click", selector: `${sec("Three")} > .sec-head [data-testid=move-up]` });
       await waitFor(() => onDisk(file).indexOf("package Three") < onDisk(file).indexOf("package Two"), 90000, "Three now precedes Two");
-      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.map((t) => `${t.number} ${t.heading}`).slice(0, 3), ["1 One", "2 Three", "3 Two"]), "renumbered");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`).slice(0, 3), ["1 One", "2 Three", "3 Two"]), "renumbered");
       await gesture(scope, { kind: "dragToc", fromQn: qn("One"), ontoQn: qn("Two"), position: "after" });
       await waitFor(() => onDisk(file).indexOf("package Two") < onDisk(file).indexOf("package One"), 90000, "One was dragged after Two");
-      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.map((t) => t.heading).slice(0, 3), ["Three", "Two", "One"]), "the table of contents follows");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.filter((t) => t.kind === "section").map((t) => t.heading).slice(0, 3), ["Three", "Two", "One"]), "the table of contents follows");
       assert.ok(!/package\s+'?\d/.test(onDisk(file)), "no numbers in the text");
       await clean(file);
       await parses(file);
@@ -420,7 +426,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await gesture(scope, { kind: "click", selector: `${sec("Two")} > .sec-head [data-testid=delete-section]` });
       await waitFor(() => !onDisk(file).includes("package Two"), 90000, "deleted");
       assert.match(rec.confirms.at(-1)!.detail, /1 paragraph, 1 requirement/, "the confirmation names the contents");
-      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.map((t) => `${t.number} ${t.heading}`), ["1 Three", "2 One", "A Glossary"]), "following sections are renumbered");
+      await eventually(async () => assert.deepStrictEqual((await m()).document.toc.filter((t) => t.kind === "section").map((t) => `${t.number} ${t.heading}`), ["1 Three", "2 One", "A Glossary"]), "following sections are renumbered");
       await clean(file);
       await parses(file);
     }, { text: "package ReqD3 {\n    package One {\n        doc /* first */\n    }\n    package Two {\n        doc /* second */\n        requirement <'R1'> r;\n    }\n    package Three;\n}\n", view: "document", probe: "::Three" })],
@@ -602,7 +608,7 @@ export function requirementsTests(c: Ctx): Test[] {
         assert.strictEqual(lm.text, mcp.text, "identical over both channels");
         const md = lm.text;
         assert.match(md, new RegExp(`^# Vehicle SRS <!-- qn: ${pkg} -->`));
-        assert.match(md, /- 1 Performance Requirements\n {2}- 1.1 Acceleration\n- 2 Safety/);
+        assert.match(md, /- 1 Performance Requirements\n {2}- 1.3 Acceleration\n- 2 Safety/);
         assert.match(md, new RegExp(`## 1 Performance Requirements <!-- qn: ${pkg}::'Performance Requirements' -->`));
         assert.match(md, new RegExp(`\\*\\*R1 massLimit\\*\\* \\(requirement\\) <!-- qn: ${pkg}::'Performance Requirements'::massLimit -->`));
         assert.match(md, /- Satisfied by: vehicle/);
@@ -687,7 +693,7 @@ export function requirementsTests(c: Ctx): Test[] {
       const paragraphs = async () => (await m()).document.paragraphs.filter((p) => p.section === qn(PR)).map((p) => p.text);
       await api.requirements.setView(scope, "document");
       // Open the first paragraph of the section for editing and type, without committing.
-      await gesture(scope, { kind: "click", selector: `${sec} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "click", selector: `${sec} > .sec-body > .para [data-testid=edit-para]` });
       await gesture(scope, { kind: "input", selector: `${sec} textarea.para-edit`, value: "Scope, edited.", event: "input" });
       assert.ok((await m()).pendingEdits.length >= 1, "the edit is pending");
       // The file changes above the paragraph (every offset moves) through a workspace edit.
@@ -706,7 +712,7 @@ export function requirementsTests(c: Ctx): Test[] {
       await parses(file);
       // Now the paragraph's own text changes elsewhere while a draft is open: a conflict, never another paragraph.
       await eventually(async () => assert.ok((await paragraphs()).includes("Scope, edited.")), "the view shows the new text");
-      await gesture(scope, { kind: "click", selector: `${sec} > .para [data-testid=edit-para]` });
+      await gesture(scope, { kind: "click", selector: `${sec} > .sec-body > .para [data-testid=edit-para]` });
       await gesture(scope, { kind: "input", selector: `${sec} textarea.para-edit`, value: "My draft.", event: "input" });
       const we2 = new vscode.WorkspaceEdit();
       const at = doc().getText().indexOf("Scope, edited.");
@@ -720,6 +726,130 @@ export function requirementsTests(c: Ctx): Test[] {
       assert.ok(doc().getText().includes("Rules that apply to every requirement:"), "the other paragraph is untouched");
       assert.strictEqual((await m()).conflicts.length, 0);
     }, { view: "document" })],
+
+    // ---- verification matrix (add-requirements-authoring 3.1 to 3.4) -------------------------------
+
+    ["Matrix: rows are numbered and nested, the method comes from VerificationMethod metadata, status counts a parent's satisfy, the summary and the gap filters work, cells link to declarations", scenario("ReqM1", async ({ file, scope, qn, m }) => {
+      const row = async (id: string) => (await m()).matrix.rows.find((r) => r.id.startsWith(id + " ") || r.id === id)!;
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 10), "the matrix is drawn", 60000);
+      const x = await m();
+      assert.strictEqual(x.view, "matrix");
+      assert.deepStrictEqual(x.matrix.columns, ["Requirement", "Satisfied by", "Verification method", "Verified by", "Status"]);
+      assert.deepStrictEqual(x.matrix.rows.map((r) => `${r.number}:${r.depth}`), ["1:0", "1.1:1", "1.2:1", "1.2.1:2", "1.3:1", "2:0", "3:0", "3.1:1", "3.1.1:2", "3.2:1"], "numbered and nested like the document");
+      // method from the metadata, and the verification case as verified by
+      const q1 = await row("MFRQ01");
+      assert.strictEqual(q1.method, "test");
+      assert.deepStrictEqual(q1.verifiedBy, ["OreExtractionTest"]);
+      assert.strictEqual((await row("MFRQ02")).method, "inspect");
+      assert.strictEqual((await row("S1.1")).method, "analyze");
+      assert.strictEqual((await row("MFRQ03")).method, "");
+      // a parent's satisfy counts for its child; the usage's satisfy for what its definition owns
+      const child = await row("S1.1");
+      assert.deepStrictEqual(child.satisfiedBy, ["rig via S1 parentReq"]);
+      assert.strictEqual(child.status, "covered");
+      assert.notStrictEqual((await row("MFRQ01")).status, "not satisfied");
+      assert.deepStrictEqual(q1.satisfiedBy, ["frigate via SYS1 frigateNeeds"]);
+      assert.strictEqual((await row("S2")).status, "not satisfied");
+      assert.strictEqual((await row("MFRQ03")).status, "no verification");
+      // summary and filters
+      assert.match(x.matrix.summary, /9 requirements: 4 covered \(44%\), 4 with no verification, 0 partly satisfied, 1 not satisfied/);
+      await gesture(scope, { kind: "click", selector: "[data-testid=filter-no-verification]" });
+      await eventually(async () => {
+        const f = await m();
+        assert.strictEqual(f.matrix.filter, "no verification");
+        assert.deepStrictEqual(f.matrix.rows.map((r) => r.status), ["no verification", "no verification", "no verification", "no verification"]);
+      }, "only the rows without verification are shown");
+      await gesture(scope, { kind: "click", selector: "[data-testid=filter-gaps]" });
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 5), "gaps: not satisfied and no verification");
+      await gesture(scope, { kind: "click", selector: "[data-testid=filter-all]" });
+      // a cell links to its declaration
+      await gesture(scope, { kind: "click", selector: `tr[data-qn="${qn("MiningFrigateRequirements::oreExtraction")}"] [data-testid=mx-verify] a.mx-link` });
+      await eventually(async () => assert.ok(api.requirements.navigation().includes(`text ${qn("OreExtractionTest")}`), `navigation: ${api.requirements.navigation().join("|")}`), "the case's declaration is opened");
+      // the screenshot
+      mkdirSync(c.artifactDir, { recursive: true });
+      const narrow = Buffer.from(await api.requirements.png(scope), "base64");
+      writeFileSync(path.join(c.artifactDir, "requirements-matrix-narrow.png"), narrow);
+      await api.requirements.setWidth(scope, 1100);
+      const y = await m();
+      const png = Buffer.from(await api.requirements.png(scope), "base64");
+      assert.ok(png.length > 8000, `matrix png is ${png.length} bytes`);
+      writeFileSync(path.join(c.artifactDir, "requirements-matrix.png"), png);
+      await api.requirements.setWidth(scope, null);
+      assert.strictEqual(y.overflow.count, 0, `no clipped content (${y.overflow.samples.join(", ")})`);
+      void file;
+    }, { text: readFileSync(MATRIX_FIXTURE, "utf8").replace(/MiningSpec/g, "ReqM1"), probe: "::Standalone", view: "matrix" })],
+
+    ["Matrix: add and remove satisfy and verify from the cells write text at once", scenario("ReqM2", async ({ file, scope, qn, m }) => {
+      const doc = () => textDoc(file)!;
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 10), "the matrix is drawn", 60000);
+      const cell = (id: string, kind: string, tail = "") => `tr[data-qn="${qn(id)}"] [data-testid=${kind}]${tail}`;
+      // add satisfy from the Satisfied by cell
+      script.one = qn("Standalone::rig");
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-satisfy-add") });
+      await waitFor(() => /satisfy\s+(?:\S+::)?lonely\s+by\s+\S*rig;/.test(onDisk(file)), 90000, "a satisfy statement is written");
+      await clean(file);
+      await parses(file);
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.find((r) => r.qn === qn("Standalone::lonely"))!.status, "no verification"), "S2 is satisfied now", 60000);
+      // add verify from the Verified by cell
+      script.verification = { existing: qn("OreExtractionTest") };
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-verify-add") });
+      await waitFor(() => /verify\s+(?:\S+::)?lonely;/.test(onDisk(file)), 90000, "a verify statement is written");
+      await parses(file);
+      await eventually(async () => {
+        const r = (await m()).matrix.rows.find((x) => x.qn === qn("Standalone::lonely"))!;
+        assert.strictEqual(r.status, "covered");
+        assert.strictEqual(r.method, "test");
+        assert.deepStrictEqual(r.verifiedBy, ["OreExtractionTest"]);
+      }, "S2 is covered with method test", 60000);
+      // remove both again
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-verify", " [data-testid=mx-remove]") });
+      await waitFor(() => !/verify\s+(?:\S+::)?lonely;/.test(onDisk(file)), 90000, "the verify statement is removed");
+      await gesture(scope, { kind: "click", selector: cell("Standalone::lonely", "mx-satisfy", " [data-testid=mx-remove]") });
+      await waitFor(() => !/satisfy\s+(?:\S+::)?lonely/.test(onDisk(file)), 90000, "the satisfy statement is removed");
+      await clean(file);
+      await parses(file);
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.find((r) => r.qn === qn("Standalone::lonely"))!.status, "not satisfied"), "S2 is not satisfied again", 60000);
+      assert.ok(doc().getText().includes("part rig : Rig { satisfy parentReq by rig; }"), "the rest of the file is untouched");
+    }, { text: readFileSync(MATRIX_FIXTURE, "utf8").replace(/MiningSpec/g, "ReqM2"), probe: "::Standalone", view: "matrix" })],
+
+    ["Matrix: export as CSV and Markdown writes one row per requirement; the document view shows the trace line; both agent channels return the matrix", scenario("ReqM3", async ({ scope, qn, m }) => {
+      await eventually(async () => assert.strictEqual((await m()).matrix.rows.length, 10), "the matrix is drawn", 60000);
+      const dir = path.join(c.artifactDir, "matrix-export");
+      mkdirSync(dir, { recursive: true });
+      const csvPath = path.join(dir, "matrix.csv");
+      const mdPath = path.join(dir, "matrix.md");
+      const csv = await api.requirements.exportMatrix(scope, "csv", csvPath);
+      const md = await api.requirements.exportMatrix(scope, "markdown", mdPath);
+      assert.strictEqual(readFileSync(csvPath, "utf8"), csv);
+      assert.strictEqual(readFileSync(mdPath, "utf8"), md);
+      const lines = csv.trimEnd().split("\r\n");
+      assert.strictEqual(lines[0], "Number,Id,Name,Satisfied by,Verification method,Verified by,Status");
+      assert.strictEqual(lines.length, 11, "a header and one line per row");
+      assert.ok(lines.includes("1.1,MFRQ01,oreExtraction,frigate (via SYS1 frigateNeeds) [1 of 1 usage],test,OreExtractionTest,covered"));
+      assert.strictEqual(md.trimEnd().split("\n").length, 12);
+      assert.ok(md.includes("| 1.1 | MFRQ01 | oreExtraction | frigate (via SYS1 frigateNeeds) [1 of 1 usage] | test | OreExtractionTest | covered |"));
+      // the trace line under each requirement of the document view
+      await api.requirements.setView(scope, "document");
+      await eventually(async () => {
+        const items = (await m()).document.items;
+        assert.strictEqual(items.find((i) => i.id === "SYS1")?.trace, "Satisfied by: frigate · Not verified yet");
+        assert.strictEqual(items.find((i) => i.id === "S1")?.trace, "Satisfied by: rig · Not verified yet");
+        assert.strictEqual(items.find((i) => i.id === "S2")?.trace, "Not satisfied yet · Not verified yet");
+      }, "the trace lines are shown", 60000);
+      await api.requirements.setView(scope, "matrix");
+      // the agent tool, over both channels, agrees with the editor
+      const pkg = scope.kind === "package" ? scope.qualifiedName : "";
+      const lm = await viaLm("sysml_read_verification_matrix", { package: pkg });
+      const mcp = await viaMcp(api, "sysml_read_verification_matrix", { package: pkg });
+      assert.strictEqual(mcp.isError, false);
+      assert.strictEqual(lm.text, mcp.text, "identical over both channels");
+      const out = JSON.parse(lm.text) as { rows: { kind: string; qn: string; status?: string; methods: string[] }[] };
+      const shown = (await m()).matrix.rows;
+      assert.deepStrictEqual(out.rows.map((r) => [r.qn, r.status ?? ""]), shown.map((r) => [r.qn, r.status]));
+      assert.deepStrictEqual(out.rows.find((r) => r.qn === qn("MiningFrigateRequirements::oreExtraction"))!.methods, ["test"]);
+      assert.strictEqual((await viaLm("sysml_read_verification_matrix", { package: pkg, format: "csv" })).text, csv);
+      rmSync(dir, { recursive: true, force: true });
+    }, { text: readFileSync(MATRIX_FIXTURE, "utf8").replace(/MiningSpec/g, "ReqM3"), probe: "::Standalone", view: "matrix" })],
   ];
   return tests;
 }

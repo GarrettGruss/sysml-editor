@@ -57,6 +57,8 @@ export interface PlanOk {
   ok: true;
   edits: TextEdit[];
   diagramUpdates?: DiagramUpdate[];
+  /** Unnamed control nodes the plan names (`fork;` to `fork fork1;`): their diagram entries must follow in the same change. */
+  namedNodes?: { oldKey: string | undefined; ref: string }[];
   description: string;
   unjudged?: UnjudgedReferences;
   /** Delete: references to the deleted element (or what it owns) that stay behind elsewhere. */
@@ -68,6 +70,8 @@ export interface PlanOk {
    * Set by `validatePlan`; see `isPlanCurrent`.
    */
   sources?: PlanSource[];
+  /** Nesting: the qualified names before and after the move, and the line ends whose text changed (for diagram files). */
+  nest?: { oldQn: string; newQn: string | undefined; endsChanges: { ownerQn: string | undefined; kind: string; oldEnds: string[]; newEnds: string[] }[] };
   /** Planner input for `validatePlan`: documents read beyond the ones with edits. */
   reads?: string[];
 }
