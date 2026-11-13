@@ -105,6 +105,11 @@ export type Gesture =
   | { kind: "drop"; names: string[]; x?: number; y?: number }
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
   | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" }
+  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message"; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "connectRelease" }
+  | { kind: "quickBar"; item?: string }
+  | { kind: "reconnectDrag"; id: string; end: "source" | "target"; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "hoverNode"; id: string }
   | { kind: "selectEdge"; id: string }
   | { kind: "dragEdge"; id: string; dy: number }
   | { kind: "dragSegment"; id: string; index: number; d: number }
@@ -126,6 +131,7 @@ export interface Metrics {
   overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number; userLabelsOverNodes: number; userLabelsOffCanvas: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; routeHandles: number; labelHandles: number; focusable: boolean; zoom: number;
   view: { x: number; y: number; k: number }; canvas: { w: number; h: number }; highlights: number; staleDraws: number; focusOutline: boolean;
+  ghost?: { target?: string; invalid?: string; points: number }; quickBar: string[]; connectHandles: number; reconnectHandles: number;
   inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; theme: string;
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }

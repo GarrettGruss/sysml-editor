@@ -69,6 +69,10 @@ export type ModelIntent =
   | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number }
   /** `relation`: a relationship tool of the palette (satisfy, verify, derivation, succession, transition, message); absent: a connection. */
   | { kind: "connect"; sourceId: string; targetId: string; relation?: ConnectRelation }
+  /** A node of `paletteKind` and the `relation` line from `sourceId` to it, as one edit; the node at (x, y) relative to the source's container. */
+  | { kind: "connectNew"; sourceId: string; relation: "succession" | "transition"; paletteKind: string; x: number; y: number }
+  /** Rewrite one end of the line `id` to end at `nodeId`. */
+  | { kind: "reconnect"; id: string; end: "source" | "target"; nodeId: string }
   /** Trigger, guard and effect of the transition edge `id`, as text (a missing field is left as it is). */
   | { kind: "setTransition"; id: string; changes: { trigger?: string; guard?: string; effect?: string } }
   | { kind: "deleteFromModel"; ids: string[] }
@@ -95,6 +99,18 @@ export type TestGesture =
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
   /** Connection tool: click the source, then the target. */
   | { kind: "connect"; source: string; target: string; relation?: ConnectRelation }
+  /**
+   * Drag a connection from a node (`side`: from its quick-connect handle; `relation`: with that connection tool, else the handle's) to a node
+   * (`target`) or to a canvas point (`x`, `y`, absolute). `hold`: stop with the button down (the ghost line stays); `release` after a hold lets go.
+   */
+  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: ConnectRelation; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "connectRelease" }
+  /** Choose a node kind on the open quick bar, or cancel it (no `kind`). */
+  | { kind: "quickBar"; item?: string }
+  /** Select the line `id`, then drag its `end` onto a node (`target`) or a canvas point (`x`, `y`). */
+  | { kind: "reconnectDrag"; id: string; end: "source" | "target"; target?: string; x?: number; y?: number; hold?: boolean }
+  /** Hover a node (no button) so its quick-connect handles show. */
+  | { kind: "hoverNode"; id: string }
   /** Click an edge (a succession, transition or message) to select it. */
   | { kind: "selectEdge"; id: string }
   /** Press on a message and drag it vertically: nothing may change (messages are placed by time order). */
@@ -222,6 +238,11 @@ export interface DiagramMetrics {
   highlights: number;
   /** Times a line was drawn with its old route between the release of a drag and the host's answer (D22): 0. */
   staleDraws: number;
+  /** A ghost line is on screen (its target when it snaps to one, and why it cannot connect to the node under it), the quick bar's items, the quick-connect and reconnect handles drawn. */
+  ghost?: { target?: string; invalid?: string; points: number };
+  quickBar: string[];
+  connectHandles: number;
+  reconnectHandles: number;
   /** Whether the canvas shows a focus outline now (the computed outline style is not "none"). */
   focusOutline: boolean;
 }

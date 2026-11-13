@@ -12,7 +12,9 @@ import { checkEdges } from "./metrics.js";
 import { showMenu, type MenuItem } from "./menu.js";
 import { labelHit, layoutAt, moveBox, resizeBox, toggleWrap, type LabelLayout } from "./labels.js";
 import { addBend, adjustRoute, dragBend, dragSegment, isHorizontal, routeHandleAt, segmentAt } from "./route-edit.js";
-import { clean, routeFits } from "./routing.js";
+import { clean, routeFits, type Side } from "./routing.js";
+import { endProblem, ghostRoute, ghostSvg, handleBoxesOf, handleRelation, hasHandles, sideAt } from "./connect.js";
+import { quickBarItems } from "../../diagram/palette.js";
 import { buildScene } from "./scene.js";
 import { arrowPan, wheelFactor } from "./view-input.js";
 import { Tools, type Suggestion, type Tool } from "./tools.js";
@@ -65,9 +67,17 @@ export class SvgRenderer implements DiagramRenderer {
   readonly ia: Interaction;
   readonly tools: Tools;
   private tool?: Tool;
-  /** First click of the connection tool. */
-  private connectFrom?: string;
   private editor?: HTMLInputElement;
+  /** A connection being drawn: from a node (palette tool or quick-connect handle) or from a line's end being moved. */
+  private cg?: ConnGesture;
+  /** The quick bar over the end of a line released on empty canvas, and the line it belongs to. */
+  private quick?: { el: HTMLElement; at: Pt; items: string[]; source: string; relation: "succession" | "transition"; side?: Side };
+  /** The node whose quick-connect handles show (the pointer is over it or over a handle). */
+  private handleNode?: string;
+  /** A line drawn from a handle: its route leaves from this side once the host has written it. */
+  private pendingSide?: { source: string; target: string; side: Side };
+  private readonly tip: HTMLElement;
+  private lastPoint: Pt = { x: 0, y: 0 };
   /** An edge (succession, transition, message) selected by a click on it; edges are not part of the node selection. */
   private selectedEdge?: string;
   /** The view is still the automatic fit of the first open: a resize fits again, the first pan or zoom by the user ends it. */
@@ -88,6 +98,11 @@ export class SvgRenderer implements DiagramRenderer {
     this.overlay.setAttribute("class", "overlay");
     this.svg.append(this.world, this.overlay);
     host.append(this.svg);
+    this.tip = document.createElement("div");
+    this.tip.className = "ghost-tip";
+    this.tip.hidden = true;
+    this.tip.setAttribute("role", "tooltip");
+    host.append(this.tip);
     const ihost: InteractionHost = {
       onSelection: (ids) => { this.selectedEdge = undefined; this.repaint(); this.tools.setSelection(this.vm, ids); cb.onSelection(ids); },
       onPreview: (boxes, band) => { this.preview = boxes; this.band = band; this.repaint(); },
@@ -112,6 +127,8 @@ export class SvgRenderer implements DiagramRenderer {
   // ---- drawing ---------------------------------------------------------------------------
 
   render(viewModel: ViewModel, layout: LayoutResult): void {
+    const known = new Set(this.vm?.edges.map((e) => e.id));
+    this.dropConnect();
     this.vm = viewModel;
     this.rel = new Map(layout.boxes);
     this.mins = new Map(layout.mins);
@@ -129,6 +146,7 @@ export class SvgRenderer implements DiagramRenderer {
     this.repaint();
     if (edge) this.tools.setEdgeSelection(edge);
     else this.tools.setSelection(viewModel, this.ia.selection);
+    this.routeFromHandle(known);
   }
 
   /** Boxes as drawn now: the stored layout with the gesture's preview on top. */
@@ -276,6 +294,11 @@ export class SvgRenderer implements DiagramRenderer {
     };
     const sel = this.selectedEdge;
     if (sel !== undefined) {
+      const end = this.reconnectEndAt(p);
+      if (end) {
+        this.startReconnect(sel, end, p);
+        return true;
+      }
       const l = this.labelOf(sel);
       if (l && begin(sel, labelHit(l.box, p, zoom))) return true;
       const r = this.routeOf(sel);
@@ -382,7 +405,7 @@ export class SvgRenderer implements DiagramRenderer {
 
   private repaintOverlay(): void {
     const { boxes, handles } = this.selectionBoxes();
-    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k) + this.edgeHandles({});
+    this.overlay.innerHTML = overlaySvg(boxes, handles, this.band, {}, this.view.k) + this.edgeHandles({}) + this.connectOverlay({});
     // The drawing's `selected` flags follow the selection.
     for (const g of this.world.querySelectorAll<SVGGElement>("g[data-node]")) {
       const on = this.ia.selection.includes(g.getAttribute("data-node") ?? "");
@@ -504,13 +527,24 @@ export class SvgRenderer implements DiagramRenderer {
       // Gestures on the canvas must never select the SVG text labels.
       e.preventDefault();
       window.getSelection()?.removeAllRanges();
+      if (this.quick) { this.cancelConnect(); return; }
+      if (this.cg && e.button === 0) {
+        // Click-click connecting: the second press picks the target.
+        try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ }
+        this.pressConnect(this.toInput(e));
+        return;
+      }
       if (this.tool && e.button === 0) {
         e.preventDefault();
         this.toolClick(this.toInput(e));
         return;
       }
+      if (e.button === 0 && !e.shiftKey && this.beginHandle(this.toInput(e))) {
+        try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ }
+        return;
+      }
       if (e.button === 0 && !e.shiftKey && this.beginLineGesture(this.toInput(e))) {
-        if (this.rg) { try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ } }
+        if (this.rg || this.cg) { try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ } }
         return;
       }
       try { svg.setPointerCapture(e.pointerId); } catch { /* synthetic pointers have no capture */ }
@@ -529,6 +563,9 @@ export class SvgRenderer implements DiagramRenderer {
       if (id !== undefined) this.openEditor(id);
     });
     svg.addEventListener("pointermove", (e) => {
+      this.lastPoint = this.toInput(e);
+      if (this.cg) { this.moveConnect(this.toInput(e)); return; }
+      if (e.buttons === 0 && !this.tool && !this.rg) this.hoverHandles(this.toInput(e));
       if (this.rg) this.moveLineGesture(this.toInput(e));
       else this.ia.pointerMove(this.toInput(e));
       this.setHover(e.buttons === 0 ? this.hoverAt(this.toInput(e)) : undefined);
@@ -539,11 +576,15 @@ export class SvgRenderer implements DiagramRenderer {
     document.addEventListener("mouseout", (e) => { if (e.relatedTarget === null) this.setHover(undefined); });
     window.addEventListener("blur", () => this.setHover(undefined));
     window.addEventListener("focus", () => this.resendHover());
-    const end = (e: PointerEvent) => { if (this.rg) this.endLineGesture(); else this.ia.pointerUp(this.toInput(e)); };
+    const end = (e: PointerEvent) => {
+      if (this.cg) { this.releaseConnect(this.toInput(e)); return; }
+      if (this.rg) this.endLineGesture(); else this.ia.pointerUp(this.toInput(e));
+    };
     svg.addEventListener("pointerup", end);
-    svg.addEventListener("pointercancel", () => { if (!this.cancelLineGesture()) this.ia.cancel(); });
+    svg.addEventListener("pointercancel", () => { if (this.cg) this.cancelConnect(); else if (!this.cancelLineGesture()) this.ia.cancel(); });
     svg.addEventListener("contextmenu", (e) => {
       e.preventDefault();
+      if (this.cg || this.quick) { this.cancelConnect(); return; }
       const p = this.toInput(e, 2);
       const lab = this.labelAtPoint(p);
       if (lab !== undefined) {
@@ -576,6 +617,7 @@ export class SvgRenderer implements DiagramRenderer {
     }, { passive: false });
     svg.addEventListener("keydown", (e) => {
       svg.removeAttribute("data-pointer");
+      if (e.key === "Escape" && (this.cg || this.quick)) { this.cancelConnect(); e.preventDefault(); return; }
       if (e.key === "Escape" && this.cancelLineGesture()) { e.preventDefault(); return; }
       if (e.key === "Escape" && !this.tool && this.selectedEdge !== undefined) { this.selectedEdge = undefined; this.repaint(); this.tools.setSelection(this.vm, this.ia.selection); }
       if (e.key === "Escape" && this.tool) { this.setTool(undefined); e.preventDefault(); return; }
@@ -683,7 +725,7 @@ export class SvgRenderer implements DiagramRenderer {
 
   setTool(t: Tool | undefined): void {
     this.tool = t;
-    this.connectFrom = undefined;
+    this.cancelConnect();
     this.tools.setTool(t);
     this.svg.classList.toggle("tool-active", t !== undefined);
     this.svg.focus({ preventScroll: true });
@@ -710,17 +752,278 @@ export class SvgRenderer implements DiagramRenderer {
       return;
     }
     if (id === undefined) return;
-    if (this.connectFrom === undefined) {
-      this.connectFrom = id;
-      this.ia.setSelection([id], false);
-      this.repaintOverlay();
+    const relation = this.tool?.kind === "connect" ? this.tool.relation : undefined;
+    this.ia.setSelection([id], false);
+    this.cg = { kind: "connect", source: id, relation, at: p, start: p, down: true, moved: false, sticky: true };
+    this.moveConnect(p, false);
+  }
+
+
+  // ---- connecting: ghost line, quick-connect handles, quick bar, reconnect -----------------
+
+  /** Size of a quick-connect or reconnect handle, in canvas units. */
+  private handleSize(): number { return 10 / this.view.k; }
+
+  /** Why the node cannot take part in an edit, or undefined: inherited ends stay read-only (D18). */
+  private lockedProblem(id: string): string | undefined {
+    const n = this.vm?.nodes.find((x) => x.id === id);
+    const l = n?.props?.locked;
+    if (l === "inherited") return `'${n!.props?.name ?? "This element"}' is inherited from ${n!.inherited?.from ?? "its definition"}; connect it in the definition.`;
+    if (l === "library") return "Standard library content is read-only.";
+    if (l === "readonly") return n!.props?.lockedReason ?? "This element's file cannot be edited.";
+    return undefined;
+  }
+
+  private connectProblem(g: ConnGesture, id: string): string | undefined {
+    const rel = g.relation;
+    const role = g.kind === "reconnect" ? g.end! : "target";
+    // Handle drags and moved line ends refuse inherited ends here; a palette tool leaves it to the host, which also explains how to change the definition.
+    return endProblem(this.vm, rel, g.source, id, role) ?? (g.side !== undefined || g.kind === "reconnect" ? this.lockedProblem(id) : undefined);
+  }
+
+  /** The pointer moved with a connection open: find the node under it, and say whether it may be the end. */
+  private moveConnect(p: Pt, count = true): void {
+    const g = this.cg;
+    if (!g) return;
+    g.at = p;
+    if (count && Math.hypot(p.x - g.start.x, p.y - g.start.y) >= DRAG_THRESHOLD) g.moved = true;
+    const id = hit(this.scene, p);
+    g.target = undefined;
+    g.invalid = undefined;
+    if (id !== undefined && !(g.kind === "reconnect" && id === g.source && g.relation !== "transition")) {
+      const problem = this.connectProblem(g, id);
+      if (problem) g.invalid = problem; else g.target = id;
+    }
+    this.svg.style.cursor = g.invalid !== undefined ? "not-allowed" : "";
+    if (g.invalid !== undefined) {
+      const c = this.toClient(p);
+      this.tip.textContent = g.invalid;
+      this.tip.style.left = `${c.clientX + 14}px`;
+      this.tip.style.top = `${c.clientY + 14}px`;
+      this.tip.hidden = false;
+    } else this.tip.hidden = true;
+    this.repaintOverlay();
+  }
+
+  /** The release of the button. A click with a tool keeps the line waiting for a second click; a drag ends the line here. */
+  private releaseConnect(p: Pt): void {
+    const g = this.cg;
+    if (!g || this.quick || !g.down) return;
+    if (!g.moved) {
+      if (g.sticky) { g.down = false; this.repaintOverlay(); } else this.cancelConnect();
       return;
     }
-    const source = this.connectFrom;
-    const relation = this.tool?.kind === "connect" ? this.tool.relation : undefined;
+    this.finishConnect(p);
+  }
+
+  /** The press of a second click while a line waits for its target. */
+  private pressConnect(p: Pt): void {
+    this.moveConnect(p);
+    this.finishConnect(p);
+  }
+
+  private finishConnect(p: Pt): void {
+    const g = this.cg;
+    if (!g) return;
+    this.moveConnect(p);
+    if (g.target !== undefined) {
+      const target = g.target;
+      if (g.kind === "reconnect") {
+        const e = this.vm?.edges.find((x) => x.id === g.edge);
+        const same = e !== undefined && (g.end === "source" ? e.source : e.target) === target;
+        this.cancelConnect();
+        if (!same) this.cb.onModel({ kind: "reconnect", id: g.edge!, end: g.end!, nodeId: target });
+        return;
+      }
+      const relation = g.relation === "flow" ? undefined : g.relation;
+      const source = g.source;
+      if (g.side !== undefined) this.pendingSide = { source, target, side: g.side };
+      this.cg = undefined;
+      this.setTool(undefined);
+      this.cancelConnect();
+      this.cb.onModel({ kind: "connect", sourceId: source, targetId: target, ...(relation ? { relation } : {}) });
+      return;
+    }
+    if (g.invalid !== undefined) {
+      this.tools.notice(g.invalid);
+      this.cancelConnect();
+      return;
+    }
+    // Empty canvas: a reconnect snaps back; a new line offers the node kinds that can end it.
+    const relation = g.relation;
+    const items = g.kind === "connect" && this.vm && (relation === "succession" || relation === "transition") ? quickBarItems(this.vm.kind, relation) : [];
+    if (g.kind === "connect" && items.length && (relation === "succession" || relation === "transition")) {
+      this.openQuickBar(g, p, items.map((i) => i.kind), relation);
+      return;
+    }
+    if (g.sticky && !g.moved) return;
+    this.tools.notice(g.kind === "reconnect" ? "The line snapped back: drop its end on an element." : "A line needs an element at both ends; nothing was written.");
+    this.cancelConnect();
+  }
+
+  private openQuickBar(g: ConnGesture, p: Pt, kinds: string[], relation: "succession" | "transition"): void {
+    this.quick?.el.remove();
+    const el = document.createElement("div");
+    el.className = "quick-bar";
+    el.setAttribute("role", "toolbar");
+    el.setAttribute("aria-label", "Add a node at the end of the line");
+    const c = this.toClient(p);
+    el.style.left = `${c.clientX + 8}px`;
+    el.style.top = `${c.clientY + 8}px`;
+    for (const k of kinds) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.dataset.kind = k;
+      b.textContent = k.charAt(0).toUpperCase() + k.slice(1);
+      b.addEventListener("click", () => this.chooseQuick(k));
+      el.append(b);
+    }
+    el.addEventListener("keydown", (e) => { if (e.key === "Escape") { this.cancelConnect(); this.svg.focus({ preventScroll: true }); e.preventDefault(); } e.stopPropagation(); });
+    g.down = false;
+    this.svg.parentElement?.append(el);
+    // Keep the bar on screen near the end of the line.
+    const r = el.getBoundingClientRect();
+    if (r.right > window.innerWidth - 8) el.style.left = `${Math.max(8, window.innerWidth - r.width - 8)}px`;
+    if (r.bottom > window.innerHeight - 8) el.style.top = `${Math.max(8, c.clientY - r.height - 8)}px`;
+    this.quick = { el, at: p, items: kinds, source: g.source, relation, ...(g.side ? { side: g.side } : {}) };
+    this.svg.style.cursor = "";
+    this.tip.hidden = true;
+    this.repaintOverlay();
+    el.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+  }
+
+  private chooseQuick(kind: string): void {
+    const q = this.quick;
+    if (!q) return;
+    const parent = this.scene.get(q.source)?.parent;
+    const base = parent !== undefined ? this.scene.get(parent)?.abs : undefined;
     this.setTool(undefined);
-    // A message may go from a lifeline to itself; every other relationship needs two different ends.
-    if (source !== id || relation === "message") this.cb.onModel({ kind: "connect", sourceId: source, targetId: id, ...(relation ? { relation } : {}) });
+    this.cancelConnect();
+    this.cb.onModel({ kind: "connectNew", sourceId: q.source, relation: q.relation, paletteKind: kind, x: Math.round(q.at.x - (base?.x ?? 0)), y: Math.round(q.at.y - (base?.y ?? 0)) });
+    this.svg.focus({ preventScroll: true });
+  }
+
+  /** Remove the ghost line, the quick bar and the tip; nothing was written. */
+  private cancelConnect(): void {
+    const had = this.cg !== undefined || this.quick !== undefined;
+    this.cg = undefined;
+    this.quick?.el.remove();
+    this.quick = undefined;
+    this.tip.hidden = true;
+    this.svg.style.cursor = "";
+    if (had) this.repaintOverlay();
+  }
+
+  /** The host answered: whatever was drawn for the edit is replaced by the committed model. */
+  private dropConnect(): void {
+    this.cg = undefined;
+    this.quick?.el.remove();
+    this.quick = undefined;
+    this.tip.hidden = true;
+    this.svg.style.cursor = "";
+    this.handleNode = undefined;
+  }
+
+  /** A line drawn from a quick-connect handle leaves from that side: write the route once the host has added the line. */
+  private routeFromHandle(known: ReadonlySet<string>): void {
+    const pend = this.pendingSide;
+    if (!pend || !this.vm) return;
+    const e = this.vm.edges.find((x) => !known.has(x.id) && x.source === pend.source && x.target === pend.target);
+    if (!e) return;
+    this.pendingSide = undefined;
+    const src = this.scene.get(pend.source)?.abs, tgt = this.scene.get(pend.target)?.abs;
+    if (!src || !tgt) return;
+    const pts = ghostRoute(src, pend.side, { x: tgt.x + tgt.w / 2, y: tgt.y + tgt.h / 2 }, tgt);
+    this.emitEdge("Route", { id: e.id, points: pts.map((q) => ({ x: Math.round(q.x * 100) / 100, y: Math.round(q.y * 100) / 100 })) });
+  }
+
+  /** Quick-connect handles: shown on the state or Action Flow node under the pointer. */
+  private hoverHandles(p: Pt): void {
+    const vm = this.vm;
+    if (!vm) return;
+    let id = this.handleNode;
+    const box = id !== undefined ? this.scene.get(id)?.abs : undefined;
+    const keep = id !== undefined && box !== undefined && (hit(this.scene, p) === id || sideAt(box, p, this.handleSize()) !== undefined);
+    if (!keep) {
+      const h = hit(this.scene, p);
+      const n = h !== undefined ? vm.nodes.find((x) => x.id === h) : undefined;
+      id = n && hasHandles(vm, n) ? n.id : undefined;
+    }
+    if (id !== this.handleNode) {
+      this.handleNode = id;
+      this.repaintOverlay();
+    }
+  }
+
+  /** A press on a quick-connect handle starts a line that leaves from that side. */
+  private beginHandle(p: Pt): boolean {
+    const vm = this.vm;
+    const id = this.handleNode;
+    if (!vm || id === undefined) return false;
+    const box = this.scene.get(id)?.abs;
+    const side = box ? sideAt(box, p, this.handleSize()) : undefined;
+    const relation = handleRelation(vm.kind);
+    if (!side || !relation) return false;
+    this.cg = { kind: "connect", source: id, relation, side, at: p, start: p, down: true, moved: false, sticky: false };
+    this.moveConnect(p, false);
+    return true;
+  }
+
+  /** Whether the line has handles at its ends: successions, transitions and item flows of the model, not derived or implied ones. */
+  private reconnectable(id: string): boolean {
+    const e = this.vm?.edges.find((x) => x.id === id);
+    return !!e && e.resolved && !e.derived && !e.fixed && !e.implied && !e.locked && (e.style === "succession" || e.style === "transition" || e.style === "flow") && (this.drawn.routes.get(id)?.length ?? 0) >= 2;
+  }
+
+  private reconnectEndAt(p: Pt): "source" | "target" | undefined {
+    const id = this.selectedEdge;
+    if (id === undefined || !this.reconnectable(id)) return undefined;
+    const pts = this.drawn.routes.get(id)!;
+    const reach = 7 / this.view.k;
+    const near = (q: Pt) => Math.hypot(p.x - q.x, p.y - q.y) <= reach;
+    return near(pts[pts.length - 1]!) ? "target" : near(pts[0]!) ? "source" : undefined;
+  }
+
+  private startReconnect(id: string, end: "source" | "target", p: Pt): void {
+    const e = this.vm?.edges.find((x) => x.id === id);
+    if (!e) return;
+    this.cg = { kind: "reconnect", source: end === "source" ? e.target : e.source, relation: e.style as ConnGesture["relation"], edge: id, end, at: p, start: p, down: true, moved: false, sticky: false };
+    this.moveConnect(p, false);
+  }
+
+  /** The ghost line, the highlighted target, the quick-connect handles and the reconnect handles. */
+  private connectOverlay(o: { palette?: Parameters<typeof edgeHandlesSvg>[2]["palette"] }): string {
+    const vm = this.vm;
+    if (!vm) return "";
+    const k = this.view.k;
+    const sel = o.palette ? o.palette.sel : undefined;
+    const stroke = sel ? ` stroke="${sel}"` : ' class="sel-line"';
+    const fill = sel ? ` fill="${sel}"` : ' class="sel-fill"';
+    const bg = o.palette ? ` stroke="${o.palette.bg}"` : ' stroke="none"';
+    const f = (n: number) => String(Math.round(n * 100) / 100);
+    let out = "";
+    const g = this.cg;
+    if (!g && this.handleNode !== undefined) {
+      const box = this.scene.get(this.handleNode)?.abs;
+      if (box) for (const [side, b] of Object.entries(handleBoxesOf(box, this.handleSize()))) out += `<rect data-connect-handle="${side}" x="${f(b.x)}" y="${f(b.y)}" width="${f(b.w)}" height="${f(b.h)}" fill-opacity="0.85"${fill}${bg}/>`;
+    }
+    if (!g && this.selectedEdge !== undefined && this.reconnectable(this.selectedEdge)) {
+      const pts = this.drawn.routes.get(this.selectedEdge)!;
+      for (const [end, q] of [["source", pts[0]!], ["target", pts[pts.length - 1]!]] as const) out += `<circle data-reconnect-handle="${end}" cx="${f(q.x)}" cy="${f(q.y)}" r="${f(5 / k)}"${fill}${bg}/>`;
+    }
+    if (g) {
+      const src = this.scene.get(g.source)?.abs;
+      if (src && (g.moved || g.sticky || this.quick)) {
+        const target = g.target !== undefined ? this.scene.get(g.target)?.abs : undefined;
+        const at = this.quick ? this.quick.at : g.at;
+        let pts = ghostRoute(src, g.side, at, target);
+        if (g.kind === "reconnect" && g.end === "source") pts = [...pts].reverse();
+        out += ghostSvg(pts, { zoom: k, valid: target !== undefined, ...(sel ? { colour: sel } : {}) });
+        const hl = target ?? (g.invalid !== undefined && g.kind !== undefined ? this.scene.get(hit(this.scene, g.at) ?? "")?.abs : undefined);
+        if (hl) out += `<rect data-ghost-target="${g.target !== undefined ? "valid" : "invalid"}" x="${f(hl.x - 3)}" y="${f(hl.y - 3)}" width="${f(hl.w + 6)}" height="${f(hl.h + 6)}" fill="none" stroke-width="${f(2 / k)}"${g.target !== undefined ? stroke : o.palette ? ` stroke="${o.palette.warn}"` : ' class="ghost-bad"'}/>`;
+      }
+    }
+    return out;
   }
 
   private closeEditor(): void {
@@ -803,8 +1106,8 @@ export class SvgRenderer implements DiagramRenderer {
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
   }
 
-  private fire(type: "pointerdown" | "pointermove" | "pointerup", p: Pt, o: { shift?: boolean } = {}): void {
-    this.svg.dispatchEvent(new PointerEvent(type, { ...this.toClient(p), button: 0, buttons: type === "pointerup" ? 0 : 1, pointerId: 7, bubbles: true, cancelable: true, shiftKey: !!o.shift }));
+  private fire(type: "pointerdown" | "pointermove" | "pointerup", p: Pt, o: { shift?: boolean; buttons?: number } = {}): void {
+    this.svg.dispatchEvent(new PointerEvent(type, { ...this.toClient(p), button: 0, buttons: o.buttons ?? (type === "pointerup" ? 0 : 1), pointerId: 7, bubbles: true, cancelable: true, shiftKey: !!o.shift }));
   }
 
   private click(p: Pt, shift = false): void {
@@ -816,6 +1119,13 @@ export class SvgRenderer implements DiagramRenderer {
     this.fire("pointerdown", p, { shift });
     for (let i = 1; i <= steps; i++) this.fire("pointermove", { x: p.x + (dx * i) / steps, y: p.y + (dy * i) / steps }, { shift });
     this.fire("pointerup", { x: p.x + dx, y: p.y + dy }, { shift });
+  }
+
+  /** Press at `from`, move to `to` in steps, and release there unless `hold`. */
+  private dragConnect(from: Pt, to: Pt, hold: boolean): void {
+    this.fire("pointerdown", from);
+    for (let i = 1; i <= 6; i++) this.fire("pointermove", { x: from.x + ((to.x - from.x) * i) / 6, y: from.y + ((to.y - from.y) * i) / 6 });
+    if (!hold) this.fire("pointerup", to);
   }
 
   /** Replay a gesture as DOM events on the diagram, so it takes the paths real input takes. */
@@ -880,6 +1190,46 @@ export class SvgRenderer implements DiagramRenderer {
         btn.click();
         this.click(this.pointOn(g.source));
         this.click(this.pointOn(g.target));
+        break;
+      }
+      case "hoverNode": this.fire("pointermove", this.pointOn(g.id), { buttons: 0 }); break;
+      case "connectDrag": {
+        if (g.relation && !g.side) {
+          const btn = this.tools.palette.querySelector<HTMLButtonElement>(`button[data-kind="${g.relation}"]`);
+          if (!btn) throw new Error(`the palette has no ${g.relation} tool`);
+          btn.click();
+        }
+        let from = this.pointOn(g.source);
+        if (g.side) {
+          const box = this.scene.get(g.source)?.abs;
+          if (!box) throw new Error(`no node ${g.source}`);
+          this.fire("pointermove", from, { buttons: 0 });
+          const hb = handleBoxesOf(box, this.handleSize())[g.side];
+          from = { x: hb.x + hb.w / 2, y: hb.y + hb.h / 2 };
+          this.fire("pointermove", from, { buttons: 0 });
+        }
+        const to = g.target !== undefined ? this.pointOn(g.target) : { x: g.x ?? from.x, y: g.y ?? from.y };
+        this.dragConnect(from, to, g.hold === true);
+        break;
+      }
+      case "connectRelease": this.fire("pointerup", this.lastPoint); break;
+      case "quickBar": {
+        if (g.item === undefined) {
+          this.svg.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+          break;
+        }
+        const btn = this.quick?.el.querySelector<HTMLButtonElement>(`button[data-kind="${CSS.escape(g.item)}"]`);
+        if (!btn) throw new Error(`the quick bar has no ${g.item} item (it shows: ${this.quick?.items.join(", ") ?? "nothing"})`);
+        btn.click();
+        break;
+      }
+      case "reconnectDrag": {
+        if (this.selectedEdge !== g.id) this.click(this.pointOnEdge(g.id));
+        const pts = this.drawn.routes.get(g.id);
+        if (!pts || pts.length < 2) throw new Error(`no route for ${g.id}`);
+        const from = g.end === "source" ? pts[0]! : pts[pts.length - 1]!;
+        const to = g.target !== undefined ? this.pointOn(g.target) : { x: g.x ?? from.x, y: g.y ?? from.y };
+        this.dragConnect(from, to, g.hold === true);
         break;
       }
       case "selectEdge": {
@@ -963,7 +1313,7 @@ export class SvgRenderer implements DiagramRenderer {
     const vm = this.vm;
     const empty: Metrics = {
       nodes: [], edges: [], overlaps: 0, overflows: 0, outsideParent: 0, nodesOverCompartments: 0, diagonalSegments: 0, edgesThroughEndNodes: 0, labelsOverEndNodes: 0, labelsOnOwnEdge: 0, labelsOverNodes: 0, labelsOverLabels: 0, edgeOverlaps: 0, userLabelsOverNodes: 0, userLabelsOffCanvas: 0,
-      portsOffBorder: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, routeHandles: 0, labelHandles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(),
+      portsOffBorder: 0, quickBar: [], connectHandles: 0, reconnectHandles: 0, selected: [], menu: [], selectedNamed: 0, handles: 0, routeHandles: 0, labelHandles: 0, inheritedNodes: 0, palette: [], properties: { visible: false, fields: {} }, inlineEditor: false, theme: themeOf(), focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(),
     };
     if (!vm) return empty;
     const abs = absoluteBoxes(vm, this.currentRel());
@@ -988,8 +1338,14 @@ export class SvgRenderer implements DiagramRenderer {
       nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs), nodesOverCompartments: countOverCompartments(vm, abs, this.measure),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels, this.drawn.laidOut),
       selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, routeHandles: this.overlay.querySelectorAll("[data-route-handle]").length, labelHandles: this.overlay.querySelectorAll("[data-label-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
-      focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(), ...this.tools.state(), inlineEditor: this.editor !== undefined, theme: themeOf(),
+      focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(), ...this.tools.state(), ...this.connectMetrics(), inlineEditor: this.editor !== undefined, theme: themeOf(),
     };
+  }
+
+  private connectMetrics(): Pick<Metrics, "ghost" | "quickBar" | "connectHandles" | "reconnectHandles"> {
+    const g = this.cg;
+    const ghost = g && this.overlay.querySelector("[data-ghost]") ? { points: (this.overlay.querySelector("[data-ghost]")?.getAttribute("d") ?? "").split(/[ML]/).filter(Boolean).length, ...(g.target !== undefined ? { target: g.target } : {}), ...(g.invalid !== undefined ? { invalid: g.invalid } : {}) } : undefined;
+    return { ...(ghost ? { ghost } : {}), quickBar: this.quick ? this.quick.items : [], connectHandles: this.overlay.querySelectorAll("[data-connect-handle]").length, reconnectHandles: this.overlay.querySelectorAll("[data-reconnect-handle]").length };
   }
 
   toSvgString(theme: PngTheme): string {
@@ -999,13 +1355,34 @@ export class SvgRenderer implements DiagramRenderer {
     const r = buildSvg(this.vm, rel, this.measure, { palette }, { routes: this.layoutRoutes, selected: theme === "light" ? new Set<string>() : this.selectedSet() });
     if (theme !== "light") {
       const { boxes, handles } = this.selectionBoxes();
-      r.content += overlaySvg(boxes, handles, undefined, { palette }) + this.edgeHandles({ palette });
+      r.content += overlaySvg(boxes, handles, undefined, { palette }) + this.edgeHandles({ palette }) + this.connectOverlay({ palette });
     }
     return wrapStandalone(r, { palette }).svg;
   }
 
   /** Round a world coordinate onto the grid (for tests and tooling). */
   static snap(v: number): number { return snap(v); }
+}
+
+interface ConnGesture {
+  /** A new line from a node, or a line's end being moved. */
+  kind: "connect" | "reconnect";
+  /** The node the line leaves; for a reconnect, the node at the end that stays. */
+  source: string;
+  relation: ConnectRelation | "flow" | undefined;
+  /** The side a quick-connect handle leaves from. */
+  side?: Side;
+  start: Pt;
+  at: Pt;
+  down: boolean;
+  moved: boolean;
+  /** Started by a click with a palette tool: a click without a drag keeps the line waiting for a second click. */
+  sticky?: boolean;
+  /** The node under the pointer when it may be the end, and why it may not when it cannot. */
+  target?: string;
+  invalid?: string;
+  edge?: string;
+  end?: "source" | "target";
 }
 
 type LineGesture =

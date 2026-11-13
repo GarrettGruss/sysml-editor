@@ -488,3 +488,128 @@ export function planDeleteBehavior(index: ModelIndex, el: Element): PlanResult {
 }
 
 
+
+// ------------------------------------------------------------------------------ connecting from the diagram
+
+/** The next free name of the kind in `owner` (`fork1`, `action2`), counting inherited members. */
+export function freeNodeName(index: ModelIndex, owner: Element, kind: string): string {
+  const taken = new Set([...owner.members, ...inheritedMembers(index, owner).map((i) => i.member)].flatMap((m) => [m.name, m.shortName].filter((x): x is string => x !== undefined)));
+  let n = 1;
+  while (taken.has(`${kind}${n}`)) n++;
+  return `${kind}${n}`;
+}
+
+const NEW_NODE_KINDS: Record<"succession" | "transition", readonly string[]> = { succession: ["action", "fork", "join", "decide", "merge"], transition: ["state"] };
+
+/**
+ * A new node and the line from `source` to it, written together: `fork fork1;` and `first a then fork1;` (or
+ * `state state1;` and `transition first a then state1;`), after the source. One plan, so one edit and one undo step.
+ */
+export function planAddConnectedNode(index: ModelIndex, owner: Element, source: Element, kind: string, relation: "succession" | "transition", name: string): PlanResult {
+  const c = checkElement(index, owner);
+  if (!c.ok) return c;
+  if (!NEW_NODE_KINDS[relation].includes(kind)) return fail(`A ${kind} cannot end a ${relation}.`);
+  const sp = endProblem(index, owner, source, "source", relation);
+  if (sp) return fail(sp);
+  if (relation === "transition" && !(isStateNode(source) || source.kind === "start")) return fail(`${describeElement(source)} is not a state, so a transition cannot start there.`);
+  if (relation === "succession" && source.kind === "done") return fail("Nothing can follow the done node.");
+  if (owner.members.some((m) => m.name === name || m.shortName === name)) return fail(`${describeElement(owner)} already has a member named '${name}'.`);
+  const nm = nameEnds(index, [source]);
+  if (!(nm instanceof Map)) return nm;
+  const a = nodeName(source, "source", owner, nm.get(source)?.name);
+  if (typeof a !== "string") return a;
+  const named = nm.size ? namedNodes(index, nm) : undefined;
+  const key = (e: Element): string => { const n = nm.get(e); return n ? `${e.owner!.qualifiedName ?? ""}::${quoteName(n.name)}` : nodeKey(e); };
+  const decls = [`${kind} ${name};`, relation === "succession" ? `first ${a} then ${name};` : transitionText(a, name, {})];
+  let first: PlanResult | undefined;
+  for (const pos of positionsAfter([isSynthetic(source) ? source : memberOf(owner, source)])) {
+    const r = insertDecls(index, owner, decls, pos);
+    if (!r.ok) return r;
+    const edits = [...[...nm.values()].map((n) => n.edit), ...r.edits];
+    const v = checked(index, owner, { ok: true, edits, ...(named ? { namedNodes: named } : {}), description: `Add ${kind} ${name} and a ${relation} to it in ${describeElement(owner)}` });
+    if (!v.ok) { first ??= v; continue; }
+    const now = after(index, owner, edits);
+    const an = now ? analyze(now.index, now.owner) : undefined;
+    const found = relation === "succession"
+      ? an?.successions.some((s) => !s.implied && nodeKey(s.source) === key(source) && s.target.name === name)
+      : an?.transitions.some((t) => nodeKey(t.source) === key(source) && t.target.name === name);
+    if (found) return v;
+    first ??= fail(`The new ${relation} would not be read back as written; nothing was changed.`);
+  }
+  return first ?? fail("Nothing to insert.");
+}
+
+/** The text between the keyword `kw` and the next stop (a section keyword at depth zero, or the end of the statement), as offsets. */
+function endSpan(text: string, el: Element, kw: string, stops: ReadonlySet<string>): { start: number; end: number } | undefined {
+  const from = el.range.start.offset;
+  const to = el.bodyRange ? el.bodyRange.start.offset : el.range.end.offset;
+  const toks = tokenize(text).filter((t) => t.start >= from && t.end <= to && isCode(t));
+  const i = toks.findIndex((t) => t.text === kw);
+  if (i < 0) return undefined;
+  let depth = 0, last = i;
+  for (let j = i + 1; j < toks.length; j++) {
+    const t = toks[j]!;
+    if (depth === 0 && (stops.has(t.text) || t.text === ";")) break;
+    if (t.text === "(" || t.text === "[" || t.text === "{") depth++;
+    else if (t.text === ")" || t.text === "]" || t.text === "}") depth--;
+    last = j;
+  }
+  return last === i ? undefined : { start: toks[i]!.end, end: toks[last]!.end };
+}
+
+/**
+ * One end of a succession, transition or item flow moved to `node`: only the text of that end is replaced, so the guard,
+ * trigger, effect, name and item type stay as written. Successions and transitions accept control nodes; flows connect
+ * features, so a control node is refused.
+ */
+export function planReconnect(index: ModelIndex, statement: Element, end: "source" | "target", node: Element): PlanResult {
+  const c = checkElement(index, statement);
+  if (!c.ok) return c;
+  const owner = statement.owner;
+  if (!owner) return fail("This line has no owner, so it cannot be changed.");
+  const an = analyze(index, owner);
+  const succ = an.successions.find((x) => x.statement === statement && !x.implied);
+  const tr = an.transitions.find((x) => x.statement === statement);
+  const fl = an.flows.find((x) => x.statement === statement);
+  if (!succ && !tr && !fl) return fail("This line is written as part of another declaration, or is not a succession, transition or flow, so its ends cannot be moved here; edit the text.");
+  const what = succ ? "succession" : tr ? "transition" : "flow";
+  const cur = (succ ?? tr ?? fl)!;
+  const role = end;
+  if (what === "flow") {
+    if (isSynthetic(node) || isControlNode(node)) return fail("Flows connect features, not control nodes: an item flow cannot end at a " + (isSynthetic(node) ? node.kind : node.kind) + " node.");
+  } else {
+    const p = endProblem(index, owner, node, role, what);
+    if (p) return fail(p);
+    if (what === "succession" && end === "target" && node.kind === "start") return fail("Nothing can lead to the start node.");
+    if (what === "succession" && end === "source" && node.kind === "done") return fail("Nothing can follow the done node.");
+    if (what === "transition" && end === "source" && !(isStateNode(node) || node.kind === "start")) return fail(`${describeElement(node)} is not a state, so a transition cannot start there.`);
+    if (what === "transition" && end === "target" && !(isStateNode(node) || node.kind === "done")) return fail(`${describeElement(node)} is not a state, so a transition cannot end there.`);
+  }
+  const newSource = end === "source" ? node : cur.source, newTarget = end === "target" ? node : cur.target;
+  if (what === "succession" && newSource === newTarget) return fail("A succession needs two different nodes.");
+  if ((end === "source" ? cur.source : cur.target) === node) return fail("Nothing to change: the line already ends there.");
+  const nm = nameEnds(index, [node]);
+  if (!(nm instanceof Map)) return nm;
+  const name = nodeName(node, role, owner, nm.get(node)?.name);
+  if (typeof name !== "string") return name;
+  const named = nm.size ? namedNodes(index, nm) : undefined;
+  const guard = succ?.guard ?? tr?.guard;
+  if (succ && an.successions.some((s) => s !== succ && s.source === newSource && s.target === newTarget && same(s.guard, guard))) return fail(`There is already a succession from ${nodeLabel(newSource!)} to ${nodeLabel(newTarget!)} in ${describeElement(owner)}.`);
+  if (tr && an.transitions.some((t) => t !== tr && t.source === newSource && t.target === newTarget && same(t.trigger, tr.trigger) && same(t.guard, tr.guard) && same(t.effect, tr.effect))) return fail(`There is already a transition from ${nodeLabel(newSource!)} to ${nodeLabel(newTarget!)} with the same trigger, guard and effect in ${describeElement(owner)}.`);
+  const kw = what === "flow" ? (end === "source" ? "from" : "to") : end === "source" ? "first" : "then";
+  const stops = new Set(end === "target" ? [] : what === "flow" ? ["to", "of", "from"] : ["accept", "if", "do", "then", "else", "first"]);
+  const text = index.getDocument(statement.uri)?.text ?? "";
+  const span = endSpan(text, statement, kw, stops);
+  if (!span) return fail(`This ${what} is written in a form whose ${end} cannot be rewritten here (it has no '${kw}' part); edit the text.`);
+  const edits: TextEdit[] = [...[...nm.values()].map((n) => n.edit), { uri: statement.uri, range: { start: span.start, end: span.end }, newText: ` ${name}` }];
+  const v = checked(index, owner, { ok: true, edits, ...(named ? { namedNodes: named } : {}), description: `Move the ${end} of the ${what} to ${name} in ${describeElement(owner)}` });
+  if (!v.ok) return v;
+  const key = (e: Element): string => { const n = nm.get(e); return n ? `${e.owner!.qualifiedName ?? ""}::${quoteName(n.name)}` : nodeKey(e); };
+  const now = after(index, owner, edits);
+  const a2 = now ? analyze(now.index, now.owner) : undefined;
+  const ends = (s: { source?: Element; target?: Element }) => !!s.source && !!s.target && newSource !== undefined && newTarget !== undefined && nodeKey(s.source) === (newSource === node ? key(node) : nodeKey(newSource)) && nodeKey(s.target) === (newTarget === node ? key(node) : nodeKey(newTarget));
+  const ok = what === "succession" ? a2?.successions.some((s) => !s.implied && ends(s) && same(s.guard, guard))
+    : what === "transition" ? a2?.transitions.some((t) => ends(t) && same(t.trigger, tr!.trigger) && same(t.guard, tr!.guard) && same(t.effect, tr!.effect))
+    : a2?.flows.some((f) => ends(f) && (fl!.item === undefined || f.item === fl!.item));
+  return ok ? v : fail(`The ${what} would not be read back with its ${end} moved; nothing was changed.`);
+}

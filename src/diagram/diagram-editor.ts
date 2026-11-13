@@ -621,6 +621,36 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         if (!shown.ok) this.notice(doc, shown.reason);
         return;
       }
+      case "connectNew": {
+        const a = this.targetOf(doc, intent.sourceId);
+        if (!a) return this.notice(doc, "The source of the line must be a resolved element.");
+        const refusal = actions.service.refuseIfInherited(a, "connected");
+        if (refusal) {
+          void actions.report(refusal, "");
+          return this.notice(doc, refusal.reason);
+        }
+        const root = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
+        const parent = d.nodes.find((n) => n.id === intent.sourceId)?.parent;
+        const known = new Set(d.edges.map((e) => e.id));
+        const r = await actions.service.addConnectedNode(a.element, intent.paletteKind, intent.relation, { ...origin, ...(root ? { context: root } : {}), placement: { diagram: origin.diagram, ...(parent !== undefined ? { parentNode: parent } : {}), x: intent.x, y: intent.y } });
+        const shown = await actions.report(r, `Added ${intent.paletteKind} and ${intent.relation}`);
+        if (!shown.ok) return this.notice(doc, shown.reason);
+        const fresh = (doc.state.doc?.edges ?? []).filter((e) => !known.has(e.id)).map((e) => e.id);
+        if (fresh.length) this.selectIds(doc, [fresh[fresh.length - 1]!]);
+        return;
+      }
+      case "reconnect": {
+        const e = d.edges.find((x) => x.id === intent.id);
+        const stmt = e ? resolveReference(e, d, this.model.index, this.opts(doc)) : undefined;
+        const b = this.targetOf(doc, intent.nodeId);
+        if (!e || !stmt || !b) return this.notice(doc, "The line or the element could not be found; it may be unresolved.");
+        const root = resolveReference({ ref: d.root }, d, this.model.index, this.opts(doc));
+        const r = await actions.service.reconnect(stmt, intent.end, b.element, { ...origin, ...(root ? { context: root } : {}) });
+        const shown = await actions.report(r, "Moved the end of the line");
+        if (!shown.ok) return this.notice(doc, shown.reason);
+        this.selectIds(doc, [intent.id]);
+        return;
+      }
       case "deleteFromModel": {
         for (const id of intent.ids) {
           const t = this.targetOf(doc, id);

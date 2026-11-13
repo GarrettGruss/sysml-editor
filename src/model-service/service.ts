@@ -10,12 +10,12 @@ import {
   isPlanCurrent, sourceMatches, sourceOf,
   detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, planRemoveDerivation, planRemoveSatisfy,
   planRemoveVerify, planSetCommentBody, planVerify, type MoveTarget,
-  planAddMessage, planAddSuccession, planAddTransition, planDeleteBehavior, planSetTransition, type MessageSpec, type TransitionParts,
+  freeNodeName, planAddConnectedNode, planAddMessage, planAddSuccession, planReconnect, planAddTransition, planDeleteBehavior, planSetTransition, type MessageSpec, type TransitionParts,
   type DiagramUpdate, type LoadedDiagram, type PlanOk, type PlanResult, type PlanSource, type RemainingReferences, type TextEdit, type UnjudgedReferences,
 } from "../edit/index.js";
 import { inheritedVia, isLibraryUri, locate, quoteName, type Element, type ModelIndex } from "../model/index.js";
 import { ALL_KINDS, DEFINITION_KINDS, USAGE_KINDS, allowedChildKinds, kindProblem } from "./kinds.js";
-import { composeChanges, nameNodesChange, placeElementChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
+import { composeChanges, nameNodesChange, placeElementChange, placeNodeAndLineChange, reconnectChange, addStatementChange, removeEntriesChange, retargetChange, type DiagramChange, type Placement } from "./diagram-changes.js";
 import { referenceFor } from "../diagram/resolve.js";
 import { analyze, isSynthetic, virtualNode } from "../model/index.js";
 import { makeRecord, planRedo, planUndo, type EditRecord } from "./undo.js";
@@ -738,6 +738,121 @@ export class ModelService {
         }),
         origin,
         () => [transition.uri],
+      );
+    });
+  }
+
+  /**
+   * A new node of `kind` and the succession or transition from `source` to it, as one edit (one undo step). The node gets the
+   * next free name of its kind in the source's owner; on a diagram it is placed at the placement, with the line.
+   */
+  addConnectedNode(source: Element, kind: string, relation: "succession" | "transition", opts: Origin & { context?: Element; placement?: Omit<Placement, "diagram"> & { diagram?: string } } = {}): Promise<OpResult> {
+    return this.serial(async () => {
+      if (opts.context) {
+        const refusal = this.inheritedRefusal({ element: source, context: opts.context }, `connected by a ${relation}`);
+        if (refusal) return refusal;
+      }
+      const owner = source.owner;
+      if (!owner) return fail("The source has no owner, so there is nowhere to write the line.");
+      let node: Element | undefined;
+      let stmt: Element | undefined;
+      let name = "";
+      let named: NonNullable<PlanOk["namedNodes"]> = [];
+      const ownerQn = owner.qualifiedName;
+      const sig = (m: Element) => `${m.kind}\0${m.name ?? ""}\0${m.ends.join("|")}\0${this.index.getDocument(m.uri)?.text.slice(m.range.start.offset, m.range.end.offset) ?? ""}`;
+      const pre = new Map<string, number>();
+      const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === owner.uri && x.kind === owner.kind) ?? this.index.findByQualifiedName(ownerQn)[0] : this.fresh(owner));
+      const label = `Add ${kind} and ${relation}`;
+      return this.run(
+        () => {
+          const o = findOwner();
+          if (!o) return fail(gone("The element to add to", owner));
+          const src = this.resolveNode(o, source, "source");
+          if (typeof src === "string") return fail(src);
+          pre.clear();
+          for (const m of o.members) pre.set(sig(m), (pre.get(sig(m)) ?? 0) + 1);
+          name = freeNodeName(this.index, o, kind);
+          const p = planAddConnectedNode(this.index, o, src, kind, relation, name);
+          named = p.ok ? p.namedNodes ?? [] : [];
+          return p;
+        },
+        () => ({
+          element: () => {
+            const o = findOwner();
+            node = o?.members.find((m) => m.name === name);
+            const seen = new Map<string, number>();
+            stmt = o?.members.find((m) => {
+              if (m.kind !== relation) return false;
+              const k = sig(m);
+              const n = (seen.get(k) ?? 0) + 1;
+              seen.set(k, n);
+              return n > (pre.get(k) ?? 0);
+            });
+            return node;
+          },
+          change: () => {
+            const d = opts.placement?.diagram;
+            const place = d
+              ? placeNodeAndLineChange(
+                  placeElementChange(this.index, () => node, { diagram: d, ...(opts.placement!.parentNode !== undefined ? { parentNode: opts.placement!.parentNode } : {}), ...(opts.placement!.x !== undefined ? { x: opts.placement!.x } : {}), ...(opts.placement!.y !== undefined ? { y: opts.placement!.y } : {}) }, label),
+                  placeElementChange(this.index, () => stmt, { diagram: d }, label),
+                  label,
+                )
+              : undefined;
+            const change = addStatementChange(this.index, () => stmt, place, label);
+            return named.length ? composeChanges(nameNodesChange(named, label), change, label) : change;
+          },
+        }),
+        opts.diagram ? { diagram: opts.diagram } : undefined,
+        () => [owner.uri],
+      );
+    });
+  }
+
+  /** Move one end of a succession, transition or item flow to `node`; the rest of the statement stays as written. */
+  reconnect(statement: Element, end: "source" | "target", node: Element, opts: Origin & { context?: Element } = {}): Promise<OpResult> {
+    return this.serial(async () => {
+      if (opts.context) {
+        for (const e of [statement, node]) {
+          const refusal = this.inheritedRefusal({ element: e, context: opts.context }, "connected");
+          if (refusal) return refusal;
+        }
+      }
+      let oldKey: string | undefined;
+      let nowStmt: Element | undefined;
+      let endKey: string | undefined;
+      let named: NonNullable<PlanOk["namedNodes"]> = [];
+      let at = -1;
+      const ownerQn = statement.owner?.qualifiedName;
+      const findOwner = () => (ownerQn !== undefined ? this.index.findByQualifiedName(ownerQn).find((x) => x.uri === statement.uri) : undefined);
+      const label = `Move ${end} of line`;
+      return this.run(
+        () => {
+          const el = this.fresh(statement);
+          if (!el || !el.owner) return fail(gone("The line", statement));
+          const target = this.resolveNode(el.owner, node, end);
+          if (typeof target === "string") return fail(target);
+          const ref = referenceFor(el, this.index);
+          oldKey = ref ? referenceKeyOf(ref) : undefined;
+          at = el.owner.members.indexOf(el);
+          const p = planReconnect(this.index, el, end, target);
+          named = p.ok ? p.namedNodes ?? [] : [];
+          const r = referenceFor(target, this.index);
+          endKey = named.length ? `ref:${named[0]!.ref}` : r ? referenceKeyOf(r) : undefined;
+          return p;
+        },
+        () => ({
+          element: () => {
+            nowStmt = at >= 0 ? findOwner()?.members[at] : undefined;
+            return nowStmt;
+          },
+          change: () => {
+            const change = reconnectChange(oldKey, () => (nowStmt ? referenceFor(nowStmt, this.index) : undefined), end, () => endKey, label);
+            return named.length ? composeChanges(nameNodesChange(named, label), change, label) : change;
+          },
+        }),
+        opts.diagram ? { diagram: opts.diagram } : undefined,
+        () => [statement.uri],
       );
     });
   }

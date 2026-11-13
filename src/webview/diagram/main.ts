@@ -174,7 +174,7 @@ function windowSvg(theme: PngTheme): { svg: string; width: number; height: numbe
   const k = Math.min(1, (W - left - right - 20) / dw, (H - top - 10) / dh);
   const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="${top}" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
   let panels = "";
-  for (const sel of [".toolbar", ".palette", ".props"]) {
+  for (const sel of [".toolbar", ".palette", ".props", ".quick-bar"]) {
     const e = document.querySelector(sel);
     if (!e) continue;
     const r = e.getBoundingClientRect();

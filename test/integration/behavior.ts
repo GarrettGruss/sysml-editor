@@ -603,6 +603,108 @@ export function behaviorTests(c: Ctx): Test[] {
       void model; void diagram; void id;
     })],
 
+    // ---- authoring: connecting (ghost line, quick-connect handles, quick bar, reconnect) -------------
+    ["Ghost line: over a valid action it is highlighted and snaps to it (screenshot); Escape removes it and nothing is written", scenario("AuGhost", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, original }) => {
+      await gesture(diagram, { kind: "connectDrag", source: id("deliverOrder::retry"), relation: "succession", target: id("deliverOrder::ship"), hold: true });
+      await c.eventually(async () => {
+        const g = (await metrics(diagram)).ghost;
+        assert.ok(g, "a ghost line is drawn");
+        assert.strictEqual(g!.target, id("deliverOrder::ship"), "the valid target is highlighted");
+        assert.ok(g!.points >= 2);
+      }, "the ghost line snaps to the action");
+      png("authoring-ghost-line.png", await api.diagram.pngWindow(uriOf(diagram), "editor-dark"));
+      await gesture(diagram, { kind: "key", key: "Escape" });
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).ghost, undefined), "Escape removes the ghost line");
+      assert.strictEqual(onDisk(model), original, "nothing is written");
+      assert.ok(!dirty(diagram), "the diagram is not marked changed");
+    })],
+    ["Ghost line: an invalid target shows the reason; releasing there writes nothing", scenario("AuBad", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, original }) => {
+      await gesture(diagram, { kind: "connectDrag", source: id("deliverOrder::retry"), relation: "succession", target: id("start"), hold: true });
+      await c.eventually(async () => assert.match((await metrics(diagram)).ghost?.invalid ?? "", /start node/), "not allowed over the start node, with a reason");
+      await gesture(diagram, { kind: "connectRelease" });
+      await sleep(300);
+      assert.strictEqual(onDisk(model), original);
+      assert.strictEqual((await metrics(diagram)).ghost, undefined);
+    })],
+    ["Handle to another state: hovering shows four handles; dragging the right handle onto a state writes the transition and the route leaves from the right side", scenario("AuHandle", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id }) => {
+      assert.strictEqual((await metrics(diagram)).connectHandles, 0);
+      await gesture(diagram, { kind: "hoverNode", id: id("lamp::off") });
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).connectHandles, 4), "four handles show on the hovered state");
+      await gesture(diagram, { kind: "connectDrag", source: id("lamp::off"), side: "R", target: id("lamp::operating") });
+      await waitFor(() => onDisk(model).includes("transition first off then operating;"), 15000, "the transition is on disk");
+      await savedAndClean(model);
+      const isNew = (e: { locator?: { kind: string; ends: string[] } }) => e.locator?.kind === "transition" && e.locator.ends.join() === "off,operating";
+      await waitFor(() => mem(diagram).edges.some(isNew), 15000, "the edge is in the document");
+      const eid = mem(diagram).edges.find(isNew)!.id;
+      await c.eventually(async () => {
+        const m = await metrics(diagram);
+        const off = nodeOf(m, id("lamp::off"));
+        const e = m.edges.find((x) => x.id === eid)!;
+        assert.ok(Math.abs(e.points[0]!.x - (off.x + off.w)) < 1.5, `the route leaves from the right side of off: ${JSON.stringify(e.points[0])} vs ${off.x + off.w}`);
+      }, "the route leaves from the right side");
+    })],
+    ["An Action Flow action shows quick-connect handles when hovered", scenario("AuNoHandle", "actions.sysml", "actionFlow", "deliverOrder", async ({ diagram, id }) => {
+      await gesture(diagram, { kind: "hoverNode", id: id("deliverOrder::retry") });
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).connectHandles, 4), "an action has handles");
+    })],
+    ["Action Flow succession released over empty canvas: the quick bar offers the node kinds; Fork writes the fork and the succession together, one undo reverses both (screenshot)", scenario("AuQuick", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, original }) => {
+      const m0 = await metrics(diagram);
+      const right = Math.max(...m0.nodes.map((n) => n.x + n.w));
+      const retry = nodeOf(m0, id("deliverOrder::retry"));
+      await gesture(diagram, { kind: "connectDrag", source: id("deliverOrder::retry"), relation: "succession", x: right + 80, y: retry.y + retry.h / 2 });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(diagram)).quickBar, ["action", "fork", "join", "decide", "merge"]), "the quick bar shows");
+      assert.strictEqual(onDisk(model), original, "a line without a target is never written");
+      png("authoring-quick-bar.png", await api.diagram.pngWindow(uriOf(diagram), "editor-dark"));
+      await gesture(diagram, { kind: "quickBar", item: "fork" });
+      await waitFor(() => onDisk(model).includes("fork fork1;") && onDisk(model).includes("first retry then fork1;"), 15000, "the fork and the succession are on disk");
+      await savedAndClean(model);
+      await c.eventually(async () => assert.ok((await metrics(diagram)).nodes.some((n) => n.shape === "fork" && n.x > right)), "the fork is drawn where the line was released");
+      await api.model.ready;
+      await vscode.commands.executeCommand("undo");
+      await waitFor(() => onDisk(model) === original, 15000, "one undo removes both");
+    })],
+    ["Quick bar: Escape writes nothing", scenario("AuQuickEsc", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, original }) => {
+      const m0 = await metrics(diagram);
+      const right = Math.max(...m0.nodes.map((n) => n.x + n.w));
+      await gesture(diagram, { kind: "connectDrag", source: id("deliverOrder::retry"), relation: "succession", x: right + 80, y: 60 });
+      await c.eventually(async () => assert.ok((await metrics(diagram)).quickBar.length > 0), "the quick bar shows");
+      await gesture(diagram, { kind: "quickBar" });
+      await c.eventually(async () => { const m = await metrics(diagram); assert.deepStrictEqual(m.quickBar, []); assert.strictEqual(m.ghost, undefined); }, "the bar and the ghost line are gone");
+      await sleep(300);
+      assert.strictEqual(onDisk(model), original);
+    })],
+    ["State Transition: a transition released over empty canvas offers State and writes it with the transition", scenario("AuQuickSt", "states.sysml", "stateTransition", "lamp", async ({ model, diagram, id }) => {
+      const m0 = await metrics(diagram);
+      const right = Math.max(...m0.nodes.map((n) => n.x + n.w));
+      const off = nodeOf(m0, id("lamp::off"));
+      await gesture(diagram, { kind: "connectDrag", source: id("lamp::off"), side: "R", x: right + 80, y: off.y + off.h / 2 });
+      await c.eventually(async () => assert.deepStrictEqual((await metrics(diagram)).quickBar, ["state"]), "the quick bar offers State");
+      await gesture(diagram, { kind: "quickBar", item: "state" });
+      await waitFor(() => onDisk(model).includes("state state1;") && onDisk(model).includes("transition first off then state1;"), 15000, "the state and the transition are on disk");
+      await savedAndClean(model);
+    })],
+    ["Retarget a succession: dragging the target end onto a fork rewrites the then target and keeps the rest", scenario("AuRetarget", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, edge }) => {
+      const eid = edge((e) => e.locator?.kind === "succession" && e.locator.ends.join() === "extra,ship");
+      await gesture(diagram, { kind: "reconnectDrag", id: eid, end: "target", target: id("deliverOrder::gate") });
+      await waitFor(() => onDisk(model).includes("first extra then gate;"), 15000, "the then target is rewritten");
+      assert.ok(!onDisk(model).includes("first extra then ship;"));
+      await savedAndClean(model);
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).edges.find((e) => e.id === eid)?.target, id("deliverOrder::gate")), "the line ends at the fork");
+    }, { text: (t) => t.replace("    flow of Parcel", "    action extra;\n    fork gate;\n    first extra then ship;\n    flow of Parcel") })],
+    ["Reconnect: an item flow end dropped on a fork is refused with a reason, and snaps back", scenario("AuFlowFork", "actions.sysml", "actionFlow", "deliverOrder", async ({ model, diagram, id, edge, original }) => {
+      const eid = edge((e) => e.locator?.kind === "flow");
+      await gesture(diagram, { kind: "reconnectDrag", id: eid, end: "target", target: id("deliverOrder::gate"), hold: true });
+      await c.eventually(async () => assert.match((await metrics(diagram)).ghost?.invalid ?? "", /features, not control nodes/), "the tooltip says flows connect features");
+      await gesture(diagram, { kind: "connectRelease" });
+      await sleep(300);
+      assert.strictEqual(onDisk(model), original);
+    }, { text: (t) => t.replace("    flow of Parcel", "    fork gate;\n    flow of Parcel") })],
+    ["Reconnect: a selected line shows a handle at each end", scenario("AuRecHandles", "actions.sysml", "actionFlow", "deliverOrder", async ({ diagram, edge }) => {
+      const eid = edge((e) => e.locator?.kind === "succession" && e.locator.ends.join() === "extra,ship");
+      await gesture(diagram, { kind: "selectEdge", id: eid });
+      await c.eventually(async () => assert.strictEqual((await metrics(diagram)).reconnectHandles, 2), "two end handles");
+    }, { text: (t) => t.replace("    flow of Parcel", "    action extra;\n    first extra then ship;\n    flow of Parcel") })],
+
     // ---- agent -----------------------------------------------------------------------------------
     ["Agent: Generate a state diagram and Agent adds a transition: identical text and identical answers on both channels, and the same text as the diagram", scenario("BhAg", "states.sysml", "stateTransition", "lamp", async ({ model, diagram }) => {
       // read the diagram as JSON on both channels
