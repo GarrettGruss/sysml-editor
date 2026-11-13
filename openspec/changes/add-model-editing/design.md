@@ -14,7 +14,7 @@ This change adds every operation that changes SysML text: the edit planner, edit
 - One undo step reverses both the text and the diagram change.
 
 **Non-Goals:**
-- Editing expressions, behaviors, or constructs the diagrams do not show.
+- Editing constructs listed as text-only in [docs/editing-coverage.md](../../../docs/editing-coverage.md) (behaviour editing was added later by `add-behavior-diagrams`).
 - Requirement-specific relationships (verify, derivation), which are in `add-requirements-editor`.
 - Pretty-printing or reformatting files.
 - Deferred: an independent parser in CI to check generated text, and a read-only mode for agent tools.
@@ -22,6 +22,13 @@ This change adds every operation that changes SysML text: the edit planner, edit
 ## Decisions
 
 Decision numbers are shared across the four changes that make up the editor, so they are not consecutive here.
+
+### D21: The diagram editor is a visual editor for the SysML text
+Every action that changes the model from a diagram, the tree, the requirements editor or an agent is a text edit planned by the EditPlanner (D4) and applied through `ModelService`: nothing in a view holds model data that is not in the text. The diagram is therefore a visual code editor for SysML, the same way the text editor is a textual one; together with "a diagram is a view into the model, not the model itself" (only layout and style live in `.sysmld`), this decides where every new feature belongs. A gesture that changes meaning (naming, nesting, connecting, editing a doc comment or a trigger) is a model edit, saved at once; a gesture that only changes appearance (position, route, label placement, style, showing or hiding) is a layout edit, saved with the diagram. A new diagram feature must say which of the two it is.
+
+How much of the language can be edited visually is tracked construct by construct in [docs/editing-coverage.md](../../../docs/editing-coverage.md): each construct is either editable from a diagram (and how) or text-only, and growing that list is how the visual editor grows. Constructs outside it stay readable and editable in the text editor; a diagram never blocks or rewrites text it does not understand.
+
+Alternatives: a diagram-first model with the text generated from it (rejected: the text is the source of truth and must keep the user's formatting and comments); a separate visual-only notation (rejected: it would disagree with the text).
 
 ### D4: Text edits via EditPlanner on the CST
 Each GUI operation maps to an `EditPlan` computing `TextEdit`s against CST node ranges: insert into a body (creating `{}` when the declaration ends in `;`), delete a node's full range plus leading doc comment and trailing whitespace line, replace a name token, etc. Indentation is copied from sibling members. Every plan is verified by re-parsing in tests (round-trip). Alternative: pretty-print the whole AST — rejected; destroys formatting/comments.
