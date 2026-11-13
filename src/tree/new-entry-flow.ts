@@ -12,6 +12,8 @@ export interface NewEntryTestApi {
   accept(): Promise<void>;
   /** Press Escape. */
   cancel(): Promise<void>;
+  /** Pretend the workspace is (not) trusted. */
+  setTrusted(trusted: boolean | undefined): void;
 }
 
 /** New File and New Folder: a placeholder row in the tree, named through an input box at the top. */
@@ -22,14 +24,24 @@ export class NewEntryFlow {
     private readonly provider: ModelTreeProvider,
     private readonly view: vscode.TreeView<ModelNode>,
     private readonly log: (m: string) => void,
+    private readonly clearSearch: () => void = () => {},
   ) {}
 
+  /** Tests set this to pretend the workspace is untrusted. */
+  trusted: () => boolean = () => vscode.workspace.isTrusted;
+
   async start(kind: NewEntryKind, folderKey: string | undefined): Promise<void> {
+    if (!this.trusted()) {
+      void vscode.window.showWarningMessage("New File and New Folder are not available in an untrusted workspace.");
+      return;
+    }
+    if (this.provider.filter === "diagrams") return;
     if (!folderKey) {
       void vscode.window.showInformationMessage("SysML: open a folder first.");
       return;
     }
     this.close();
+    if (this.provider.query) this.clearSearch();
     const folder = vscode.Uri.parse(folderKey);
     let existing: string[] = [];
     try {
@@ -134,6 +146,9 @@ export class NewEntryFlow {
     accept: async () => {
       const c = this.current;
       if (c) await this.accept(c);
+    },
+    setTrusted: (t) => {
+      this.trusted = t === undefined ? () => vscode.workspace.isTrusted : () => t;
     },
     cancel: async () => {
       this.close();

@@ -378,12 +378,18 @@ export function foldersTests(c: Ctx): Test[] {
         await waitFor(() => indexed("a.sysml"), 20000, "files indexed");
         const root = (await kids())[0]!;
         const tmp = await find(root, "tmp-tree");
-        await vscode.commands.executeCommand("sysml.newFile", await find(tmp, "empty"));
+        await vscode.commands.executeCommand("sysml.tree.newFile", await find(tmp, "empty"));
+        await waitFor(() => api.newEntry.active() !== undefined, 5000, "the input box opens");
+        api.newEntry.type("model");
+        await api.newEntry.accept();
+        await waitFor(() => vscode.window.activeTextEditor?.document.uri.fsPath.endsWith(path.join("tmp-tree", "empty", "model.sysml")) === true, 10000, "model.sysml opens");
         assert.ok(vscode.window.activeTextEditor!.document.uri.fsPath.endsWith(path.join("tmp-tree", "empty", "model.sysml")));
         await waitFor(() => indexed("empty/model.sysml"), 20000, "the new file is indexed");
         assert.strictEqual(api.provider.getTreeItem(await find(tmp, "empty")).description, undefined, "the folder is no longer empty");
         const pkg = JSON.parse(readFileSync(path.join(c.ext.extensionPath, "package.json"), "utf8")) as { contributes: { menus: { "view/title": { command: string }[] } } };
         assert.ok(pkg.contributes.menus["view/title"].some((m) => m.command === "sysml.tree.newFile"));
+        const ctxMenu = (pkg.contributes.menus as unknown as Record<string, { command: string }[]>)["view/item/context"]!;
+        assert.ok(ctxMenu.some((m) => m.command === "sysml.tree.newFile") && ctxMenu.some((m) => m.command === "sysml.tree.newFolder") && !ctxMenu.some((m) => m.command === "sysml.newFile"));
         await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
       } finally {
         rmSync(dir(), { recursive: true, force: true });
@@ -656,7 +662,7 @@ export function foldersTests(c: Ctx): Test[] {
       const cmds = await vscode.commands.getCommands(true);
       for (const id of ["sysml.tree.newFile", "sysml.tree.newFolder", "sysml.tree.refresh"]) assert.ok(cmds.includes(id), id);
       try {
-        await waitFor(() => indexed("a/b.sysml"), 90000, "the file is indexed");
+        await waitFor(() => indexed("a/b.sysml"), 20000, "the file is indexed");
         await vscode.commands.executeCommand("workbench.action.closeAllEditors");
         // Earlier tests leave the view with a selection that no longer exists; a refresh starts it afresh.
         await vscode.commands.executeCommand("sysml.tree.refresh");
@@ -733,14 +739,39 @@ export function foldersTests(c: Ctx): Test[] {
         rmSync(dir(), { recursive: true, force: true });
       }
     })],
+    ["New File: refused in an untrusted workspace; a search is cleared first", withFolders(async () => {
+      api.newEntry.setTrusted(false);
+      try {
+        await vscode.commands.executeCommand("sysml.tree.newFile");
+        assert.strictEqual(api.newEntry.active(), undefined, "no input box when untrusted");
+      } finally {
+        api.newEntry.setTrusted(undefined);
+      }
+      api.search.post({ type: "query", text: "zzzznomatch" });
+      assert.strictEqual(api.search.query(), "zzzznomatch");
+      try {
+        const rootUri = vscode.workspace.workspaceFolders![0]!.uri.toString();
+        const root: ModelNode = { id: rootUri, uri: rootUri, kind: "folder" };
+        await vscode.commands.executeCommand("sysml.tree.newFile", root);
+        await waitFor(() => api.newEntry.active() !== undefined, 5000, "the input box opens");
+        assert.strictEqual(api.search.query(), "", "the search is cleared");
+        await waitFor(async () => (await vkids(root)).some((k) => k.kind === "placeholder"), 5000, "the placeholder shows");
+      } finally {
+        await api.newEntry.cancel();
+      }
+    })],
     ["Refresh: a file added outside VS Code and the Refresh command shows it in the tree", withFolders(async () => {
       rmSync(dir(), { recursive: true, force: true });
       mkdirSync(dir(), { recursive: true });
       try {
         const root = (await vkids())[0]!;
+        // An indexed file whose deletion the watcher never reported: only Refresh can drop it.
+        const ghost = vscode.Uri.file(dir("ghost.sysml")).toString();
+        (api.model.index as unknown as { setDocument(u: string, t: string): void }).setDocument(ghost, "package Ghost;\n");
+        assert.ok(indexed("ghost.sysml"));
         writeFileSync(dir("fresh.sysml"), "package Fresh;\n");
         await vscode.commands.executeCommand("sysml.tree.refresh");
-        await waitFor(() => indexed("fresh.sysml"), 20000, "the file is indexed");
+        await waitFor(() => indexed("fresh.sysml") && !indexed("ghost.sysml"), 20000, "the new file is indexed and the ghost is dropped");
         const tmp = await vfind(root, "tmp-tree");
         await waitFor(async () => (await vkids(tmp)).some((k) => label(k) === "fresh.sysml"), 20000, "the file appears");
       } finally {

@@ -30,6 +30,12 @@ describe("names", () => {
     expect(validateName("file", "a/b", [])?.severity).toBe("error");
     expect(validateName("folder", "..", [])?.severity).toBe("error");
   });
+  it("rejects Windows reserved names and trailing dots or spaces", () => {
+    for (const n of ["CON", "nul.sysml", "Com1", "lpt9.txt"]) expect(validateName(n.includes(".") ? "file" : "folder", n, [])?.severity, n).toBe("error");
+    expect(validateName("file", "con", [])?.severity).toBe("error");
+    expect(validateName("folder", "a.", [])?.severity).toBe("error");
+    expect(validateName("folder", "console", [])).toBeUndefined();
+  });
   it("says when .sysml is appended", () => {
     expect(validateName("file", "engine", [])).toEqual({ severity: "info", message: "Will be created as engine.sysml." });
     expect(validateName("file", "engine.sysml", [])).toBeUndefined();

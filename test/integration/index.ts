@@ -45,6 +45,7 @@ export interface TestApi {
     type(text: string): void;
     accept(): Promise<void>;
     cancel(): Promise<void>;
+    setTrusted(trusted: boolean | undefined): void;
   };
   view: vscode.TreeView<ModelNode>;
   agent: {

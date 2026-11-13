@@ -48,6 +48,8 @@ export function validateName(kind: NewEntryKind, text: string, existing: readonl
   const name = effectiveName(kind, text);
   if (INVALID.test(t)) return { severity: "error", message: 'A name cannot contain \\ / : * ? " < > | or control characters.' };
   if (name === "." || name === ".." || (kind === "file" && name.toLowerCase() === ".sysml")) return { severity: "error", message: `"${name}" is not a valid name.` };
+  if (/[. ]$/.test(t)) return { severity: "error", message: "A name cannot end with a dot or a space." };
+  if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(name)) return { severity: "error", message: `"${name}" is a reserved name on Windows.` };
   const lower = name.toLowerCase();
   if (existing.some((e) => e.toLowerCase() === lower)) return { severity: "error", message: `A file or folder named "${name}" already exists here.` };
   if (kind === "file" && t && name !== t) return { severity: "info", message: `Will be created as ${name}.` };

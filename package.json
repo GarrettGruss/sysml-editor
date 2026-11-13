@@ -60,12 +60,6 @@
         "category": "SysML"
       },
       {
-        "command": "sysml.newFile",
-        "title": "New SysML File",
-        "category": "SysML",
-        "icon": "$(new-file)"
-      },
-      {
         "command": "sysml.newDiagram",
         "title": "New Diagram…",
         "category": "SysML"
@@ -206,9 +200,14 @@
           "group": "requirements@1"
         },
         {
-          "command": "sysml.newFile",
-          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/",
+          "command": "sysml.tree.newFile",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/ && sysml.treeFilter != diagrams",
           "group": "edit@1"
+        },
+        {
+          "command": "sysml.tree.newFolder",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/ && sysml.treeFilter != diagrams",
+          "group": "edit@2"
         }
       ],
       "commandPalette": [
@@ -247,6 +246,14 @@
         {
           "command": "sysml.diagram.deleteFromModel",
           "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.tree.newFile",
+          "when": "sysml.treeFilter != diagrams"
+        },
+        {
+          "command": "sysml.tree.newFolder",
+          "when": "sysml.treeFilter != diagrams"
         }
       ],
       "explorer/context": [

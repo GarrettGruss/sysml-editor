@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
-import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, createNewFile, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
 import { NewEntryFlow, type NewEntryTestApi } from "./tree/new-entry-flow.js";
 import { newEntryTarget } from "./tree/new-entry.js";
 import { SEARCH_VIEW_ID, SearchViewProvider } from "./tree/search-view.js";
-import { nodeForElement, type ModelNode } from "./tree/tree-model.js";
+import { isFolderNode, nodeForElement, type ModelNode } from "./tree/tree-model.js";
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { VsCodeDiagramService } from "./diagram/agent-service.js";
 import { AgentIntegration } from "./agent-integration.js";
@@ -75,7 +75,10 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     .finally(() => {
       view.message = undefined;
     });
-  const newEntry = new NewEntryFlow(provider, view, (m) => log.warn(m));
+  const newEntry = new NewEntryFlow(provider, view, (m) => log.warn(m), () => {
+    provider.setQuery("");
+    search.setText("");
+  });
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
   context.subscriptions.push(
@@ -99,7 +102,6 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       supportsMultipleEditorsPerDocument: true,
     }),
     vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
-    vscode.commands.registerCommand("sysml.newFile", createNewFile),
     vscode.commands.registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
       let filter: TreeFilter | undefined = arg === "elements" || arg === "diagrams" || arg === "all" ? arg : undefined;
       if (filter === undefined) {
@@ -118,8 +120,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       search.setText("");
     }),
     { dispose: () => newEntry.dispose() },
-    vscode.commands.registerCommand("sysml.tree.newFile", () => newEntry.start("file", newEntryTarget(provider.roots, view.selection))),
-    vscode.commands.registerCommand("sysml.tree.newFolder", () => newEntry.start("folder", newEntryTarget(provider.roots, view.selection))),
+    vscode.commands.registerCommand("sysml.tree.newFile", (node?: ModelNode) => newEntry.start("file", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
+    vscode.commands.registerCommand("sysml.tree.newFolder", (node?: ModelNode) => newEntry.start("folder", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
     vscode.commands.registerCommand("sysml.tree.refresh", async () => {
       await model.rescan();
       await provider.refreshAll();

@@ -6,7 +6,7 @@
 import * as path from "node:path";
 import { existsSync } from "node:fs";
 import * as vscode from "vscode";
-import { ModelIndex, loadLibraryChunked } from "../model/index.js";
+import { ModelIndex, isLibraryUri, loadLibraryChunked } from "../model/index.js";
 import { inBatches, yieldToEventLoop } from "./chunked.js";
 import { ParseWorkerClient } from "./parse-worker-client.js";
 import { makeIndexFilter } from "./exclude.js";
@@ -145,10 +145,19 @@ export class WorkspaceModel implements vscode.Disposable {
   /** Read the workspace's `.sysml` files again (the Refresh button): files the watchers missed are added or updated. */
   async rescan(): Promise<void> {
     await this.ready;
-    await this.scanWorkspace();
+    const found = await this.scanWorkspace();
+    if (this.disposed) return;
+    // Files gone from disk behind the watchers' backs leave the index (open editors keep theirs).
+    const present = new Set(found.map((u) => uriKey(u)));
+    const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => uriKey(f.uri));
+    const open = new Set(vscode.workspace.textDocuments.map((d) => uriKey(d.uri)));
+    for (const key of this.index.uris()) {
+      if (isLibraryUri(key) || present.has(key) || open.has(key)) continue;
+      if (folders.some((f) => key.startsWith(f + "/"))) this.index.removeDocument(key);
+    }
   }
 
-  private async scanWorkspace(): Promise<void> {
+  private async scanWorkspace(): Promise<vscode.Uri[]> {
     // Passing no exclude keeps the user's `files.exclude`; sysml.exclude and search.exclude are applied below.
     const found = await vscode.workspace.findFiles(GLOB, undefined);
     const files = found.filter((u) => this.indexable(u));
@@ -171,6 +180,7 @@ export class WorkspaceModel implements vscode.Disposable {
       },
       { cancelled: () => this.disposed },
     );
+    return files;
   }
 
   private currentFilter(): (rel: string) => boolean {
