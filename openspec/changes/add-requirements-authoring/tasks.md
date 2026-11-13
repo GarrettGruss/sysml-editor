@@ -13,7 +13,7 @@
 
 ## 3. Matrix
 
-- [ ] 3.1 Add the `VerificationMethod` metadata reading and the matrix replacing the table; verify both scenarios
-- [ ] 3.2 Implement inheritance-aware status, the coverage summary, and filters; verify both scenarios
-- [ ] 3.3 Implement CSV and Markdown export and the trace line; verify both scenarios
-- [ ] 3.4 Implement `sysml_read_verification_matrix`; verify the "Read a matrix" scenario
+- [x] 3.1 Add the `VerificationMethod` metadata reading and the matrix replacing the table; verify both scenarios
+- [x] 3.2 Implement inheritance-aware status, the coverage summary, and filters; verify both scenarios
+- [x] 3.3 Implement CSV and Markdown export and the trace line; verify both scenarios
+- [x] 3.4 Implement `sysml_read_verification_matrix`; verify the "Read a matrix" scenario

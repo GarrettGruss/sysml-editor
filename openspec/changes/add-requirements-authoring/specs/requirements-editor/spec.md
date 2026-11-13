@@ -77,7 +77,7 @@ The method SHALL be read from `VerificationMethod` metadata on the verification 
 - **THEN** a `satisfy` statement is written at once
 
 ### Requirement: Matrix status and coverage
-Status SHALL be one of "not satisfied", "no verification", or "covered", and a child SHALL count its parent's `satisfy`. A coverage summary and filters for the gaps SHALL be shown.
+Status SHALL be one of "not satisfied", "partly satisfied", "no verification", or "covered". A child SHALL count its parent's `satisfy` and `verify`, and a requirement definition (with the requirements it owns) SHALL count as satisfied only when every usage of it is satisfied. A coverage summary and filters for the gaps SHALL be shown.
 
 #### Scenario: Inherited satisfy
 - **WHEN** a parent requirement is satisfied and its child has no own `satisfy`

@@ -126,7 +126,7 @@ export function requirementsAuthoringTests(c: Ctx): Test[] {
         "section:2 Appendices",
       ], "the full table of contents: numbers in source order, requirements and sections");
       assert.ok(x.document.items.some((i) => i.id === "MFRQ02"), "requirements of the nested definition are shown");
-      await g({ kind: "click", selector: "[data-testid=tab-table]" });
+      await api.requirements.setView(scope, "table"); // the table is an internal mode now (the Matrix tab replaced it in the UI)
       await api.requirements.setWidth(scope, 1100);
       try {
         const t = await m();
@@ -152,10 +152,10 @@ export function requirementsAuthoringTests(c: Ctx): Test[] {
       assert.strictEqual((await m()).document.items.find((i) => i.id === "MFRQ02a")?.name, "CargoCapacityRequirement");
     })],
 
-    ["Requirements document 1.2: '+ requirement' opens inline id and name inputs, writes on confirm, and Escape writes nothing; there is no Add Requirement bar", scenario("MFA4", async ({ m, g, file, text, before, order }) => {
-      await g({ kind: "click", selector: "[data-testid=tab-table]" });
+    ["Requirements document 1.2: '+ requirement' opens inline id and name inputs, writes on confirm, and Escape writes nothing; there is no Add Requirement bar", scenario("MFA4", async ({ m, g, file, text, before, order, scope }) => {
+      await api.requirements.setView(scope, "table");
       await assert.rejects(g({ kind: "click", selector: "[data-testid=add-req]" }), "the Add Requirement bar is gone");
-      await g({ kind: "click", selector: "[data-testid=tab-document]" });
+      await api.requirements.setView(scope, "document");
       await g({ kind: "click", selector: "[data-testid=add-root-requirement]" });
       let a = (await m()).document.authoring;
       assert.strictEqual(a.inputs, true, "inline inputs are open");
@@ -184,6 +184,7 @@ export function requirementsAuthoringTests(c: Ctx): Test[] {
       assert.ok(!/\b1\.1\b/.test(text()), "no number is stored in the text");
       assert.deepStrictEqual(x.document.toc.filter((t) => t.kind === "requirement").map((t) => `${t.number} ${t.heading}`), ["1 MFRQ01 : OreExtractionEfficiencyRequirement", "1.1 MFRQ01_1 : ExtractorYield", "1.2 MFRQ01_2 : ExtractorWear", "2 MFRQ02 : CargoCapacityRequirement", "3 MFRQ03 : ShieldRequirement"]);
       assert.ok(x.document.items.every((i) => i.visible));
+      assert.ok(x.document.items.every((i) => i.status === "not satisfied" && /Not satisfied yet · Not verified yet/.test(i.trace)), "each item shows the matrix status and the trace line");
       await g({ kind: "click", selector: `${head(qn(ORE))} [data-testid=collapse]` });
       const y = await m();
       assert.strictEqual(y.document.items.find((i) => i.id === "MFRQ01")?.collapsed, true);

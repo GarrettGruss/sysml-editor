@@ -1,5 +1,6 @@
 /** The requirements editor: a webview panel with a Table and a Document view of a package or file. */
 import { randomBytes } from "node:crypto";
+import { writeFile } from "node:fs/promises";
 import * as vscode from "vscode";
 import type { DiagramUi } from "../diagram/diagram-editor.js";
 import type { Element, ModelIndex } from "../model/index.js";
@@ -12,6 +13,7 @@ import type { Gesture, HostToWebview, Intent, RequirementsMetrics, RequirementsS
 import { parseIntent } from "./intent-guard.js";
 import { isRequirement } from "./relations.js";
 import { buildState, scopeRoot } from "./view-model.js";
+import { matrixToCsv, matrixToMarkdown } from "./matrix.js";
 
 export const REQUIREMENTS_VIEW_TYPE = "sysml.requirements";
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -29,6 +31,8 @@ export interface RequirementsTestApi {
   /** Run an intent as the webview would send it (the real path from the controller down). */
   intent(scope: RequirementsScope, intent: Intent): Promise<ControllerResult>;
   setView(scope: RequirementsScope, view: ViewMode): Promise<void>;
+  /** Export the matrix as the webview's export button does, to `path` instead of asking for one. Resolves to the text written. */
+  exportMatrix(scope: RequirementsScope, format: "csv" | "markdown", path: string): Promise<string>;
   /** Replace the questions asked of the user (undefined restores them). */
   setUi(ui?: Partial<RequirementsUi>): void;
   /** What the editor was asked to do for navigation, in order. */
@@ -229,7 +233,7 @@ export class RequirementsEditor implements vscode.Disposable {
       return { ok: false, message: checked.reason };
     }
     try {
-      result = await this.controller(p.scope).handle(checked.intent);
+      result = checked.intent.type === "exportMatrix" ? await this.exportMatrix(p, checked.intent.format) : await this.controller(p.scope).handle(checked.intent);
     } catch (e) {
       result = { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
@@ -239,6 +243,22 @@ export class RequirementsEditor implements vscode.Disposable {
     // Always draw what the model says now (a refused edit must not leave a changed field on screen).
     await this.render(p, true);
     return result;
+  }
+
+  /** Write the matrix as CSV or Markdown to `target`, or to a file the user chooses. */
+  private async exportMatrix(p: Panel, format: "csv" | "markdown", target?: string): Promise<ControllerResult & { text?: string }> {
+    const matrix = buildState(this.index, p.scope).matrix;
+    if (!matrix) return { ok: false, message: "There is no matrix for this scope." };
+    const text = format === "csv" ? matrixToCsv(matrix.rows) : matrixToMarkdown(matrix.rows);
+    let path = target;
+    if (path === undefined) {
+      const base = p.scope.kind === "package" ? p.scope.qualifiedName.replace(/[^A-Za-z0-9_.-]+/g, "-") : decodeURIComponent(p.scope.uri.split("/").pop() ?? "requirements").replace(/\.[^.]*$/, "");
+      const dest = await vscode.window.showSaveDialog({ saveLabel: "Export Matrix", defaultUri: vscode.workspace.workspaceFolders?.[0] ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, `${base}-matrix.${format === "csv" ? "csv" : "md"}`) : undefined, filters: format === "csv" ? { CSV: ["csv"] } : { Markdown: ["md"] } });
+      if (!dest) return { ok: true, message: "cancelled" };
+      path = dest.fsPath;
+    }
+    await writeFile(path, text, "utf8");
+    return { ok: true, text };
   }
 
   // ---- test support --------------------------------------------------------------------------
@@ -308,6 +328,13 @@ export class RequirementsEditor implements vscode.Disposable {
       p.view = view;
       this.post(p, { type: "setView", view });
       await this.request<"metricsResult">(scope, (requestId) => ({ type: "getMetrics", requestId }));
+    },
+    exportMatrix: async (scope, format, path) => {
+      const p = this.panels.get(scopeKey(scope));
+      if (!p) throw new Error("no requirements editor for the scope");
+      const r = await this.exportMatrix(p, format, path);
+      if (!r.ok || r.text === undefined) throw new Error(r.message ?? "export failed");
+      return r.text;
     },
     setUi: (ui) => {
       this.uiOverride = ui ?? {};

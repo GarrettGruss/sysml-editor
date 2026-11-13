@@ -4,6 +4,7 @@ import { isLibraryUri } from "../model/index.js";
 import { buildDocumentModel, isAppendix, type RequirementItem, type Section, type SectionBlock } from "./document-model.js";
 import type { BlockVM, DocumentVM, ItemVM, RelationVM, RequirementRowVM, RequirementsScope, RequirementsState, SectionVM } from "./protocol.js";
 import { isRequirement } from "./relations.js";
+import { buildMatrix, traceLine, type MatrixRow } from "./matrix.js";
 import { buildRelations, listRequirements, type RequirementInfo, type Relations } from "./queries.js";
 
 export const statementKey = (e: Element): string => `${e.uri}#${e.range.start.offset}`;
@@ -146,10 +147,37 @@ export function buildState(index: ModelIndex, scope: RequirementsScope, editable
   if (scope.kind === "package" && !root) return { scopeName: name, table: { rows: [] }, problem: `The package ${name} no longer exists.` };
   const rel = buildRelations(index);
   const infos = scope.kind === "package" ? listRequirements(index, root!, rel) : listRequirements(index, scope.uri, rel);
+  const matrix = buildMatrix(index, scope.kind === "package" ? root! : scope.uri, editable, rel);
+  const document = root ? documentVM(index, root, editable, rel) : undefined;
+  if (document) attachTraces(document, matrix.rows);
   return {
     scopeName: name,
     ...(root?.qualifiedName ? { scopeQn: root.qualifiedName } : {}),
     table: { rows: infos.map((i) => rowOf(i, editable)) },
-    ...(root ? { document: documentVM(index, root, editable, rel) } : {}),
+    matrix,
+    ...(document ? { document } : {}),
   };
+}
+
+/** Put the trace line (satisfied by, verified by) on every requirement item of the document. */
+function attachTraces(d: DocumentVM, rows: readonly MatrixRow[]): void {
+  const byQn = new Map(rows.filter((r) => r.kind === "requirement").map((r) => [r.qn, r]));
+  const items = (list: BlockVM[]) => {
+    for (const b of list) {
+      if (b.kind !== "item") continue;
+      const r = byQn.get(b.qn);
+      if (r) {
+        b.trace = traceLine(r);
+        if (r.status) b.status = r.status;
+      }
+      items(b.children);
+    }
+  };
+  const section = (s: SectionVM) => {
+    items(s.blocks);
+    s.children.forEach(section);
+  };
+  items(d.blocks);
+  d.sections.forEach(section);
+  d.appendices.forEach(section);
 }

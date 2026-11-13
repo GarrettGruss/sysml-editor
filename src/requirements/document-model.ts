@@ -98,11 +98,13 @@ const EXCLUDED_FROM_LISTING = new Set(["import", "expose", "metadata", "comment"
  * Numbers in source order: one counter over the members of an owner that are sections (packages) or requirements, so the
  * numbers read as the text does and adding a member only shifts the ones after it. Appendices of the root are lettered instead.
  */
-function numbered(index: ModelIndex, owner: Element, prefix: string, root: boolean): Map<Element, string> {
+export function numbered(index: ModelIndex, owner: Element, prefix: string, root: boolean): Map<Element, string> {
   const nums = new Map<Element, string>();
   let n = 0;
+  let app = 0;
   for (const m of owner.members) {
-    if (isRequirement(m) || (isPackage(m) && !(root && isAppendix(index, m)))) {
+    if (root && isPackage(m) && isAppendix(index, m)) nums.set(m, letter(app++));
+    else if (isRequirement(m) || isPackage(m)) {
       n++;
       nums.set(m, prefix === "" ? String(n) : `${prefix}.${n}`);
     }
@@ -170,7 +172,7 @@ function sectionOf(index: ModelIndex, pkg: Element, level: number, number: strin
   };
 }
 
-const letter = (i: number): string => {
+export const letter = (i: number): string => {
   let s = "";
   for (let n = i; n >= 0; n = Math.floor(n / 26) - 1) s = String.fromCharCode(65 + (n % 26)) + s;
   return s;
@@ -183,7 +185,7 @@ export function buildDocumentModel(index: ModelIndex, root: Element, rel: Relati
   const nested = root.members.filter(isPackage);
   const rootNums = numbered(index, root, "", true);
   const sections = nested.filter((p) => !isAppendix(index, p)).map((p) => sectionOf(index, p, 1, rootNums.get(p)!, false, rel));
-  const appendices = nested.filter((p) => isAppendix(index, p)).map((p, i) => sectionOf(index, p, 1, letter(i), true, rel));
+  const appendices = nested.filter((p) => isAppendix(index, p)).map((p) => sectionOf(index, p, 1, rootNums.get(p)!, true, rel));
   const toc: TocEntry[] = [];
   const addItems = (list: SectionBlock[], level: number) => {
     const walk = (it: RequirementItem, l: number) => {

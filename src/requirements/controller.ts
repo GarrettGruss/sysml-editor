@@ -318,6 +318,8 @@ export class RequirementsController {
         if (!to) return { ok: false, message: intent.how === "up" ? "The requirement is already first." : "The requirement is already last." };
         return this.run(this.service.moveMember(el, to), `Moved ${intent.qn}`);
       }
+      case "exportMatrix":
+        return { ok: false, message: "Exporting the matrix is handled by the editor." };
       case "deleteSection": {
         const p = this.pkg(intent.qn);
         if (!p) return gone("The section");
