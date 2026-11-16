@@ -86,6 +86,22 @@ export function deleteAspect(doc: DiagramDocument, name: string): DiagramDocumen
 }
 
 /**
+ * A node added while an aspect is applied joins that aspect, so it stays visible (a node added to a diagram must not vanish).
+ * `next` is returned as it is when no aspect is applied or no node is new. Nodes that merely come back (undo) are not new to `prev` only when
+ * they were there, so they keep whatever the aspect said.
+ */
+export function keepNewNodesVisible(prev: DiagramDocument, next: DiagramDocument): DiagramDocument {
+  const name = activeAspect(next);
+  if (name === undefined) return next;
+  const had = new Set(prev.nodes.map((n) => n.id));
+  const fresh = next.nodes.filter((n) => !had.has(n.id)).map((n) => n.id);
+  const listed = aspectsOf(next)[name]!;
+  const add = fresh.filter((id) => !listed.includes(id));
+  if (!add.length) return next;
+  return withStyle(next, { ...next.style, aspects: { ...aspectsOf(next), [name]: [...listed, ...add] } });
+}
+
+/**
  * The diagram as the applied aspect shows it: nodes not in the aspect (and nodes inside a hidden one) are left out, and so are the
  * lines that lose an end. Ids that no longer exist are ignored. The document itself is returned when no aspect is applied.
  */

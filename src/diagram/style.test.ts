@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DiagramDocument } from "./format.js";
-import { activeAspect, applyAspect, applyCompartments, aspectsOf, deleteAspect, saveAspect, visibleDocument } from "./style.js";
+import { DiagramState } from "./session.js";
+import { serializeDiagram } from "./format.js";
+import { activeAspect, applyAspect, applyCompartments, aspectsOf, deleteAspect, keepNewNodesVisible, saveAspect, visibleDocument } from "./style.js";
 
 const doc: DiagramDocument = {
   version: 1, kind: "general", root: "P", sources: [],
@@ -46,5 +48,33 @@ describe("aspects", () => {
     expect(v.edges.map((e) => e.id)).toEqual(["e1"]);
     expect(visibleDocument(applyAspect(saveAspect(doc, "B", ["n4"])!, "B")!).nodes).toEqual([]);
     expect(visibleDocument(doc)).toBe(doc);
+  });
+});
+
+describe("a node added while an aspect is applied", () => {
+  it("joins the applied aspect and stays visible", () => {
+    const applied = applyAspect(saveAspect(doc, "Power", ["n1", "n2"])!, "Power")!;
+    const added = { ...applied, nodes: [...applied.nodes, { id: "n9", ref: "P::New" }] };
+    const kept = keepNewNodesVisible(applied, added);
+    expect(aspectsOf(kept).Power).toEqual(["n1", "n2", "n9"]);
+    expect(visibleDocument(kept).nodes.map((n) => n.id)).toEqual(["n1", "n2", "n9"]);
+    // Clearing shows everything, and the other aspects are untouched.
+    expect(applyAspect(kept, undefined)!.nodes).toHaveLength(5);
+  });
+  it("changes nothing without an applied aspect or a new node", () => {
+    const added = { ...doc, nodes: [...doc.nodes, { id: "n9", ref: "P::New" }] };
+    expect(keepNewNodesVisible(doc, added)).toBe(added);
+    const applied = applyAspect(saveAspect(doc, "Power", ["n1"])!, "Power")!;
+    expect(keepNewNodesVisible(applied, applied)).toBe(applied);
+  });
+  it("applies to an edit of the document state, and survives undo and redo", () => {
+    const applied = applyAspect(saveAspect(doc, "Power", ["n1", "n2"])!, "Power")!;
+    const st = new DiagramState(serializeDiagram(applied));
+    const e = st.apply({ ...st.doc!, nodes: [...st.doc!.nodes, { id: "n9", ref: "P::New" }] });
+    expect(aspectsOf(st.doc!).Power).toContain("n9");
+    e.undo();
+    expect(st.doc!.nodes.some((n) => n.id === "n9")).toBe(false);
+    e.redo();
+    expect(aspectsOf(st.doc!).Power).toContain("n9");
   });
 });
