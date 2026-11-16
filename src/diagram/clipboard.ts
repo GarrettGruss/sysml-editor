@@ -36,8 +36,10 @@ export interface PasteResult {
   added: number;
   /** Elements the diagram already shows. */
   already: number;
-  /** Elements this kind of diagram cannot show, or that no longer exist. */
+  /** Elements and lines this kind of diagram cannot show. */
   skipped: number;
+  /** Elements (and lines) that no longer resolve: renamed or deleted since they were copied. */
+  missing: number;
 }
 
 export const PASTE_OFFSET = 40;
@@ -47,14 +49,16 @@ export function pasteNodes(doc: DiagramDocument, index: ModelIndex, clip: Diagra
   const drawn = new Set(doc.nodes.map((n) => referenceKey(n)));
   let already = 0;
   let skipped = 0;
+  let missing = 0;
   const fresh: { el: Element; clip: ClipNode }[] = [];
   for (const c of clip.nodes) {
     const el = resolveReference(c.ref, { sources: clip.sources }, index, opts);
-    if (!el || !canShow(doc.kind, el)) { skipped++; continue; }
+    if (!el) { missing++; continue; }
+    if (!canShow(doc.kind, el)) { skipped++; continue; }
     if (drawn.has(referenceKey(c.ref))) { already++; continue; }
     fresh.push({ el, clip: c });
   }
-  if (!fresh.length) return { doc, added: 0, already, skipped };
+  if (!fresh.length) return { doc, added: 0, already, skipped, missing };
   const r = addElements(doc, index, fresh.map((f) => f.el), opts);
   let next = r.doc;
   const placed = new Map<string, ClipNode>();
@@ -71,8 +75,14 @@ export function pasteNodes(doc: DiagramDocument, index: ModelIndex, clip: Diagra
   };
   for (const l of clip.lines) {
     const el = resolveReference(l, { sources: clip.sources }, index, opts);
-    if (el) next = addElement(next, index, el, undefined, opts).doc;
+    if (!el) { missing++; continue; }
+    if (!canShow(next.kind, el)) { skipped++; continue; }
+    // addElement draws a line only when both its ends are drawn; a line it refuses for that reason is skipped.
+    const r2 = addElement(next, index, el, undefined, opts);
+    if (r2.id === undefined) skipped++;
+    else next = r2.doc;
   }
   const added = r.added.filter((i) => i.startsWith("n")).length;
-  return { doc: next, added, already, skipped };
+  return { doc: next, added, already, skipped, missing };
 }
+

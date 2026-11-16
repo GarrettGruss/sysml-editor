@@ -187,6 +187,8 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       this.syncSelectionKey();
     };
     this.subs.push(vscode.window.tabGroups.onDidChangeTabs(sync), vscode.window.tabGroups.onDidChangeTabGroups(sync));
+    // A tab group with no tab left (closed, or emptied) forgets its Back and Forward entries.
+    this.subs.push(vscode.window.tabGroups.onDidChangeTabs(() => this.history.retain(vscode.window.tabGroups.all.filter((g) => g.tabs.length > 0).map((g) => String(g.viewColumn)))));
     sync();
   }
 
@@ -493,8 +495,13 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         this.followSelection(doc);
         break;
       case "model":
-        if (m.generation !== undefined && m.generation !== doc.state.generation) this.log(`diagram: dropped a model edit from generation ${String(m.generation)}`);
-        else void this.onModelIntent(doc, m.intent).catch((e) => this.fail("Edit", e));
+        if (m.generation !== undefined && m.generation !== doc.state.generation) {
+          // Never silent: the diagram was reloaded after the webview's last render, so the gesture is not applied; say so and redraw.
+          this.log(`diagram: dropped a model edit from generation ${String(m.generation)}`);
+          this.notice(doc, "The diagram was reloaded while you were editing, so that action was not applied. Try it again.");
+          p.lastHash = undefined;
+          this.rerender(doc);
+        } else void this.onModelIntent(doc, m.intent).catch((e) => this.fail("Edit", e));
         break;
       case "typeSuggestions": {
         const t = this.targetOf(doc, m.id);
@@ -1033,7 +1040,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       if (!this.clipboard) { this.ui.notify("Nothing to paste: copy nodes in a diagram first."); return; }
       const r = pasteNodes(cur, index, this.clipboard, opts);
       if (r.added) this.edit(doc, r.doc, "Paste");
-      if (r.skipped) this.ui.notify(`${r.skipped} element${r.skipped === 1 ? " was" : "s were"} skipped: this kind of diagram cannot show ${r.skipped === 1 ? "it" : "them"}.`);
+      const parts: string[] = [];
+      if (r.skipped) parts.push(`${r.skipped} element${r.skipped === 1 ? " was" : "s were"} skipped: this kind of diagram cannot show ${r.skipped === 1 ? "it" : "them"}`);
+      if (r.missing) parts.push(`${r.missing} element${r.missing === 1 ? " was" : "s were"} skipped: ${r.missing === 1 ? "it" : "they"} no longer exist${r.missing === 1 ? "s" : ""} (renamed or deleted since the copy)`);
+      if (parts.length) this.ui.notify(`${parts.join("; ")}.`);
       else if (!r.added) this.ui.notify("Everything copied is already drawn in this diagram.");
       return;
     }
@@ -1577,6 +1587,9 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     pngEditor: (uri) => this.exportPng(uri, "editor-dark"),
     pngWindow: (uri, theme) => this.exportPng(uri, theme, 1800, true),
     gesture: async (uri, gesture) => {
+      // A gesture made on a stale render is dropped by the generation check: let the webview catch up first.
+      const d = this.docs.get(uri.toString());
+      if (d) await this.waitUntil(() => [...(this.panels.get(d.key) ?? [])].every((p) => !p.ready || p.lastHash?.startsWith(`${d.state.generation}:`)), 10_000, "the diagram to be drawn at its latest generation", d.key);
       const r = await this.request<"gestureResult">(uri, (requestId) => ({ type: "testGesture", requestId, gesture }));
       if (r.error) throw new Error(`gesture ${gesture.kind} failed in the webview: ${r.error}`);
     },

@@ -61,6 +61,12 @@ describe("a node added while an aspect is applied", () => {
     // Clearing shows everything, and the other aspects are untouched.
     expect(applyAspect(kept, undefined)!.nodes).toHaveLength(5);
   });
+  it("brings the ancestors of a new node into the aspect, so it is not hidden by a parent outside it", () => {
+    const applied = applyAspect(saveAspect(doc, "Power", ["n1"])!, "Power")!;
+    const added = { ...applied, nodes: [...applied.nodes, { id: "n8", ref: "P::Mid" }, { id: "n9", ref: "P::New", parent: "n8" }] };
+    const kept = keepNewNodesVisible(applied, added);
+    expect(visibleDocument(kept).nodes.map((n) => n.id)).toEqual(["n1", "n8", "n9"]);
+  });
   it("changes nothing without an applied aspect or a new node", () => {
     const added = { ...doc, nodes: [...doc.nodes, { id: "n9", ref: "P::New" }] };
     expect(keepNewNodesVisible(doc, added)).toBe(added);

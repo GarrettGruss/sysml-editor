@@ -48,7 +48,8 @@ export function architectureTests(c: Ctx): Test[] {
     const text = opts.model ?? FLEET;
     writeFileSync(uriOf(model).fsPath, text);
     await vscode.workspace.openTextDocument(uriOf(model));
-    await waitFor(() => api.model.index.findByQualifiedName("Fleet::Frigate").length > 0, 30000, "the model has Fleet::Frigate");
+    // The previous test's Fleet::Frigate may still be indexed: wait for this test's own text.
+    await waitFor(() => [...text.matchAll(/\bdef (\w+)/g)].every((m) => api.model.index.findByQualifiedName(`Fleet::${m[1]}`).length > 0), 30000, "every definition of this test's model is indexed");
     for (const [name, d] of Object.entries(diagrams)) writeFileSync(uriOf(name).fsPath, diagramText({ version: 1, sources: [model], edges: [], ...d }));
     try {
       await fn();
@@ -330,11 +331,8 @@ export function architectureTests(c: Ctx): Test[] {
       await api.diagram.gesture(uriOf(f), { kind: "connect", source: "n1", target: "n2", relation: "specialization" });
       await waitFor(() => messages.some((m) => /cycle|already specializes/.test(m)), 10000, "a reason is shown for the cycle");
       assert.strictEqual(readFileSync(modelPath, "utf8"), written, "nothing is written for the cycle");
-      // The tool may still be settling after the refusal above: draw again until the reason arrives.
-      for (let i = 0; i < 6 && !messages.some((m) => /can only specialize another part def/.test(m)); i++) {
-        await api.diagram.gesture(uriOf(f), { kind: "connect", source: "n2", target: "n3", relation: "specialization" });
-        await sleep(1500);
-      }
+      await api.diagram.gesture(uriOf(f), { kind: "connect", source: "n2", target: "n3", relation: "specialization" });
+      await waitFor(() => messages.some((m) => /can only specialize another part def/.test(m)), 10000, "a kind mismatch is refused with a reason");
       assert.ok(messages.some((m) => /can only specialize another part def/.test(m)), `a kind mismatch is refused with a reason (saw: ${JSON.stringify(messages)})`);
       assert.strictEqual(readFileSync(modelPath, "utf8"), written);
     }, { model: "package Fleet {\n  part def Ship;\n  part def Frigate {\n    attribute mass;\n  }\n  part def Engine;\n  item def Cargo;\n}\n", changesModel: true })],

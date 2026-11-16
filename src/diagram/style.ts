@@ -94,9 +94,17 @@ export function keepNewNodesVisible(prev: DiagramDocument, next: DiagramDocument
   const name = activeAspect(next);
   if (name === undefined) return next;
   const had = new Set(prev.nodes.map((n) => n.id));
-  const fresh = next.nodes.filter((n) => !had.has(n.id)).map((n) => n.id);
+  const byId = new Map(next.nodes.map((n) => [n.id, n] as const));
+  const fresh: string[] = [];
+  for (const n of next.nodes) {
+    if (had.has(n.id)) continue;
+    // The ancestors come too (outermost first), or a node whose parent is outside the aspect would stay hidden.
+    const chain: string[] = [];
+    for (let c: DiagramNode | undefined = n, i = 0; c && i < 100; c = c.parent !== undefined ? byId.get(c.parent) : undefined, i++) chain.unshift(c.id);
+    fresh.push(...chain);
+  }
   const listed = aspectsOf(next)[name]!;
-  const add = fresh.filter((id) => !listed.includes(id));
+  const add = [...new Set(fresh)].filter((id) => !listed.includes(id));
   if (!add.length) return next;
   return withStyle(next, { ...next.style, aspects: { ...aspectsOf(next), [name]: [...listed, ...add] } });
 }

@@ -28,6 +28,22 @@ describe("NavHistory", () => {
     expect(await h.step("g", -1, (u) => Promise.resolve(u !== "B"))).toBe("A");
     expect(await h.step("g", -1, all)).toBeUndefined();
   });
+  test("skipped missing entries are removed from the list", async () => {
+    const h = new NavHistory();
+    for (const u of ["A", "B", "C", "D"]) h.visit("g", u);
+    expect(await h.step("g", -1, (u) => Promise.resolve(u === "A"))).toBe("A");
+    expect(h.canForward("g")).toBe(true);
+    expect(await h.step("g", 1, all)).toBe("D");
+    expect(await h.step("g", -1, all)).toBe("A");
+  });
+  test("a group that is closed forgets its entries", () => {
+    const h = new NavHistory();
+    h.visit("1", "A"); h.visit("1", "B"); h.visit("2", "C");
+    h.retain(["2"]);
+    expect(h.canBack("1")).toBe(false);
+    h.visit("2", "D");
+    expect(h.canBack("2")).toBe(true);
+  });
   test("groups are independent; revisiting the current one is a no-op", () => {
     const h = new NavHistory();
     h.visit("g1", "A");

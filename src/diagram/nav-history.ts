@@ -21,21 +21,24 @@ export class NavHistory {
     return !!s && s.at < s.entries.length - 1;
   }
 
-  /** Move one step in `dir`, skipping (and dropping) entries for which `exists` is false; the entry reached, or undefined (nothing moves). */
+  /** Forget the stacks of every key not in `keys` (tab groups that are closed or empty). */
+  retain(keys: readonly string[]): void {
+    for (const k of [...this.stacks.keys()]) if (!keys.includes(k)) this.stacks.delete(k);
+  }
+
+  /** Move one step in `dir`, skipping entries for which `exists` is false and removing them from the list; the entry reached, or undefined (nothing moves). */
   async step(key: string, dir: -1 | 1, exists: (uri: string) => Promise<boolean>): Promise<string | undefined> {
     const s = this.stacks.get(key);
     if (!s) return undefined;
-    for (let i = s.at + dir; i >= 0 && i < s.entries.length; i += dir) {
+    let i = s.at + dir;
+    while (i >= 0 && i < s.entries.length) {
       if (await exists(s.entries[i]!)) {
         s.at = i;
         return s.entries[i];
       }
+      s.entries.splice(i, 1);
+      if (dir < 0) { s.at--; i--; }
     }
-    // Nothing reachable in that direction: forget the missing entries beyond the current one.
-    if (dir < 0) {
-      s.entries.splice(0, s.at);
-      s.at = 0;
-    } else s.entries.length = s.at + 1;
     return undefined;
   }
 }

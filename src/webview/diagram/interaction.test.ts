@@ -101,6 +101,8 @@ describe("rubber band and tab order", () => {
   });
 });
 
+import { planAlign, planDistribute } from "./align.js";
+
 function setup() {
   const edits: DiagramEdit[] = [];
   const selections: string[][] = [];
@@ -138,6 +140,20 @@ describe("Interaction", () => {
     expect(t.ia.keyDown({ key: "Escape", shift: false, mod: false })).toBe(true);
     expect(t.ia.selection).toEqual([]);
     expect(t.edits).toEqual([]);
+  });
+
+  it("align and distribute post one layout edit with every moved box, so one undo step", () => {
+    const t = setup();
+    t.ia.setSelection(["box", "free", "kid"], false);
+    t.edits.length = 0;
+    t.ia.arrange((sc, ids) => planAlign(sc, ids, "left"));
+    expect(t.edits).toHaveLength(1);
+    expect(t.edits[0]).toMatchObject({ kind: "layout", label: "Align" });
+    const e1 = t.edits[0] as { boxes: unknown[] };
+    expect(e1.boxes.length).toBeGreaterThanOrEqual(1);
+    t.edits.length = 0;
+    t.ia.arrange((sc, ids) => planDistribute(sc, ids, "vertical"));
+    expect(t.edits.length).toBeLessThanOrEqual(1);
   });
 
   it("posts exactly one edit for a drag, however many moves it has", () => {
