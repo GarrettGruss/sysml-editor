@@ -40,6 +40,7 @@ const renderer = new SvgRenderer(document.body, measure, {
   onSelection: (ids) => post({ type: "selection", ids }),
   onHover: (id) => hoverReport(id),
   onRelink: (id) => post({ type: "relink", id }),
+  onNodeCommand: (command, id, ids) => post({ type: "nodeCommand", command, ...(id !== undefined ? { id } : {}), ids }),
   onDrop: (names, at) => post({ type: "dropElements", names, ...(at ? { x: at.x, y: at.y } : {}) }),
   onModel: (intent) => post({ type: "model", intent, ...(generation !== undefined ? { generation } : {}) }),
   suggest: (id, query) => new Promise((resolve) => {
@@ -231,6 +232,17 @@ async function exportPng(theme: PngTheme, maxWidth = 1600, panels = false): Prom
   return b64;
 }
 
+/** Put a PNG on the system clipboard; false with the reason when the webview may not (no focus, no permission). */
+async function copyPng(b64: string): Promise<string | undefined> {
+  try {
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) })]);
+    return undefined;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
 window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
   const m = ev.data;
   switch (m.type) {
@@ -240,9 +252,18 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
     case "getMetrics":
       queue = queue.then(() => post({ type: "metricsResult", requestId: m.requestId, ...renderer.getMetrics() })).catch(fail);
       break;
+    case "copyImage":
+      queue = queue
+        .then(async () => {
+          const base64 = await exportPng(m.theme);
+          const error = await copyPng(base64);
+          post({ type: "copyResult", requestId: m.requestId, base64, copied: error === undefined, ...(error !== undefined ? { error } : {}) });
+        })
+        .catch((e) => post({ type: "copyResult", requestId: m.requestId, base64: "", copied: false, error: e instanceof Error ? e.message : String(e) }));
+      break;
     case "exportPng":
       queue = queue
-        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
+        .then(async () => post(m.svg === true ? { type: "pngResult", requestId: m.requestId, base64: "", svg: renderer.toSvgString(m.theme) } : { type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
     case "resetHover":
@@ -255,6 +276,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         else if (m.name === "zoomIn") renderer.zoomBy(1.25);
         else if (m.name === "zoomOut") renderer.zoomBy(0.8);
         else if (m.name === "selectAll") renderer.selectAll();
+        else renderer.align(m.name);
       }).catch(fail);
       break;
     case "select":

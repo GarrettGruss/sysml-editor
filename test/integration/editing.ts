@@ -141,7 +141,7 @@ export function editingTests(c: Ctx): Test[] {
       const original = MODEL("EdAdd");
       script.input = "wheel";
       const m0 = await metrics(diagram);
-      assert.deepStrictEqual(m0.palette, ["Part def", "Port def", "Attribute def", "Item def", "Action def", "Part", "Port", "Attribute", "Item", "Action"], "General palette");
+      assert.deepStrictEqual(m0.palette, ["Part def", "Port def", "Attribute def", "Item def", "Action def", "Part", "Port", "Attribute", "Item", "Action", "Specialization", "Dependency"], "General palette");
       await gesture(diagram, { kind: "palette", item: "part", id: "n2", x: 10, y: 10 });
       await waitFor(() => onDisk(model).includes("part wheel;"), 15000, "the part is on disk without saving");
       assert.strictEqual(without(onDisk(model), /    part wheel;\n/), original, "unrelated text is byte-identical");

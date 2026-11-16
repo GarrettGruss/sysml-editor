@@ -296,6 +296,13 @@ describe("applyDiagramStyle", () => {
     expect("style" in shown).toBe(false);
     expect(applyDiagramStyle(base, { descriptions: true })).toBeUndefined();
   });
+  it("turns the legend on and off without touching the descriptions", () => {
+    const on = applyDiagramStyle(base, { legend: true })!;
+    expect(on.style).toEqual({ legend: true });
+    expect(applyDiagramStyle(on, { legend: true })).toBeUndefined();
+    expect(applyDiagramStyle(on, { descriptions: false })!.style).toEqual({ legend: true, descriptions: false });
+    expect("style" in applyDiagramStyle(on, { legend: false })!).toBe(false);
+  });
   it("keeps other style keys", () => {
     const d = applyDiagramStyle({ ...base, style: { grid: 8 } }, { descriptions: false })!;
     expect(d.style).toEqual({ grid: 8, descriptions: false });

@@ -38,7 +38,8 @@ export class FakeDiagrams implements DiagramService {
   async read(path: string) {
     return { path, open: this.open.has(path), unsaved: this.unsaved.has(path), doc: this.get(path), sourceOf };
   }
-  async renderImage() { return this.image; }
+  svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"></svg>";
+  async renderImage(_path?: string, format?: "png" | "svg") { return format === "svg" && this.image.ok ? ({ ok: true, svg: this.svg } as const) : this.image; }
   async create(req: Parameters<DiagramService["create"]>[0]): Promise<DiagramWriteResult> {
     const path = req.path ?? `${req.root.name}.sysmld`;
     if (this.files.has(path)) throw new ToolError(`"${path}" already exists`);

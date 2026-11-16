@@ -19,7 +19,7 @@ const q = (qn: string) => index.findByQualifiedName(qn)[0]!;
 
 describe("palette", () => {
   it("lists the kinds valid for each diagram kind", () => {
-    expect(paletteFor("general").map((i) => i.kind)).toEqual(["part def", "port def", "attribute def", "item def", "action def", "part", "port", "attribute", "item", "action"]);
+    expect(paletteFor("general").map((i) => i.kind)).toEqual(["part def", "port def", "attribute def", "item def", "action def", "part", "port", "attribute", "item", "action", "specialization", "dependency"]);
     expect(paletteFor("interconnection").map((i) => i.kind)).toEqual(["part", "port", "attribute", "connection"]);
     expect(paletteFor("requirements").map((i) => i.kind)).toEqual(["requirement def", "requirement", "satisfy", "verify", "derivation"]);
   });

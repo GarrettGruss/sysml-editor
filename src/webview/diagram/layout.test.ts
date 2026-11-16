@@ -160,3 +160,19 @@ describe("children of a definition in a General View", () => {
     expect(countOverCompartments(vm, abs, measure)).toBe(1);
   });
 });
+
+describe("legend (D49)", () => {
+  it("lists each node kind and line kind drawn once, and is part of the SVG with the bounds grown to hold it", async () => {
+    const vm = vmOf("drivetrain-interconnection.sysmld");
+    const l = await layoutDiagram(vm, elk, measure);
+    const plain = buildSvg(vm, l.boxes, measure, { palette: LIGHT_PALETTE });
+    expect(plain.content).not.toContain("data-legend");
+    const withLegend = buildSvg({ ...vm, legend: true }, l.boxes, measure, { palette: LIGHT_PALETTE });
+    expect(withLegend.content).toContain('data-legend="true"');
+    expect(withLegend.content).toContain('data-legend-node="Part"');
+    expect(withLegend.content).toContain('data-legend-edge="Connection"');
+    expect(withLegend.content.match(/data-legend-node="Part"/g)).toHaveLength(1);
+    expect(withLegend.bounds.w).toBeGreaterThan(plain.bounds.w);
+    expect(wrapStandalone(withLegend, { palette: LIGHT_PALETTE }).svg).toContain("Legend");
+  });
+});

@@ -280,3 +280,32 @@ describe("session", () => {
     expect(hashViewModel(vmOf("ports-general.sysmld"))).not.toBe(hashViewModel(vmOf("ports-general-auto.sysmld")));
   });
 });
+
+describe("view model: diagram style (D49)", () => {
+  const r = parseDiagram(read("ports-general.sysmld"));
+  if (!r.ok) throw new Error("fixture");
+  const doc = r.doc;
+  const build = (d: DiagramDocument) => { const ix = fixtureIndex(); return buildViewModel(d, resolveDiagram(d, ix), ix); };
+  const withStyle = (id: string, hidden: string[]) => ({ ...doc, nodes: doc.nodes.map((n) => (n.id === id ? { ...n, style: { hiddenCompartments: hidden } } : n)) });
+  it("offers each compartment of a node and drops the hidden ones, without changing the model", () => {
+    const base = build(doc).nodes.find((n) => n.compartments?.length)!;
+    expect(base.compartmentTitles).toEqual(base.compartments!.map((c) => c.title));
+    const title = base.compartmentTitles![0]!;
+    const hidden = build(withStyle(base.id, [title])).nodes.find((n) => n.id === base.id)!;
+    expect(hidden.compartments?.some((c) => c.title === title) ?? false).toBe(false);
+    expect(hidden.hiddenCompartments).toEqual([title]);
+    expect(hidden.compartmentTitles).toEqual(base.compartmentTitles);
+  });
+  it("reports the legend only when the style asks for it", () => {
+    expect(build(doc).legend).toBeUndefined();
+    expect(build({ ...doc, style: { legend: true } }).legend).toBe(true);
+  });
+  it("an applied aspect leaves out the other nodes and the lines that lose an end", () => {
+    const all = build(doc);
+    const keep = all.nodes.slice(0, 2).map((n) => n.id);
+    const vm = build({ ...doc, style: { aspects: { Few: keep }, activeAspect: "Few" } });
+    expect(vm.nodes.map((n) => n.id)).toEqual(keep);
+    for (const e of vm.edges) expect(keep.includes(e.source) && keep.includes(e.target)).toBe(true);
+    expect(build({ ...doc, style: { aspects: { Few: keep } } }).nodes).toHaveLength(all.nodes.length);
+  });
+});

@@ -112,11 +112,11 @@ export class VsCodeDiagramService implements DiagramService {
     return { path, open: false, unsaved: false, doc: await this.load(uri, path), sourceOf: sourceMapperFor(uri) };
   }
 
-  async renderImage(path: string): Promise<DiagramImage> {
+  async renderImage(path: string, format: "png" | "svg" = "png"): Promise<DiagramImage> {
     try {
       const c = await this.read(path);
-      const b64 = await this.provider.renderImage(await this.toUri(path), serializeDiagram(c.doc));
-      return { ok: true, png: new Uint8Array(Buffer.from(b64, "base64")) };
+      const out = await this.provider.renderImage(await this.toUri(path), serializeDiagram(c.doc), format);
+      return format === "svg" ? { ok: true, svg: out } : { ok: true, png: new Uint8Array(Buffer.from(out, "base64")) };
     } catch (e) {
       return { ok: false, reason: e instanceof Error ? e.message : String(e) };
     }

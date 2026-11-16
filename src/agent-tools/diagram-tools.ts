@@ -6,6 +6,8 @@ import { removeItems } from "../diagram/edits.js";
 import { DIAGRAM_KINDS, type DiagramKind } from "../diagram/format.js";
 import { resolveDiagram } from "../diagram/resolve.js";
 import { buildViewModel } from "../diagram/view-model.js";
+import { activeAspect, applyAspect, aspectsOf } from "../diagram/style.js";
+import { FREE_KINDS, memberChoices, setMembers } from "../diagram/related.js";
 import { ToolError, type DiagramService, type DiagramWriteResult, type ToolContext, type ToolDefinition } from "./types.js";
 
 export const DIAGRAM_FILE_CAP = 500;
@@ -103,14 +105,15 @@ const readDiagram: ToolDefinition = {
     "Read one diagram: its kind, root element, and every node and edge with the element it shows (name, qualified name, kind, types, relationship ends), " +
     "containment (`parent`), stored positions (x, y, w, h, relative to the parent node, when known), edge routes and unresolved references (items whose element no longer exists). " +
     "If the diagram is open in an editor, its in-memory content is described, including unsaved changes. Returns JSON { path, open, unsaved, kind, root, sources, nodes, edges, unresolved }. " +
-    "With `includeImage: true` the result also carries a PNG of the diagram (light theme, at most 1600 px wide) rendered by the diagram view as a second content item. " +
+    "With `includeImage: true` the result also carries a PNG of the diagram (light theme, at most 1600 px wide) rendered by the diagram view as a second content item; with `format: \"svg\"` it carries the SVG text instead, in the JSON as `image.svg`. " +
     "If the diagram is not open, it is rendered in a short-lived editor tab beside the current one that is closed again at once (focus and the active editor stay as they are); " +
     "if rendering fails or times out, the JSON is returned with an `image` note saying the image is unavailable and why. Large diagrams are truncated with a note.",
   inputSchema: {
     type: "object",
     properties: {
       path: pathProp,
-      includeImage: { type: "boolean", default: false, description: "Also return a PNG image of the diagram. Default false." },
+      includeImage: { type: "boolean", default: false, description: "Also return an image of the diagram. Default false." },
+      format: { type: "string", enum: ["png", "svg"], default: "png", description: "Image format with includeImage: png (default, a second content item) or svg (the SVG text in the JSON)." },
     },
     required: ["path"],
     additionalProperties: false,
@@ -122,9 +125,11 @@ const readDiagram: ToolDefinition = {
     const c = await svc.read(path);
     const out: Record<string, unknown> = { path: c.path, open: c.open, unsaved: c.unsaved, ...describeDiagram(c.doc, ctx.index, { sourceOf: c.sourceOf }) };
     if (input.includeImage !== true) return json(out);
-    const img = await svc.renderImage(path);
+    const format = input.format === "svg" ? "svg" : "png";
+    const img = await svc.renderImage(path, format);
     if (!img.ok) return json({ ...out, image: { available: false, reason: img.reason } });
-    return { ...json(out), image: { data: img.png, mimeType: "image/png" } };
+    if (img.svg !== undefined) return json({ ...out, image: { format: "svg", mimeType: "image/svg+xml", svg: img.svg } });
+    return { ...json(out), image: { data: img.png!, mimeType: "image/png" } };
   },
 };
 
@@ -267,6 +272,97 @@ const layoutDiagram: ToolDefinition = {
   },
 };
 
+// ------------------------------------------------------------------ sysml_apply_diagram_aspect
+
+const LAYOUT_NOTE = "This is a layout edit: only the diagram changed (unsaved until the diagram is saved); the model text did not change.";
+
+const applyDiagramAspect: ToolDefinition = {
+  name: "sysml_apply_diagram_aspect",
+  description:
+    "Apply a saved aspect of a diagram (a named subset of its nodes: only those nodes and the lines among them are drawn), or clear the applied aspect so every node is drawn again. " +
+    "`action` is apply (with `name`) or clear. Aspects are listed by sysml_read_diagram in the diagram's style and are saved by the user in the editor. A layout edit: only the diagram changes, never the model; " +
+    "applied as an undoable, unsaved edit when the diagram is open in an editor, written to the file otherwise. Returns JSON with `applied`, `edit: \"layout\"`, the aspects and the diagram as it is now. Not available in an untrusted workspace.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      path: pathProp,
+      action: { type: "string", enum: ["apply", "clear"], description: "apply a named aspect, or clear the applied one." },
+      name: { type: "string", minLength: 1, maxLength: 200, description: "apply: the name of the aspect." },
+    },
+    required: ["path", "action"],
+    additionalProperties: false,
+  },
+  readOnly: false,
+  async handler(input, ctx) {
+    const svc = writable(ctx);
+    const path = checkedPath(input);
+    const action = input.action;
+    if (action !== "apply" && action !== "clear") throw new ToolError("action must be apply or clear.");
+    const name = input.name;
+    if (action === "apply" && (typeof name !== "string" || !name.trim())) throw new ToolError("apply needs the `name` of an aspect.");
+    let aspects: string[] = [];
+    const r = await svc.edit(path, action === "apply" ? "Apply Aspect" : "Clear Aspect", (doc) => {
+      aspects = Object.keys(aspectsOf(doc));
+      if (action === "apply" && !aspects.includes(name as string)) throw new ToolError(`No aspect named "${String(name)}" in ${path}.${aspects.length ? ` Aspects: ${aspects.slice(0, 20).join(", ")}.` : " The diagram has no aspects."}`);
+      return applyAspect(doc, action === "apply" ? (name as string) : undefined);
+    });
+    return wrote(ctx, r, { edit: "layout", layoutNote: LAYOUT_NOTE, aspects, activeAspect: activeAspect(r.doc) ?? null });
+  },
+};
+
+// ------------------------------------------------------------------ sysml_show_hide_diagram_members
+
+const showHideMembers: ToolDefinition = {
+  name: "sysml_show_hide_diagram_members",
+  description:
+    "Show or hide the direct parts and ports of one node of a general, interconnection or requirements diagram. `node` is a node id from sysml_read_diagram; `show` and `hide` are the names of its parts and ports (own or inherited). " +
+    "Showing adds the member as a node (a port on the border) with the lines between drawn elements; hiding removes only that node and its lines from the diagram. A layout edit: the model is never changed, " +
+    "and inherited members are listed but never edited. Applied as an undoable, unsaved edit when the diagram is open in an editor, written to the file otherwise. " +
+    "Returns JSON with `applied`, `edit: \"layout\"`, `added`, `removed`, the `members` available (name, kind, drawn) and the diagram. Not available in an untrusted workspace.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      path: pathProp,
+      node: { type: "string", minLength: 1, maxLength: 200, description: "Id of the node, from sysml_read_diagram." },
+      show: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 }, description: "Names of parts and ports to draw." },
+      hide: { type: "array", items: { type: "string", minLength: 1, maxLength: 200 }, description: "Names of parts and ports to remove from the diagram." },
+    },
+    required: ["path", "node"],
+    additionalProperties: false,
+  },
+  readOnly: false,
+  async handler(input, ctx) {
+    const svc = writable(ctx);
+    const path = checkedPath(input);
+    const node = input.node as string;
+    const list = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+    const show = list(input.show);
+    const hide = list(input.hide);
+    if (show.length > DIAGRAM_ELEMENT_CAP || hide.length > DIAGRAM_ELEMENT_CAP) throw new ToolError(`At most ${DIAGRAM_ELEMENT_CAP} names per list.`);
+    if (!show.length && !hide.length) throw new ToolError("Give at least one name in `show` or `hide`.");
+    let counts = { added: 0, removed: 0 };
+    let members: { name: string; kind: string; drawn: boolean; inheritedFrom?: string }[] = [];
+    const r = await svc.edit(path, "Show/Hide Parts and Ports", (doc, sourceOf) => {
+      if (!doc.nodes.some((n) => n.id === node)) throw new ToolError(`No node with id ${node} in ${path}. Use sysml_read_diagram to see the ids.`);
+      if (!FREE_KINDS.includes(doc.kind)) throw new ToolError(`A ${doc.kind} diagram draws what its root owns; parts and ports can be shown only in general, interconnection and requirements diagrams.`);
+      const opts = { sourceOf };
+      const choices = memberChoices(doc, ctx.index, node, opts);
+      const byName = (n: string) => choices.filter((c) => c.label === n);
+      const unknown = [...show, ...hide].filter((n) => !byName(n).length);
+      if (unknown.length) throw new ToolError(`${unknown.slice(0, 10).join(", ")} ${unknown.length === 1 ? "is" : "are"} not a part or port of that node. Available: ${choices.map((c) => c.label).slice(0, 30).join(", ") || "none"}.`);
+      const wanted = new Set(choices.filter((c) => c.drawn).map((c) => c.key));
+      for (const n of show) for (const c of byName(n)) wanted.add(c.key);
+      for (const n of hide) for (const c of byName(n)) wanted.delete(c.key);
+      const vm = buildViewModel(doc, resolveDiagram(doc, ctx.index, opts), ctx.index);
+      const res = setMembers(doc, ctx.index, node, wanted, opts, vm);
+      counts = { added: res.added, removed: res.removed };
+      members = memberChoices(res.doc, ctx.index, node, opts).map((c) => ({ name: c.label, kind: c.kind, drawn: c.drawn, ...(c.inheritedFrom ? { inheritedFrom: c.inheritedFrom } : {}) }));
+      return res.added || res.removed ? res.doc : undefined;
+    });
+    return wrote(ctx, r, { edit: "layout", layoutNote: LAYOUT_NOTE, ...counts, members });
+  },
+};
+
 // ------------------------------------------------------------------ sysml_get_editor_context
 
 const getEditorContext: ToolDefinition = {
@@ -305,4 +401,4 @@ const getEditorContext: ToolDefinition = {
   },
 };
 
-export const diagramToolDefinitions: readonly ToolDefinition[] = [listDiagrams, readDiagram, createDiagramTool, addToDiagram, removeFromDiagram, layoutDiagram, getEditorContext];
+export const diagramToolDefinitions: readonly ToolDefinition[] = [listDiagrams, readDiagram, createDiagramTool, addToDiagram, removeFromDiagram, layoutDiagram, applyDiagramAspect, showHideMembers, getEditorContext];

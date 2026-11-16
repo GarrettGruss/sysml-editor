@@ -423,7 +423,7 @@ export class Interaction {
     return true;
   }
 
-  private commit(plan: Plan, label: "Move" | "Resize" | "Nudge"): void {
+  private commit(plan: Plan, label: "Move" | "Resize" | "Nudge" | "Align"): void {
     const boxes: BoxPatch[] = [];
     for (const [id, p] of plan) {
       const it = this.scene.get(id);
@@ -432,6 +432,14 @@ export class Interaction {
       if (!same) boxes.push({ id, x: p.x, y: p.y, ...(p.w !== undefined ? { w: p.w } : {}), ...(p.h !== undefined ? { h: p.h } : {}) });
     }
     if (boxes.length) this.host.onEdit({ kind: "layout", label, boxes });
+  }
+
+  /** Align or distribute the selection: one layout edit, so one undo step. */
+  arrange(plan: (scene: Scene, ids: string[]) => Plan): void {
+    this.flushNudge();
+    const p = plan(this.scene, [...this.sel]);
+    this.host.onPreview(p.size ? applyPlan(this.scene, p) : undefined, undefined);
+    this.commit(p, "Align");
   }
 
   /** Post a pending nudge now (a later action, focus loss or the end of the coalescing window). */

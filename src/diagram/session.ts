@@ -7,6 +7,7 @@ import type { ModelIndex } from "../model/index.js";
 import { parseDiagram, serializeDiagram, type DiagramDocument, type DiagramProblem } from "./format.js";
 import type { EdgePoints, NodeBox } from "./protocol.js";
 import { removeItems } from "./edits.js";
+import { keepNewNodesVisible } from "./style.js";
 import { referenceKey, resolveDiagram } from "./resolve.js";
 import type { DiagramChange } from "../model-service/diagram-changes.js";
 import { applyUpdates, reconcile, type ReferenceUpdate, type Snapshot } from "./reconcile.js";
@@ -108,6 +109,7 @@ export class DiagramState {
     const prev = this.doc;
     if (!prev) throw new Error("no document to edit");
     const gen = this.generation;
+    next = keepNewNodesVisible(prev, next);
     this.doc = next;
     this.version++;
     return {
@@ -211,8 +213,10 @@ export function forceChange(state: DiagramState, token: object, fn: (doc: Diagra
       base = diskText;
     }
   }
-  state.doc = fn(state.doc!);
-  if (!state.forced.some((f) => f.token === token)) state.forced.push({ token, fn });
+  // A node the change adds while an aspect is applied joins the aspect (it stays visible).
+  const keep = (d: DiagramDocument) => keepNewNodesVisible(d, fn(d));
+  state.doc = keep(state.doc!);
+  if (!state.forced.some((f) => f.token === token)) state.forced.push({ token, fn: keep });
   return writeBase(state, base, fn);
 }
 

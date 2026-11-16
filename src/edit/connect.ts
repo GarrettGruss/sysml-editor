@@ -73,3 +73,18 @@ export function planFlow(index: ModelIndex, owner: Element, from: string, to: st
   for (const t of [from, to]) if (t.trim() === "" || /[;{}\n]/.test(t)) return fail("A flow end must be a path to a feature, such as detectThreat.scanReport.");
   return plan(index, owner, `flow from ${from.trim()} to ${to.trim()};`, [], `Flow from ${from.trim()} to ${to.trim()} in ${describeElement(owner)}`);
 }
+
+/** `dependency from <client> to <supplier>;` in `owner` (default: the package owning the client). */
+export function planDependency(index: ModelIndex, client: Element, supplier: Element, owner?: Element): PlanResult {
+  if (client === supplier) return fail("A dependency needs two different elements.");
+  const target = owner ?? enclosingPackage(client.owner ?? client);
+  if (!target) return fail(`${describeElement(client)} is not inside a package; choose where the dependency goes.`);
+  const c = checkElement(index, target);
+  if (!c.ok) return c;
+  const a = referenceText(index, client, target);
+  if (!a.ok) return a;
+  const b = referenceText(index, supplier, target);
+  if (!b.ok) return b;
+  const needs = [a.need, b.need].filter((x): x is ImportNeed => !!x);
+  return plan(index, target, `dependency from ${a.text} to ${b.text};`, needs, `${describeElement(client)} depends on ${describeElement(supplier)}`);
+}

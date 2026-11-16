@@ -30,7 +30,7 @@ export function dottedPath(text: string): string[] {
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
 
 /** The kinds `sysml_create_relationship` accepts (also the palette kinds that are not creatable elements). */
-export const RELATIONSHIP_KINDS = ["connection", "satisfy", "verify", "derivation", "succession", "transition", "message"] as readonly string[];
+export const RELATIONSHIP_KINDS = ["connection", "specialization", "dependency", "satisfy", "verify", "derivation", "succession", "transition", "message"] as readonly string[];
 
 export function editing(ctx: ToolContext): EditContext {
   if (!ctx.edits) throw new ToolError("Model editing is not available in this session.");
@@ -280,6 +280,8 @@ const createRelationship: ToolDefinition = {
   name: "sysml_create_relationship",
   description:
     "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. " +
+    "`kind: \"specialization\"` writes `:> <target>` on the declaration of the definition `source` (`part def Frigate :> Ship`); `source` and `target` are qualified names of two definitions of the same kind; a different kind, itself, an existing specialization, a cycle and an inherited or library source are refused with the reason. " +
+    "`kind: \"dependency\"` adds `dependency from <source> to <target>;` to `owner` (default: the package that holds `source`); `source` is the client and `target` the supplier, both qualified names. " +
     "`kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. " +
     "`kind: \"verify\"` adds `verify <requirement>;` to the objective of a verification case (SysML v2 allows verify only there): give `verificationCase` (qualified name of an existing verification case; its objective is created when missing) or `newVerificationCase` (a name; a new `verification` containing the objective is created in `owner`, default the package of the requirement). " +
     "`kind: \"derivation\"` adds `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; ... }` (derivation is not a keyword) to `owner` (default: the package of the first derived requirement) and `private import RequirementDerivation::*;` when missing; `original` and `derived` (a list) are qualified names of requirements. " +
@@ -290,10 +292,10 @@ const createRelationship: ToolDefinition = {
   inputSchema: {
     type: "object",
     properties: {
-      kind: { type: "string", enum: [...RELATIONSHIP_KINDS], description: "connection, satisfy, verify, derivation, succession, transition or message." },
+      kind: { type: "string", enum: [...RELATIONSHIP_KINDS], description: "connection, specialization, dependency, satisfy, verify, derivation, succession, transition or message." },
       owner: { type: "string", description: "Qualified name of the element that receives the statement. Required for a connection." },
-      source: { type: "string", description: "connection: qualified name of the first end." },
-      target: { type: "string", description: "connection: qualified name of the second end." },
+      source: { type: "string", description: "connection or dependency: qualified name of the first end; specialization: the specializing definition." },
+      target: { type: "string", description: "connection or dependency: qualified name of the second end; specialization: the definition specialized." },
       requirement: { type: "string", description: "satisfy: qualified name of the requirement." },
       by: { type: "string", description: "satisfy: qualified name of the satisfying element." },
       verificationCase: { type: "string", description: "verify: qualified name of an existing verification case (def or usage)." },
@@ -348,6 +350,19 @@ const createRelationship: ToolDefinition = {
       const spec = { ...(typeof input.name === "string" && input.name !== "" ? { name: input.name } : {}), ...(typeof input.itemType === "string" && input.itemType !== "" ? { itemType: input.itemType } : {}) };
       const r = ok(await ed.service.addMessage(owner.element, need("from"), need("to"), spec, origin));
       return summary(ctx, r, { created: { kind: "message", owner: input.owner, from: input.from, to: input.to, ...spec }, ...placementNote(ctx, r, target) });
+    }
+    if (input.kind === "specialization" || input.kind === "dependency") {
+      const a = relationshipEnd(ctx, ed, need("source"), "source");
+      const b = relationshipEnd(ctx, ed, need("target"), "target");
+      if (input.kind === "specialization") {
+        const refusal = ed.service.refuseIfInherited(a, "specialized");
+        if (refusal) throw refused(refusal);
+        const r = ok(await ed.service.specialize(a.element, b.element, origin));
+        return summary(ctx, r, { created: { kind: "specialization", source: input.source, target: input.target }, ...placementNote(ctx, r, target) });
+      }
+      const ownerEl = typeof input.owner === "string" && input.owner !== "" ? locate(ctx, ed, input.owner, "owner element").element : undefined;
+      const r = ok(await ed.service.dependency(a.element, b.element, ownerEl, origin));
+      return summary(ctx, r, { created: { kind: "dependency", source: input.source, target: input.target }, ...placementNote(ctx, r, target) });
     }
     if (input.kind === "connection") {
       const owner = locate(ctx, ed, need("owner"), "owner element");

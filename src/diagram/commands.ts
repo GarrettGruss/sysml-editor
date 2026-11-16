@@ -9,6 +9,7 @@ import { createDiagram, diagramKindsFor } from "./create.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { VIEW_TYPE } from "./diagram-editor.js";
 import { DiagramFileIndex } from "./diagram-index.js";
+import type { AlignCommand, NodeCommand } from "./protocol.js";
 import { readSettled } from "./read-settled.js";
 import { serializeDiagram, type DiagramDocument, type DiagramKind } from "./format.js";
 import { KIND_LABELS, defaultDiagramFileName, fileRoots, listElements, uniqueFileName } from "./new-diagram.js";
@@ -205,5 +206,55 @@ export function registerDiagramCommands(deps: DiagramCommandDeps): vscode.Dispos
     vscode.commands.registerCommand("sysml.diagram.autoLayout", () => {
       if (!deps.diagrams.runCommand(active(), "autoLayout")) void vscode.window.showInformationMessage("Open a diagram first: Auto-layout needs a diagram editor to be active.");
     }),
+    ...ALIGN_COMMANDS.map(([name, command]) =>
+      vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
+        if (!deps.diagrams.runCommand(active(), command)) void vscode.window.showInformationMessage("Open a diagram first.");
+      })),
+    vscode.commands.registerCommand("sysml.diagram.back", () => deps.diagrams.navigate(-1)),
+    vscode.commands.registerCommand("sysml.diagram.forward", () => deps.diagrams.navigate(1)),
+    vscode.commands.registerCommand("sysml.diagram.saveImage", () => {
+      const doc = active();
+      if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+      return deps.diagrams.saveImage(doc);
+    }),
+    vscode.commands.registerCommand("sysml.diagram.copyImage", () => {
+      const doc = active();
+      if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+      return deps.diagrams.copyImage(doc);
+    }),
+    vscode.commands.registerCommand("sysml.diagram.toggleLegend", () => {
+      const doc = active();
+      if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+      deps.diagrams.toggleLegend(doc);
+    }),
+    ...ASPECT_COMMANDS.map(([name, command]) =>
+      vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
+        const doc = active();
+        if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+        return deps.diagrams.aspectCommand(doc, command);
+      })),
+    ...NODE_COMMANDS.map(([name, command]) =>
+      vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
+        const doc = active();
+        if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+        return deps.diagrams.nodeCommand(doc, command);
+      })),
   ];
 }
+
+const NODE_COMMANDS: readonly (readonly [string, NodeCommand])[] = [
+  ["showHideParts", "showHideMembers"],
+  ["displayRelated", "displayRelated"],
+  ["copyNodes", "copy"],
+  ["pasteNodes", "paste"],
+];
+
+const ALIGN_COMMANDS: readonly (readonly [string, AlignCommand])[] = [
+  ["alignLeft", "alignLeft"], ["alignRight", "alignRight"], ["alignTop", "alignTop"], ["alignBottom", "alignBottom"],
+  ["alignCenter", "alignCenter"], ["alignMiddle", "alignMiddle"],
+  ["distributeHorizontally", "distributeHorizontal"], ["distributeVertically", "distributeVertical"],
+];
+
+const ASPECT_COMMANDS: readonly (readonly [string, "save" | "apply" | "clear" | "delete"])[] = [
+  ["saveAspect", "save"], ["applyAspect", "apply"], ["clearAspect", "clear"], ["deleteAspect", "delete"],
+];

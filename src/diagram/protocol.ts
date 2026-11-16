@@ -50,10 +50,12 @@ export interface EdgePoints {
 /** User edits from the webview. Each one is a single undoable edit of the diagram file only. */
 export type DiagramEdit =
   /** `routes` and `drop`: the stored routes of lines at the moved or resized nodes, adjusted by the webview (or to be removed), in the same edit. */
-  | { kind: "layout"; label: "Move" | "Resize" | "Nudge"; boxes: BoxPatch[]; routes?: EdgePoints[]; drop?: string[] }
+  | { kind: "layout"; label: "Move" | "Resize" | "Nudge" | "Align"; boxes: BoxPatch[]; routes?: EdgePoints[]; drop?: string[] }
   | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
   /** The per-diagram style (D35): show or hide the descriptions (first `doc`) on the nodes. Layout only; the `.sysml` text is untouched. */
-  | { kind: "style"; descriptions: boolean }
+  | { kind: "style"; descriptions?: boolean; /** The legend of the kinds drawn (D49). */ legend?: boolean }
+  /** Show or hide compartments of one node (D49); `hidden` lists the titles that are hidden. Diagram style only. */
+  | { kind: "compartments"; id: string; hidden: string[] }
   /** A hand-edited route or label layout of lines. */
   | { kind: "edgeLayout"; label: "Route" | "Label"; edges: EdgePatch[] }
   | { kind: "remove"; ids: string[] };
@@ -86,9 +88,13 @@ export type ModelIntent =
   /** Nest by dropping (D33): move the declaration of node `id` into the element of node `targetId` (the diagram's root when absent). */
   | { kind: "nest"; id: string; targetId?: string };
 
-export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
+export type ConnectRelation = "specialization" | "dependency" | "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
 
-export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
+/** Commands on the selected nodes that need the host (pickers, the shared clipboard). */
+export type NodeCommand = "showHideMembers" | "displayRelated" | "copy" | "paste";
+
+export type AlignCommand = "alignLeft" | "alignRight" | "alignTop" | "alignBottom" | "alignCenter" | "alignMiddle" | "distributeHorizontal" | "distributeVertical";
+export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll" | AlignCommand;
 
 /** Test-only gestures, replayed as DOM events so they take the code paths real input takes. */
 export type TestGesture =
@@ -97,7 +103,7 @@ export type TestGesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | NodeCommand | `compartment:${string}` }
   /** Open the context menu on a node, as a right click does. */
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[]; x?: number; y?: number }
@@ -157,7 +163,9 @@ export type TestGesture =
 export type HostToWebview =
   /** `generation` is the document generation (bumped by every load); the webview echoes it in its edits so stale ones can be dropped. */
   | { type: "render"; viewModel: ViewModel; generation: number }
-  | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number; /** Test artifact: the editor window with the palette and properties panel drawn from the live DOM, in the editor's own theme. */ panels?: boolean }
+  /** Copy the whole diagram to the clipboard as a PNG; the webview answers with `copyResult`. */
+  | { type: "copyImage"; requestId: number; theme: PngTheme }
+  | { type: "exportPng"; requestId: number; theme: PngTheme; /** The SVG text of the whole diagram instead of a PNG (`pngResult.svg`). */ svg?: boolean; /** Cap on the image width in px (default 1600). */ maxWidth?: number; /** Test artifact: the editor window with the palette and properties panel drawn from the live DOM, in the editor's own theme. */ panels?: boolean }
   | { type: "getMetrics"; requestId: number }
   /** `whole`: Auto-layout lays out the whole diagram even when nodes are selected (the agent tool). */
   | { type: "command"; name: DiagramCommand; whole?: boolean }
@@ -248,6 +256,8 @@ export interface DiagramMetrics {
   paletteGhost?: { kind: string; name: string; placed: boolean };
   /** The per-diagram description toggle. */
   descriptions: boolean;
+  /** The legend is on: its entries (node and line kinds drawn). */
+  legend?: string[];
   /** `light`, `dark` or `hc`, from the editor theme. */
   theme: string;
   focusable: boolean;
@@ -281,6 +291,8 @@ export type WebviewToHost =
   /** The node or edge id under the pointer; `id` absent when the pointer left the diagram. Throttled by the webview. */
   | { type: "hover"; id?: string }
   | { type: "relink"; id: string }
+  /** `id`: the node the command was chosen on (absent: the selection). */
+  | { type: "nodeCommand"; command: NodeCommand; id?: string; /** The ids selected, for copy. */ ids?: string[] }
   | { type: "model"; intent: ModelIntent; generation?: number }
   /**
    * Is `name` free? For a new element of `kind` in the element of node `ownerId` (the diagram's root when absent), or, with `siblingOf`,
@@ -291,7 +303,9 @@ export type WebviewToHost =
   | { type: "typeSuggestions"; requestId: number; id: string; query: string }
   /** Qualified names dropped from the tree onto the diagram. */
   | { type: "dropElements"; names: string[]; x?: number; y?: number }
-  | { type: "pngResult"; requestId: number; base64: string; error?: string }
+  | { type: "pngResult"; requestId: number; base64: string; svg?: string; error?: string }
+  /** `base64` is the PNG that was produced; `copied` says whether the clipboard took it (`error` when not). */
+  | { type: "copyResult"; requestId: number; base64: string; copied: boolean; error?: string }
   | ({ type: "metricsResult"; requestId: number } & DiagramMetrics)
   | { type: "gestureResult"; requestId: number; error?: string }
   | { type: "openAsText" }
