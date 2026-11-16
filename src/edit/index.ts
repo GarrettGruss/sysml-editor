@@ -9,7 +9,8 @@ export { planRename, type LoadedDiagram, type RenameOptions } from "./rename.js"
 export { planSetType, planSetMultiplicity, planSetShortName, planSetDocumentation } from "./props.js";
 export * from "./comment.js";
 export * from "./requirements.js";
-export { planConnect, planFlow, planSatisfy } from "./connect.js";
+export { planConnect, planFlow, planSatisfy, planDependency } from "./connect.js";
+export { planSpecialize } from "./specialize.js";
 export { writeReference, referenceText, enclosingPackage, type WrittenReference } from "./refs.js";
 export { checkDocument, checkElement } from "./guard.js";
 export * from "./behavior.js";

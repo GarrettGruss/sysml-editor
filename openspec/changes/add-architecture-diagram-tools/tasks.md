@@ -12,9 +12,9 @@
 - [x] 2.4 Aspects save, apply, clear; unit and integration tests
 
 ## 3. Export, relationships, navigation
-- [ ] 3.1 Save and Copy as Image, SVG request, write errors; integration tests for both scenarios
-- [ ] 3.2 Specialization and dependency edit operations, tools and refusals; unit tests and both scenarios
-- [ ] 3.3 Back and Forward history per tab; integration test
+- [x] 3.1 Save and Copy as Image, SVG request, write errors; integration tests for both scenarios
+- [x] 3.2 Specialization and dependency edit operations, tools and refusals; unit tests and both scenarios
+- [x] 3.3 Back and Forward history per tab; integration test
 
 ## 4. Agents
-- [ ] 4.1 `format` on `sysml_read_diagram`, aspect and parts/ports tools, untrusted refusal; unit tests for both scenarios
+- [x] 4.1 `format` on `sysml_read_diagram`, aspect and parts/ports tools, untrusted refusal; unit tests for both scenarios

@@ -17,7 +17,7 @@ export type ShapeKind =
   | "action" | "state" | "start" | "done" | "fork" | "decision"
   /** An oval (General View) and a lifeline column (Sequence View). */
   | "usecase" | "lifeline";
-export type EdgeStyle = "composition" | "specialization" | "typing" | "connection" | "satisfy" | "verify" | "derivation" | "generic" | "succession" | "flow" | "transition" | "message" | "include" | "association";
+export type EdgeStyle = "composition" | "specialization" | "typing" | "connection" | "satisfy" | "verify" | "derivation" | "generic" | "succession" | "flow" | "transition" | "message" | "include" | "association" | "dependency";
 
 export interface Compartment {
   /** Empty: no title row (state actions). */
@@ -205,7 +205,7 @@ function compartmentsOf(e: Element, shown: Set<Element>, index: ModelIndex, with
 const EDGE_STYLES: Record<string, EdgeStyle> = {
   succession: "succession", transition: "transition", flow: "flow", message: "message",
   connect: "connection", connection: "connection", satisfy: "satisfy", "satisfy requirement": "satisfy",
-  verify: "verify", "verify requirement": "verify",
+  verify: "verify", "verify requirement": "verify", dependency: "dependency",
 };
 
 function edgeStyleOf(kind: string): EdgeStyle {

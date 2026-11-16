@@ -210,6 +210,18 @@ export function registerDiagramCommands(deps: DiagramCommandDeps): vscode.Dispos
       vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
         if (!deps.diagrams.runCommand(active(), command)) void vscode.window.showInformationMessage("Open a diagram first.");
       })),
+    vscode.commands.registerCommand("sysml.diagram.back", () => deps.diagrams.navigate(-1)),
+    vscode.commands.registerCommand("sysml.diagram.forward", () => deps.diagrams.navigate(1)),
+    vscode.commands.registerCommand("sysml.diagram.saveImage", () => {
+      const doc = active();
+      if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+      return deps.diagrams.saveImage(doc);
+    }),
+    vscode.commands.registerCommand("sysml.diagram.copyImage", () => {
+      const doc = active();
+      if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+      return deps.diagrams.copyImage(doc);
+    }),
     vscode.commands.registerCommand("sysml.diagram.toggleLegend", () => {
       const doc = active();
       if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }

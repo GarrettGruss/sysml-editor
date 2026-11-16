@@ -5,7 +5,7 @@
  * saves the touched files, and forces the resulting changes onto diagram files (design D6, D11, D18).
  */
 import {
-  buildDeclaration, planConnect, planDeleteElement, planInsertMember, planRename, planSatisfy, planSetDocumentation,
+  buildDeclaration, planConnect, planDependency, planSpecialize, planDeleteElement, planInsertMember, planRename, planSatisfy, planSetDocumentation,
   planSetMultiplicity, planSetShortName, planSetType, validatePlan,
   isPlanCurrent, sourceMatches, sourceOf,
   detectIndentUnit, escapeTerminator, newCommentDecl, planAddParagraph, planAddSection, planDerivation, planMoveMember, positionBefore, planRemoveDerivation, planRemoveSatisfy,
@@ -944,6 +944,26 @@ export class ModelService {
       () => [requirement.uri, ...(owner ? [owner.uri] : []), by.uri],
       origin,
       "Satisfy",
+    );
+  }
+
+  /** `:> target` on the definition `source`: a model edit, saved at once. The source must be declared here, not inherited. */
+  specialize(source: Element, target: Element, origin?: Origin): Promise<OpResult> {
+    return this.plain([source, target], ([s, t]) => planSpecialize(this.index, s!, t!), () => [source.uri], origin);
+  }
+
+  /** `dependency from client to supplier;` in `owner` (default: the package of the client), placed on the origin diagram. */
+  dependency(client: Element, supplier: Element, owner?: Element, origin?: Origin): Promise<OpResult> {
+    return this.statementOp(
+      ["dependency"],
+      () => {
+        const f = [client, supplier, ...(owner ? [owner] : [])].map((e) => this.fresh(e));
+        if (f.some((e) => !e)) return fail(gone("An element"));
+        return planDependency(this.index, f[0]!, f[1]!, owner ? f[2]! : undefined);
+      },
+      () => [client.uri, ...(owner ? [owner.uri] : [])],
+      origin,
+      "Dependency",
     );
   }
 

@@ -155,7 +155,7 @@ function drawPortLabel(n: VmNode, b: Box, owner: Box, o: SvgOptions): string {
   return text(o, x, b.y + b.h / 2 + 3, n.label, "small", "text", left ? "start" : "end");
 }
 
-const DASHED = new Set(["typing", "satisfy", "verify", "derivation", "flow", "include"]);
+const DASHED = new Set(["typing", "satisfy", "verify", "derivation", "flow", "include", "dependency"]);
 
 function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, lines: string[], selected = false): string {
   const first = pts[0]!;
@@ -170,7 +170,7 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, l
     case "composition": g += poly(diamondPoints(first, second, 16, 5), "edge"); break;
     case "specialization": g += poly(headPoints(last, before, 14, 7), "bg"); break;
     case "message": g += poly(headPoints(last, before, 10, 4), "edge"); break;
-    case "typing": case "satisfy": case "verify": case "derivation": case "succession": case "transition": case "flow": case "include": {
+    case "typing": case "dependency": case "satisfy": case "verify": case "derivation": case "succession": case "transition": case "flow": case "include": {
       const [t, a, b] = headPoints(last, before, 10, 5);
       g += `<polyline points="${f(a.x)},${f(a.y)} ${f(t.x)},${f(t.y)} ${f(b.x)},${f(b.y)}"${paint(o, "none", roleLine)}/>`;
       break;

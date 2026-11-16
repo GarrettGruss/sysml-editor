@@ -225,6 +225,32 @@
         "enablement": "sysml.diagramActive"
       },
       {
+        "command": "sysml.diagram.back",
+        "title": "Diagram: Go Back",
+        "category": "SysML",
+        "icon": "$(arrow-left)",
+        "enablement": "sysml.diagramActive && sysml.diagramCanBack"
+      },
+      {
+        "command": "sysml.diagram.forward",
+        "title": "Diagram: Go Forward",
+        "category": "SysML",
+        "icon": "$(arrow-right)",
+        "enablement": "sysml.diagramActive && sysml.diagramCanForward"
+      },
+      {
+        "command": "sysml.diagram.saveImage",
+        "title": "Save Diagram as Image…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.copyImage",
+        "title": "Copy Diagram as Image",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
         "command": "sysml.diagram.saveAspect",
         "title": "Save Aspect…",
         "category": "SysML",
@@ -250,6 +276,18 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        {
+          "command": "sysml.diagram.back",
+          "when": "activeCustomEditorId == sysml.diagram",
+          "group": "navigation@1"
+        },
+        {
+          "command": "sysml.diagram.forward",
+          "when": "activeCustomEditorId == sysml.diagram",
+          "group": "navigation@2"
+        }
+      ],
       "view/item/context": [
         {
           "command": "sysml.goToDefinition",
@@ -410,6 +448,22 @@
           "when": "sysml.diagramActive"
         },
         {
+          "command": "sysml.diagram.saveImage",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.back",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.forward",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.copyImage",
+          "when": "sysml.diagramActive"
+        },
+        {
           "command": "sysml.diagram.saveAspect",
           "when": "sysml.diagramActive"
         },
@@ -478,6 +532,15 @@
             "**/node_modules/**"
           ],
           "description": "Glob patterns (relative to the workspace folder) of .sysml files that are not indexed. Applied together with files.exclude and search.exclude."
+        },
+        "sysml.diagram.imageTheme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "editor"
+          ],
+          "default": "light",
+          "description": "Theme of images saved or copied from a diagram: a fixed light theme, or the editor's current theme."
         },
         "sysml.tree.followCursor": {
           "type": "boolean",
@@ -621,7 +684,7 @@
       {
         "name": "sysml_read_diagram",
         "displayName": "SysML: Read Diagram",
-        "modelDescription": "Read one diagram: its kind, root element, and every node and edge with the element it shows (name, qualified name, kind, types, relationship ends), containment (`parent`), stored positions (x, y, w, h, relative to the parent node, when known), edge routes and unresolved references (items whose element no longer exists). If the diagram is open in an editor, its in-memory content is described, including unsaved changes. Returns JSON { path, open, unsaved, kind, root, sources, nodes, edges, unresolved }. With `includeImage: true` the result also carries a PNG of the diagram (light theme, at most 1600 px wide) rendered by the diagram view as a second content item. If the diagram is not open, it is rendered in a short-lived editor tab beside the current one that is closed again at once (focus and the active editor stay as they are); if rendering fails or times out, the JSON is returned with an `image` note saying the image is unavailable and why. Large diagrams are truncated with a note.",
+        "modelDescription": "Read one diagram: its kind, root element, and every node and edge with the element it shows (name, qualified name, kind, types, relationship ends), containment (`parent`), stored positions (x, y, w, h, relative to the parent node, when known), edge routes and unresolved references (items whose element no longer exists). If the diagram is open in an editor, its in-memory content is described, including unsaved changes. Returns JSON { path, open, unsaved, kind, root, sources, nodes, edges, unresolved }. With `includeImage: true` the result also carries a PNG of the diagram (light theme, at most 1600 px wide) rendered by the diagram view as a second content item; with `format: \"svg\"` it carries the SVG text instead, in the JSON as `image.svg`. If the diagram is not open, it is rendered in a short-lived editor tab beside the current one that is closed again at once (focus and the active editor stay as they are); if rendering fails or times out, the JSON is returned with an `image` note saying the image is unavailable and why. Large diagrams are truncated with a note.",
         "toolReferenceName": "sysmlReadDiagram",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
@@ -640,7 +703,16 @@
             "includeImage": {
               "type": "boolean",
               "default": false,
-              "description": "Also return a PNG image of the diagram. Default false."
+              "description": "Also return an image of the diagram. Default false."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "png",
+                "svg"
+              ],
+              "default": "png",
+              "description": "Image format with includeImage: png (default, a second content item) or svg (the SVG text in the JSON)."
             }
           },
           "required": [
@@ -794,6 +866,98 @@
           },
           "required": [
             "path"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_apply_diagram_aspect",
+        "displayName": "SysML: Apply Diagram Aspect",
+        "modelDescription": "Apply a saved aspect of a diagram (a named subset of its nodes: only those nodes and the lines among them are drawn), or clear the applied aspect so every node is drawn again. `action` is apply (with `name`) or clear. Aspects are listed by sysml_read_diagram in the diagram's style and are saved by the user in the editor. A layout edit: only the diagram changes, never the model; applied as an undoable, unsaved edit when the diagram is open in an editor, written to the file otherwise. Returns JSON with `applied`, `edit: \"layout\"`, the aspects and the diagram as it is now. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlApplyDiagramAspect",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "apply",
+                "clear"
+              ],
+              "description": "apply a named aspect, or clear the applied one."
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "apply: the name of the aspect."
+            }
+          },
+          "required": [
+            "path",
+            "action"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_show_hide_diagram_members",
+        "displayName": "SysML: Show Hide Diagram Members",
+        "modelDescription": "Show or hide the direct parts and ports of one node of a general, interconnection or requirements diagram. `node` is a node id from sysml_read_diagram; `show` and `hide` are the names of its parts and ports (own or inherited). Showing adds the member as a node (a port on the border) with the lines between drawn elements; hiding removes only that node and its lines from the diagram. A layout edit: the model is never changed, and inherited members are listed but never edited. Applied as an undoable, unsaved edit when the diagram is open in an editor, written to the file otherwise. Returns JSON with `applied`, `edit: \"layout\"`, `added`, `removed`, the `members` available (name, kind, drawn) and the diagram. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlShowHideDiagramMembers",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Workspace-relative path of the .sysmld file, as listed by sysml_list_diagrams."
+            },
+            "node": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Id of the node, from sysml_read_diagram."
+            },
+            "show": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "description": "Names of parts and ports to draw."
+            },
+            "hide": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "description": "Names of parts and ports to remove from the diagram."
+            }
+          },
+          "required": [
+            "path",
+            "node"
           ],
           "additionalProperties": false
         }
@@ -1034,7 +1198,7 @@
       {
         "name": "sysml_create_relationship",
         "displayName": "SysML: Create Relationship",
-        "modelDescription": "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. `kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. `kind: \"verify\"` adds `verify <requirement>;` to the objective of a verification case (SysML v2 allows verify only there): give `verificationCase` (qualified name of an existing verification case; its objective is created when missing) or `newVerificationCase` (a name; a new `verification` containing the objective is created in `owner`, default the package of the requirement). `kind: \"derivation\"` adds `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; ... }` (derivation is not a keyword) to `owner` (default: the package of the first derived requirement) and `private import RequirementDerivation::*;` when missing; `original` and `derived` (a list) are qualified names of requirements. `kind: \"succession\"` adds `first <source> then <target>;` (with `guard`: `first <source> if <guard> then <target>;`) to `owner`, an action or action definition, after the two nodes; `source` and `target` are member names or qualified names of its actions or control nodes, or `start` and `done`; a succession that already exists is refused. `kind: \"transition\"` adds `transition first <source> [accept <trigger>] [if <guard>] [do <effect>] then <target>;` to `owner`, a state or state definition; `source` and `target` are its states (`trigger`, `guard` and `effect` are source text, parsed before anything is changed and refused with the syntax error when invalid). `kind: \"message\"` adds `message [name] [of <itemType>] from <from> to <to>;` to `owner`, an occurrence, part or interaction, written as `then message ...;` right after its last message so it comes last in time order; `from` and `to` are names of the parts taking part. With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
+        "modelDescription": "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. `kind: \"specialization\"` writes `:> <target>` on the declaration of the definition `source` (`part def Frigate :> Ship`); `source` and `target` are qualified names of two definitions of the same kind; a different kind, itself, an existing specialization, a cycle and an inherited or library source are refused with the reason. `kind: \"dependency\"` adds `dependency from <source> to <target>;` to `owner` (default: the package that holds `source`); `source` is the client and `target` the supplier, both qualified names. `kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. `kind: \"verify\"` adds `verify <requirement>;` to the objective of a verification case (SysML v2 allows verify only there): give `verificationCase` (qualified name of an existing verification case; its objective is created when missing) or `newVerificationCase` (a name; a new `verification` containing the objective is created in `owner`, default the package of the requirement). `kind: \"derivation\"` adds `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; ... }` (derivation is not a keyword) to `owner` (default: the package of the first derived requirement) and `private import RequirementDerivation::*;` when missing; `original` and `derived` (a list) are qualified names of requirements. `kind: \"succession\"` adds `first <source> then <target>;` (with `guard`: `first <source> if <guard> then <target>;`) to `owner`, an action or action definition, after the two nodes; `source` and `target` are member names or qualified names of its actions or control nodes, or `start` and `done`; a succession that already exists is refused. `kind: \"transition\"` adds `transition first <source> [accept <trigger>] [if <guard>] [do <effect>] then <target>;` to `owner`, a state or state definition; `source` and `target` are its states (`trigger`, `guard` and `effect` are source text, parsed before anything is changed and refused with the syntax error when invalid). `kind: \"message\"` adds `message [name] [of <itemType>] from <from> to <to>;` to `owner`, an occurrence, part or interaction, written as `then message ...;` right after its last message so it comes last in time order; `from` and `to` are names of the parts taking part. With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
         "toolReferenceName": "sysmlCreateRelationship",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
@@ -1049,6 +1213,8 @@
               "type": "string",
               "enum": [
                 "connection",
+                "specialization",
+                "dependency",
                 "satisfy",
                 "verify",
                 "derivation",
@@ -1056,7 +1222,7 @@
                 "transition",
                 "message"
               ],
-              "description": "connection, satisfy, verify, derivation, succession, transition or message."
+              "description": "connection, specialization, dependency, satisfy, verify, derivation, succession, transition or message."
             },
             "owner": {
               "type": "string",
@@ -1064,11 +1230,11 @@
             },
             "source": {
               "type": "string",
-              "description": "connection: qualified name of the first end."
+              "description": "connection or dependency: qualified name of the first end; specialization: the specializing definition."
             },
             "target": {
               "type": "string",
-              "description": "connection: qualified name of the second end."
+              "description": "connection or dependency: qualified name of the second end; specialization: the definition specialized."
             },
             "requirement": {
               "type": "string",

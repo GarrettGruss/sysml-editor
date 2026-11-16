@@ -10,7 +10,7 @@ const SHAPE_LABELS: Record<string, string> = {
 };
 const EDGE_LABELS: Record<EdgeStyle, string> = {
   composition: "Composition", specialization: "Specialization", typing: "Typing", connection: "Connection", satisfy: "Satisfy", verify: "Verify", derivation: "Derivation",
-  generic: "Relationship", succession: "Succession", flow: "Flow", transition: "Transition", message: "Message", include: "Include", association: "Association",
+  generic: "Relationship", succession: "Succession", flow: "Flow", transition: "Transition", message: "Message", include: "Include", association: "Association", dependency: "Dependency",
 };
 
 const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

@@ -42,17 +42,18 @@ export function architectureTests(c: Ctx): Test[] {
   };
 
   /** Run `fn` with a model file and the given diagrams written; everything is removed afterwards and the real model files must be unchanged. */
-  const withFleet = (diagrams: Record<string, object>, fn: () => Promise<void>) => async () => {
+  const withFleet = (diagrams: Record<string, object>, fn: () => Promise<void>, opts: { model?: string; changesModel?: boolean } = {}) => async () => {
     const before = sysmlBytes();
     const model = "tmp-fleet.sysml";
-    writeFileSync(uriOf(model).fsPath, FLEET);
+    const text = opts.model ?? FLEET;
+    writeFileSync(uriOf(model).fsPath, text);
     await vscode.workspace.openTextDocument(uriOf(model));
     await waitFor(() => api.model.index.findByQualifiedName("Fleet::Frigate").length > 0, 30000, "the model has Fleet::Frigate");
     for (const [name, d] of Object.entries(diagrams)) writeFileSync(uriOf(name).fsPath, diagramText({ version: 1, sources: [model], edges: [], ...d }));
     try {
       await fn();
       assert.deepStrictEqual(api.diagram.errors(), [], "no webview errors");
-      assert.strictEqual(readFileSync(uriOf(model).fsPath, "utf8"), FLEET, "the model text is unchanged");
+      if (!opts.changesModel) assert.strictEqual(readFileSync(uriOf(model).fsPath, "utf8"), text, "the model text is unchanged");
     } finally {
       api.diagram.setUi(undefined);
       await close();
@@ -254,6 +255,136 @@ export function architectureTests(c: Ctx): Test[] {
       assert.deepStrictEqual((doc(f).style as { aspects: Record<string, string[]> }).aspects.Everything, ["n1", "n2", "n3", "n4"]);
       await vscode.commands.executeCommand("sysml.diagram.deleteAspect");
       await waitFor(() => (doc(f).style as { aspects: Record<string, string[]> }).aspects.Power === undefined, 10000, "Power is deleted");
+    })],
+    ["Save as Image writes a valid SVG of the whole diagram or a PNG by the chosen extension, and a write failure shows an error", withFleet({
+      "tmp-fleet-img.sysmld": { kind: "general", root: "Fleet", style: { legend: true }, nodes: [{ id: "n1", ref: "Fleet::Ship", x: 40, y: 40, w: 160, h: 60 }, { id: "n2", ref: "Fleet::Frigate", x: 40, y: 3000, w: 160, h: 60 }] },
+    }, async () => {
+      const f = "tmp-fleet-img.sysmld";
+      await open(f);
+      const svgOut = uriOf("tmp-ship.svg");
+      const pngOut = uriOf("tmp-ship.png");
+      const errors: string[] = [];
+      let dest = svgOut;
+      api.diagram.setUi({ saveImage: async () => dest, error: (m: string) => { errors.push(m); } });
+      try {
+        await vscode.commands.executeCommand("sysml.diagram.saveImage");
+        const svg = readFileSync(svgOut.fsPath, "utf8");
+        assert.ok(/^<svg[\s>]/.test(svg) && svg.trimEnd().endsWith("</svg>"), "a valid SVG document");
+        assert.ok(svg.includes("Frigate") && svg.includes("Ship"), "every node is drawn, including one far from the view");
+        assert.ok(svg.includes("Part def"), "the legend is part of the image");
+        dest = pngOut;
+        await vscode.commands.executeCommand("sysml.diagram.saveImage");
+        assert.ok(readFileSync(pngOut.fsPath).subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])), "a PNG file");
+        // A path under a file cannot be written: an error is shown and nothing is thrown.
+        dest = vscode.Uri.joinPath(uriOf("tmp-fleet.sysml"), "x.svg");
+        await vscode.commands.executeCommand("sysml.diagram.saveImage");
+        assert.strictEqual(errors.length, 1, `one error shown: ${errors}`);
+        assert.ok(/could not be written/.test(errors[0]!));
+      } finally {
+        rmSync(svgOut.fsPath, { force: true });
+        rmSync(pngOut.fsPath, { force: true });
+      }
+    })],
+
+    ["Copy as Image puts a PNG on the clipboard, or offers to save the PNG as a file when the webview may not write it", withFleet({
+      "tmp-fleet-copy.sysmld": { kind: "general", root: "Fleet", nodes: [{ id: "n1", ref: "Fleet::Ship", x: 40, y: 40, w: 160, h: 60 }] },
+    }, async () => {
+      const f = "tmp-fleet-copy.sysmld";
+      await open(f);
+      const out = uriOf("tmp-copy.png");
+      const offered: string[] = [];
+      api.diagram.setUi({
+        choose: async (m: string) => { offered.push(m); return "Save as Image..."; },
+        saveImage: async () => out,
+        error: (m: string) => assert.fail(`unexpected error: ${m}`),
+      });
+      try {
+        const r = await vscode.commands.executeCommand<string>("sysml.diagram.copyImage");
+        if (r === "copied") assert.deepStrictEqual(offered, [], "no fallback when the clipboard took it");
+        else {
+          assert.strictEqual(r, "saved", "the fallback saves the image");
+          assert.strictEqual(offered.length, 1);
+          assert.ok(readFileSync(out.fsPath).subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])), "the fallback file is a PNG");
+        }
+      } finally {
+        rmSync(out.fsPath, { force: true });
+      }
+    })],
+
+    ["the specialization tool writes :> on the source definition and draws the line; a cycle writes nothing and says why", withFleet({
+      "tmp-fleet-spec.sysmld": { kind: "general", root: "Fleet", nodes: [
+        { id: "n1", ref: "Fleet::Ship", x: 40, y: 40, w: 160, h: 60 },
+        { id: "n2", ref: "Fleet::Frigate", x: 40, y: 220, w: 160, h: 60 },
+        { id: "n3", ref: "Fleet::Cargo", x: 400, y: 40, w: 160, h: 60 },
+      ] },
+    }, async () => {
+      const f = "tmp-fleet-spec.sysmld";
+      const modelPath = uriOf("tmp-fleet.sysml").fsPath;
+      await open(f);
+      const messages: string[] = [];
+      api.diagram.setUi({ notify: (m: string) => { messages.push(m); }, fail: async (x: { reason: string }) => { messages.push(x.reason); } });
+      await api.diagram.gesture(uriOf(f), { kind: "connect", source: "n2", target: "n1", relation: "specialization" });
+      await waitFor(() => /part def Frigate :> Ship/.test(readFileSync(modelPath, "utf8")), 15000, "`:> Ship` is written and saved");
+      await c.eventually(async () => assert.ok((await api.diagram.metrics(uriOf(f))).edges.length >= 1, "a specialization line is drawn"), "specialization line");
+      const written = readFileSync(modelPath, "utf8");
+      await api.diagram.gesture(uriOf(f), { kind: "connect", source: "n1", target: "n2", relation: "specialization" });
+      await waitFor(() => messages.some((m) => /cycle|already specializes/.test(m)), 10000, "a reason is shown for the cycle");
+      assert.strictEqual(readFileSync(modelPath, "utf8"), written, "nothing is written for the cycle");
+      // The tool may still be settling after the refusal above: draw again until the reason arrives.
+      for (let i = 0; i < 6 && !messages.some((m) => /can only specialize another part def/.test(m)); i++) {
+        await api.diagram.gesture(uriOf(f), { kind: "connect", source: "n2", target: "n3", relation: "specialization" });
+        await sleep(1500);
+      }
+      assert.ok(messages.some((m) => /can only specialize another part def/.test(m)), `a kind mismatch is refused with a reason (saw: ${JSON.stringify(messages)})`);
+      assert.strictEqual(readFileSync(modelPath, "utf8"), written);
+    }, { model: "package Fleet {\n  part def Ship;\n  part def Frigate {\n    attribute mass;\n  }\n  part def Engine;\n  item def Cargo;\n}\n", changesModel: true })],
+
+    ["the dependency tool writes a dependency statement and draws a dependency line", withFleet({
+      "tmp-fleet-dep.sysmld": { kind: "general", root: "Fleet", nodes: [
+        { id: "n1", ref: "Fleet::Ship", x: 40, y: 40, w: 160, h: 60 },
+        { id: "n2", ref: "Fleet::Engine", x: 400, y: 40, w: 160, h: 60 },
+      ] },
+    }, async () => {
+      const f = "tmp-fleet-dep.sysmld";
+      const modelPath = uriOf("tmp-fleet.sysml").fsPath;
+      await open(f);
+      await api.diagram.gesture(uriOf(f), { kind: "connect", source: "n1", target: "n2", relation: "dependency" });
+      await waitFor(() => /dependency from Ship to Engine;/.test(readFileSync(modelPath, "utf8")), 15000, "the dependency is written and saved");
+      await c.eventually(async () => {
+        assert.ok(doc(f).edges.length === 1, "the statement is placed on the diagram");
+        assert.ok((await api.diagram.metrics(uriOf(f))).edges.length >= 1, "a line is drawn");
+      }, "dependency line");
+    }, { changesModel: true })],
+
+    ["Back and Forward move between the diagrams opened in a tab group, and opening a new one clears the forward entries", withFleet({
+      "tmp-nav-a.sysmld": { kind: "general", root: "Fleet", nodes: [{ id: "n1", ref: "Fleet::Ship", x: 40, y: 40, w: 160, h: 60 }] },
+      "tmp-nav-b.sysmld": { kind: "general", root: "Fleet", nodes: [{ id: "n1", ref: "Fleet::Engine", x: 40, y: 40, w: 160, h: 60 }] },
+      "tmp-nav-c.sysmld": { kind: "general", root: "Fleet", nodes: [{ id: "n1", ref: "Fleet::Radar", x: 40, y: 40, w: 160, h: 60 }] },
+    }, async () => {
+      const [a, b, cc] = ["tmp-nav-a.sysmld", "tmp-nav-b.sysmld", "tmp-nav-c.sysmld"];
+      const notes: string[] = [];
+      api.diagram.setUi({ notify: (m: string) => { notes.push(m); } });
+      await open(a!);
+      await open(b!);
+      const active = () => api.diagram.activeUri();
+      await waitFor(() => active() === uriOf(b!).toString(), 10000, "B is active");
+      await vscode.commands.executeCommand("sysml.diagram.back");
+      await waitFor(() => active() === uriOf(a!).toString(), 10000, "Back shows A");
+      await vscode.commands.executeCommand("sysml.diagram.forward");
+      await waitFor(() => active() === uriOf(b!).toString(), 10000, "Forward shows B");
+      // Back to A, then a new diagram: nothing is left to go forward to.
+      await vscode.commands.executeCommand("sysml.diagram.back");
+      await waitFor(() => active() === uriOf(a!).toString(), 10000, "Back shows A again");
+      await open(cc!);
+      await waitFor(() => active() === uriOf(cc!).toString(), 10000, "C is active");
+      await vscode.commands.executeCommand("sysml.diagram.forward");
+      await waitFor(() => notes.some((m) => /no later diagram/.test(m)), 10000, "there is nothing to go forward to");
+      assert.strictEqual(active(), uriOf(cc!).toString());
+      // A diagram whose file is gone is skipped by Back.
+      rmSync(uriOf(a!).fsPath);
+      await vscode.commands.executeCommand("sysml.diagram.back");
+      await waitFor(() => active() === uriOf(a!).toString() || notes.some((m) => /no earlier diagram/.test(m)) || active() === uriOf(b!).toString(), 10000, "Back skips or reaches");
+      assert.notStrictEqual(active(), uriOf(a!).toString(), "the missing diagram is not shown");
     })],
   ];
 }

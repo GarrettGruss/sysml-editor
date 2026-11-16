@@ -88,7 +88,7 @@ export type ModelIntent =
   /** Nest by dropping (D33): move the declaration of node `id` into the element of node `targetId` (the diagram's root when absent). */
   | { kind: "nest"; id: string; targetId?: string };
 
-export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
+export type ConnectRelation = "specialization" | "dependency" | "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
 
 /** Commands on the selected nodes that need the host (pickers, the shared clipboard). */
 export type NodeCommand = "showHideMembers" | "displayRelated" | "copy" | "paste";
@@ -163,7 +163,9 @@ export type TestGesture =
 export type HostToWebview =
   /** `generation` is the document generation (bumped by every load); the webview echoes it in its edits so stale ones can be dropped. */
   | { type: "render"; viewModel: ViewModel; generation: number }
-  | { type: "exportPng"; requestId: number; theme: PngTheme; /** Cap on the image width in px (default 1600). */ maxWidth?: number; /** Test artifact: the editor window with the palette and properties panel drawn from the live DOM, in the editor's own theme. */ panels?: boolean }
+  /** Copy the whole diagram to the clipboard as a PNG; the webview answers with `copyResult`. */
+  | { type: "copyImage"; requestId: number; theme: PngTheme }
+  | { type: "exportPng"; requestId: number; theme: PngTheme; /** The SVG text of the whole diagram instead of a PNG (`pngResult.svg`). */ svg?: boolean; /** Cap on the image width in px (default 1600). */ maxWidth?: number; /** Test artifact: the editor window with the palette and properties panel drawn from the live DOM, in the editor's own theme. */ panels?: boolean }
   | { type: "getMetrics"; requestId: number }
   /** `whole`: Auto-layout lays out the whole diagram even when nodes are selected (the agent tool). */
   | { type: "command"; name: DiagramCommand; whole?: boolean }
@@ -301,7 +303,9 @@ export type WebviewToHost =
   | { type: "typeSuggestions"; requestId: number; id: string; query: string }
   /** Qualified names dropped from the tree onto the diagram. */
   | { type: "dropElements"; names: string[]; x?: number; y?: number }
-  | { type: "pngResult"; requestId: number; base64: string; error?: string }
+  | { type: "pngResult"; requestId: number; base64: string; svg?: string; error?: string }
+  /** `base64` is the PNG that was produced; `copied` says whether the clipboard took it (`error` when not). */
+  | { type: "copyResult"; requestId: number; base64: string; copied: boolean; error?: string }
   | ({ type: "metricsResult"; requestId: number } & DiagramMetrics)
   | { type: "gestureResult"; requestId: number; error?: string }
   | { type: "openAsText" }

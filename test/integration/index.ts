@@ -67,7 +67,7 @@ export interface TestApi {
     state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; pending: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
-    setUi(ui: { pickMany?: (items: PickItem[], options: unknown) => Promise<PickItem[] | undefined>; notify?: (message: string) => void; pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined>; saveAs?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined> } | undefined): void;
+    setUi(ui: { pickMany?: (items: PickItem[], options: unknown) => Promise<PickItem[] | undefined>; notify?: (message: string) => void; pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined>; saveAs?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined>; saveImage?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined>; error?: (message: string) => void } | undefined): void;
     selectionKey(): number;
     activeUri(): string | undefined;
     hoverOf(uri: vscode.Uri): string | undefined;
@@ -126,8 +126,8 @@ export type Gesture =
   | { kind: "inline"; text?: string; end?: "enter" | "shiftEnter" | "escape" | "blur" }
   | { kind: "dblclick"; id: string; area?: "name" | "doc" }
   | { kind: "descriptions"; show: boolean }
-  | { kind: "connect"; source: string; target: string; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow" }
-  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow"; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "connect"; source: string; target: string; relation?: "specialization" | "dependency" | "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow" }
+  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "specialization" | "dependency" | "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow"; target?: string; x?: number; y?: number; hold?: boolean }
   | { kind: "connectRelease" }
   | { kind: "quickBar"; item?: string }
   | { kind: "reconnectDrag"; id: string; end: "source" | "target"; target?: string; x?: number; y?: number; hold?: boolean }
@@ -395,7 +395,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 20; // four model read tools, seven diagram tools (one reads the editor context), six model edit tools (one sets a transition) and three requirements tools (document, matrix, create)
+  const TOOL_COUNT = 22; // four model read tools, nine diagram tools (one reads the editor context, one applies an aspect, one shows or hides parts and ports) (one reads the editor context), six model edit tools (one sets a transition) and three requirements tools (document, matrix, create)
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {
