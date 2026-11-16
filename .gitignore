@@ -15,3 +15,4 @@ src/parser/generated
 
 # Files created and removed by the integration tests
 test/fixtures/workspace-basic/tmp-*
+docs/reference/cameo-user-guide/
