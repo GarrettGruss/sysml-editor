@@ -19,6 +19,7 @@ import { addElement, addElements, rootProblem } from "./create.js";
 import { copyNodes, pasteNodes, type DiagramClip } from "./clipboard.js";
 import { RELATED_LABELS, displayRelated, memberChoices, missingRelated, setMembers, FREE_KINDS, type RelatedKind } from "./related.js";
 import { applyAutoLayout, applyBoxPatches, applyDiagramStyle, applyEdgeLayout, materializePins, removeItems } from "./edits.js";
+import { activeAspect, applyAspect, applyCompartments, aspectsOf, deleteAspect, saveAspect } from "./style.js";
 import { defaultNameFor } from "./naming.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
 import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, NodeCommand, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
@@ -133,6 +134,8 @@ export interface DiagramTestApi {
   gesture(uri: vscode.Uri, g: TestGesture): Promise<void>;
   /** Replaces the questions the editor asks the user. */
   setUi(ui: Partial<DiagramUi> | undefined): void;
+  /** The value of the `sysml.diagramSelection` context key (the selection size of the active diagram). */
+  selectionKey(): number;
   /** The diagram editor that is active now. */
   activeUri(): string | undefined;
   /** The id the panel's webview last reported under the pointer. */
@@ -172,7 +175,10 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
 
   constructor(private readonly extensionUri: vscode.Uri, private readonly model: WorkspaceModel, private readonly log: (m: string) => void = () => {}) {
     this.subs.push(this.model.index.onDidChange(() => this.scheduleRefresh()), this._onDidChange);
-    const sync = () => void vscode.commands.executeCommand("setContext", "sysml.diagramActive", this.activeDocument() !== undefined);
+    const sync = () => {
+      void vscode.commands.executeCommand("setContext", "sysml.diagramActive", this.activeDocument() !== undefined);
+      this.syncSelectionKey();
+    };
     this.subs.push(vscode.window.tabGroups.onDidChangeTabs(sync), vscode.window.tabGroups.onDidChangeTabGroups(sync));
     sync();
   }
@@ -188,6 +194,14 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   activeDocument(): SysmlDiagramDocument | undefined {
     const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
     return input instanceof vscode.TabInputCustom && input.viewType === VIEW_TYPE ? this.docs.get(input.uri.toString()) : undefined;
+  }
+
+  private selectionKey = 0;
+
+  /** Align needs two selected nodes and distribute three: the commands' `enablement` reads this key. */
+  private syncSelectionKey(): void {
+    this.selectionKey = this.activeDocument()?.selection.length ?? 0;
+    void vscode.commands.executeCommand("setContext", "sysml.diagramSelection", this.selectionKey);
   }
 
   dispose(): void {
@@ -468,6 +482,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       case "selection":
         p.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string" && this.inView(doc, i)) : [];
         doc.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
+        this.syncSelectionKey();
         this.followSelection(doc);
         break;
       case "model":
@@ -625,7 +640,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         }
         edit = { ...edit, boxes: boxes ?? [] };
         next = Array.isArray(edit.boxes) ? applyBoxPatches(base, edit.boxes, { routes: Array.isArray(edit.routes) ? edit.routes : [], drop: Array.isArray(edit.drop) ? edit.drop.filter((i) => typeof i === "string") : [] }, doc.state.viewModel) : undefined;
-        label = edit.label === "Resize" ? "Resize" : edit.label === "Nudge" ? "Nudge" : "Move";
+        label = edit.label === "Resize" ? "Resize" : edit.label === "Nudge" ? "Nudge" : edit.label === "Align" ? "Align" : "Move";
         break;
       }
       case "autoLayout":
@@ -634,7 +649,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         break;
       case "style":
         next = applyDiagramStyle(cur, edit);
-        label = edit.descriptions ? "Show Descriptions" : "Hide Descriptions";
+        label = edit.legend !== undefined ? (edit.legend ? "Show Legend" : "Hide Legend") : edit.descriptions ? "Show Descriptions" : "Hide Descriptions";
+        break;
+      case "compartments":
+        next = typeof edit.id === "string" ? applyCompartments(cur, edit.id, edit.hidden) : undefined;
+        label = "Show/Hide Compartments";
         break;
       case "edgeLayout":
         next = Array.isArray(edit.edges) ? applyEdgeLayout(cur, edit.edges, doc.state.viewModel) : undefined;
@@ -1030,6 +1049,44 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (r.added) this.edit(doc, r.doc, "Display Related Elements");
   }
 
+  /** Turn the legend on or off (diagram style, a layout edit). */
+  toggleLegend(doc: SysmlDiagramDocument): void {
+    const cur = doc.state.doc;
+    if (!cur) return;
+    const on = cur.style?.legend === true;
+    const next = applyDiagramStyle(cur, { legend: !on });
+    if (next) this.edit(doc, next, on ? "Hide Legend" : "Show Legend");
+  }
+
+  /** Save the nodes drawn now as an aspect, apply or clear one, or delete one (D49); layout edits. */
+  async aspectCommand(doc: SysmlDiagramDocument, command: "save" | "apply" | "clear" | "delete"): Promise<void> {
+    const cur = doc.state.doc;
+    if (!cur) { this.ui.notify("This diagram cannot be edited: its file does not parse."); return; }
+    const names = Object.keys(aspectsOf(cur));
+    if (command === "save") {
+      const drawn = cur.nodes.filter((n) => doc.state.viewModel?.nodes.some((v) => v.id === n.id) ?? true).map((n) => n.id);
+      if (!drawn.length) { this.ui.notify("Nothing is drawn: there is nothing to save as an aspect."); return; }
+      const name = await this.ui.input({ title: "Save Aspect", prompt: "Name of the aspect (saving under an existing name replaces it)", value: names.includes(activeAspect(cur) ?? "") ? activeAspect(cur) : "" });
+      const now = doc.state.doc;
+      if (!name?.trim() || !now) return;
+      const next = saveAspect(now, name, drawn);
+      if (next) this.edit(doc, next, "Save Aspect");
+      return;
+    }
+    if (command === "clear") {
+      const next = applyAspect(cur, undefined);
+      if (next) this.edit(doc, next, "Clear Aspect");
+      else this.ui.notify("No aspect is applied.");
+      return;
+    }
+    if (!names.length) { this.ui.notify("This diagram has no aspects: save the nodes drawn as one first."); return; }
+    const pick = await this.ui.pick(names.map((n) => ({ label: n, description: n === activeAspect(cur) ? "applied" : `${aspectsOf(cur)[n]!.length} nodes` })), { title: command === "apply" ? "Apply Aspect" : "Delete Aspect", placeHolder: "Choose an aspect" });
+    const now = doc.state.doc;
+    if (!pick || !now) return;
+    const next = command === "apply" ? applyAspect(now, pick.label) : deleteAspect(now, pick.label);
+    if (next) this.edit(doc, next, command === "apply" ? "Apply Aspect" : "Delete Aspect");
+  }
+
   private activeDoc(doc: SysmlDiagramDocument): FileDoc | undefined {
     return doc.state.doc;
   }
@@ -1396,6 +1453,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       if (r.error) throw new Error(`gesture ${gesture.kind} failed in the webview: ${r.error}`);
     },
     setUi: (ui) => { this.ui = ui ? { ...defaultUi, ...ui } : defaultUi; },
+    selectionKey: () => this.selectionKey,
     activeUri: () => this.activeDocument()?.uri.toString(),
     hoverOf: (uri) => [...(this.panels.get(uri.toString()) ?? [])].map((x) => x.hover).find((h) => h !== undefined),
     edit: (uri, moves) => {

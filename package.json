@@ -169,6 +169,84 @@
         "title": "Refresh",
         "category": "SysML",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "sysml.diagram.alignLeft",
+        "title": "Align Left",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 2"
+      },
+      {
+        "command": "sysml.diagram.alignRight",
+        "title": "Align Right",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 2"
+      },
+      {
+        "command": "sysml.diagram.alignTop",
+        "title": "Align Top",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 2"
+      },
+      {
+        "command": "sysml.diagram.alignBottom",
+        "title": "Align Bottom",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 2"
+      },
+      {
+        "command": "sysml.diagram.alignCenter",
+        "title": "Align Center",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 2"
+      },
+      {
+        "command": "sysml.diagram.alignMiddle",
+        "title": "Align Middle",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 2"
+      },
+      {
+        "command": "sysml.diagram.distributeHorizontally",
+        "title": "Distribute Horizontally",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 3"
+      },
+      {
+        "command": "sysml.diagram.distributeVertically",
+        "title": "Distribute Vertically",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive && sysml.diagramSelection >= 3"
+      },
+      {
+        "command": "sysml.diagram.toggleLegend",
+        "title": "Toggle Legend",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.saveAspect",
+        "title": "Save Aspect…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.applyAspect",
+        "title": "Apply Aspect…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.clearAspect",
+        "title": "Clear Aspect",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.deleteAspect",
+        "title": "Delete Aspect…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
       }
     ],
     "menus": {
@@ -294,6 +372,58 @@
         {
           "command": "sysml.tree.newFolder",
           "when": "sysml.treeFilter != diagrams"
+        },
+        {
+          "command": "sysml.diagram.alignLeft",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.alignRight",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.alignTop",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.alignBottom",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.alignCenter",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.alignMiddle",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.distributeHorizontally",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.distributeVertically",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.toggleLegend",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.saveAspect",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.applyAspect",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.clearAspect",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.deleteAspect",
+          "when": "sysml.diagramActive"
         }
       ],
       "explorer/context": [

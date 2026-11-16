@@ -190,15 +190,23 @@ export function materializePins(doc: DiagramDocument, patches: readonly BoxPatch
 }
 
 /**
- * The per-diagram style (D35): `descriptions` shows or hides the descriptions on the nodes. Stored as `style.descriptions: false`; showing
- * (the default) removes the key, and an empty `style` is removed. Layout only. Undefined when nothing changes.
+ * The per-diagram style (D35, D49): `descriptions` shows or hides the descriptions on the nodes (stored as `style.descriptions: false`,
+ * showing removes the key); `legend` turns the legend on (`style.legend: true`). An empty `style` is removed. Layout only.
+ * Undefined when nothing changes.
  */
-export function applyDiagramStyle(doc: DiagramDocument, patch: { descriptions: boolean }): DiagramDocument | undefined {
-  if (typeof patch?.descriptions !== "boolean") return undefined;
-  const shown = doc.style?.descriptions !== false;
-  if (shown === patch.descriptions) return undefined;
+export function applyDiagramStyle(doc: DiagramDocument, patch: { descriptions?: boolean; legend?: boolean }): DiagramDocument | undefined {
+  const d = typeof patch?.descriptions === "boolean" ? patch.descriptions : undefined;
+  const l = typeof patch?.legend === "boolean" ? patch.legend : undefined;
   const { style: old, ...rest } = doc;
-  const { descriptions: _d, ...others } = old ?? {};
-  const style = patch.descriptions ? others : { ...others, descriptions: false };
+  let style: Record<string, unknown> = { ...old };
+  if (d !== undefined && d !== (doc.style?.descriptions !== false)) {
+    if (d) delete style.descriptions;
+    else style.descriptions = false;
+  }
+  if (l !== undefined && l !== (doc.style?.legend === true)) {
+    if (l) style.legend = true;
+    else delete style.legend;
+  }
+  if (JSON.stringify(style) === JSON.stringify(old ?? {})) return undefined;
   return Object.keys(style).length ? { ...rest, style } : (rest as DiagramDocument);
 }

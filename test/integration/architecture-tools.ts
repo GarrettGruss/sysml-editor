@@ -12,6 +12,7 @@ const FLEET = `package Fleet {
   part def Engine;
   part def Ship { port beacon : Radar; }
   part def Frigate :> Ship {
+    attribute mass;
     part engine : Engine;
     port radarPort : Radar;
   }
@@ -19,7 +20,7 @@ const FLEET = `package Fleet {
 }
 `;
 
-/** Architecture tools: showing content (show/hide parts and ports, related elements, copy and paste). */
+/** Architecture tools: showing content (parts and ports, related elements, copy and paste) and layout and style (align, compartments, legend, aspects). */
 export function architectureTests(c: Ctx): Test[] {
   const { api, folder } = c;
   const uriOf = (name: string) => vscode.Uri.joinPath(folder, name);
@@ -65,6 +66,14 @@ export function architectureTests(c: Ctx): Test[] {
     await c.eventually(async () => assert.ok((await api.diagram.metrics(uriOf(f))).nodes.length > 0), `${f} rendered`);
   };
   const dirty = (f: string) => api.diagram.state(uriOf(f)).dirty;
+  const selectNodes = async (f: string, ids: string[]) => {
+    await api.diagram.gesture(uriOf(f), { kind: "select", id: ids[0]! });
+    for (const id of ids.slice(1)) await api.diagram.gesture(uriOf(f), { kind: "select", id, shift: true });
+    await waitFor(() => doc(f) !== undefined, 1000, "doc");
+  };
+  const selectionKey = () => Promise.resolve(api.diagram.selectionKey());
+  const nodeBox = async (f: string, id: string) => (await api.diagram.metrics(uriOf(f))).nodes.find((n) => n.id === id)!;
+  const pngWidth = (b64: string) => Buffer.from(b64, "base64").readUInt32BE(16);
 
   return [
     ["Show/Hide Parts and Ports ticks a port onto the border of the node and unticking a part removes only its node, with the model text unchanged", withFleet({
@@ -146,6 +155,105 @@ export function architectureTests(c: Ctx): Test[] {
       await waitFor(() => has(cc, "Fleet::Frigate"), 10000, "the missing one is pasted");
       assert.strictEqual(doc(cc).nodes.filter((n) => n.ref === "Fleet::Ship").length, 1, "the drawn one is not duplicated");
       assert.strictEqual(doc(cc).nodes.length, 2);
+    })],
+    ["Align Left puts the left edges of three selected nodes at the leftmost as one layout edit, and the distribute commands need three nodes", withFleet({
+      "tmp-fleet-align.sysmld": { kind: "general", root: "Fleet", nodes: [
+        { id: "n1", ref: "Fleet::Ship", x: 120, y: 40, w: 160, h: 60 },
+        { id: "n2", ref: "Fleet::Frigate", x: 40, y: 200, w: 160, h: 60 },
+        { id: "n3", ref: "Fleet::Destroyer", x: 300, y: 360, w: 160, h: 60 },
+      ] },
+    }, async () => {
+      const f = "tmp-fleet-align.sysmld";
+      await open(f);
+      await selectNodes(f, ["n1", "n2", "n3"]);
+      await c.eventually(async () => assert.strictEqual(await selectionKey(), 3, "the selection size is a context key"), "three selected");
+      await vscode.commands.executeCommand("sysml.diagram.alignLeft");
+      await waitFor(() => doc(f).nodes.every((n) => n.x === 40), 10000, "left edges are equal");
+      assert.deepStrictEqual(doc(f).nodes.map((n) => n.y), [40, 200, 360], "only x changes");
+      assert.strictEqual(dirty(f), true, "a layout edit");
+      for (const id of ["n1", "n2", "n3"]) assert.strictEqual((await nodeBox(f, id)).x, 40);
+      // Two selected: align is available, distribute is not (its enablement needs three).
+      await selectNodes(f, ["n1", "n2"]);
+      await c.eventually(async () => assert.strictEqual(await selectionKey(), 2), "two selected");
+      const before = JSON.stringify(doc(f));
+      await vscode.commands.executeCommand("sysml.diagram.distributeVertically");
+      await sleep(400);
+      assert.strictEqual(JSON.stringify(doc(f)), before, "distribute does nothing with two nodes");
+      const pkg = vscode.extensions.all.map((e) => (e.packageJSON as { contributes?: { commands?: { command: string; enablement?: string }[] } }).contributes?.commands ?? []).find((cs) => cs.some((x) => x.command === "sysml.diagram.alignLeft"))!;
+      assert.match(pkg.find((x) => x.command === "sysml.diagram.distributeVertically")!.enablement!, /diagramSelection >= 3/);
+      assert.match(pkg.find((x) => x.command === "sysml.diagram.alignTop")!.enablement!, /diagramSelection >= 2/);
+    })],
+
+    ["hiding the attributes compartment shrinks the node, keeps the model text, survives save and reopen, and an old file loads with everything shown", withFleet({
+      "tmp-fleet-comp.sysmld": { kind: "general", root: "Fleet", nodes: [{ id: "n1", ref: "Fleet::Frigate", x: 40, y: 40, w: 300, h: 260 }] },
+    }, async () => {
+      const f = "tmp-fleet-comp.sysmld";
+      await open(f);
+      const first = await nodeBox(f, "n1");
+      assert.match(first.text ?? "", /mass/, "the attributes compartment is drawn");
+      assert.strictEqual((await api.diagram.metrics(uriOf(f))).legend, undefined, "an old file has no legend");
+      await api.diagram.gesture(uriOf(f), { kind: "contextmenu", id: "n1" });
+      assert.ok((await api.diagram.metrics(uriOf(f))).menu.some((m) => /Attributes/.test(m)), "the menu offers the compartment");
+      await api.diagram.gesture(uriOf(f), { kind: "menu", id: "n1", action: "compartment:attributes" });
+      await waitFor(() => (doc(f).nodes[0]!.style as { hiddenCompartments?: string[] } | undefined)?.hiddenCompartments?.[0] === "attributes", 10000, "the style holds the hidden compartment");
+      await c.eventually(async () => {
+        const n = await nodeBox(f, "n1");
+        assert.ok(!/mass/.test(n.text ?? ""), "the compartment is gone");
+        assert.ok(n.h < first.h, `the node is smaller (${n.h} < ${first.h})`);
+      }, "the node shrinks");
+      assert.strictEqual(dirty(f), true, "held in memory until the diagram is saved");
+      await api.diagram.save(uriOf(f));
+      assert.deepStrictEqual(JSON.parse(readFileSync(uriOf(f).fsPath, "utf8")).nodes[0].style, { hiddenCompartments: ["attributes"] });
+      await close();
+      await open(f);
+      assert.ok(!/mass/.test((await nodeBox(f, "n1")).text ?? ""), "still hidden after reopening");
+      await api.diagram.gesture(uriOf(f), { kind: "menu", id: "n1", action: "compartment:attributes" });
+      await c.eventually(async () => assert.match((await nodeBox(f, "n1")).text ?? "", /mass/), "shown again");
+    })],
+
+    ["the legend lists the kinds drawn, updates with the content and widens an exported image", withFleet({
+      "tmp-fleet-legend.sysmld": { kind: "general", root: "Fleet", nodes: [{ id: "n1", ref: "Fleet::Ship", x: 40, y: 40, w: 160, h: 60 }, { id: "n2", ref: "Fleet::Frigate", x: 40, y: 200, w: 160, h: 60 }] },
+    }, async () => {
+      const f = "tmp-fleet-legend.sysmld";
+      await open(f);
+      const plain = pngWidth(await api.diagram.png(uriOf(f)));
+      await vscode.commands.executeCommand("sysml.diagram.toggleLegend");
+      await c.eventually(async () => assert.deepStrictEqual((await api.diagram.metrics(uriOf(f))).legend, ["Part def", "Specialization"]), "the legend lists the kinds drawn");
+      assert.deepStrictEqual((doc(f).style as object), { legend: true });
+      assert.strictEqual(dirty(f), true);
+      assert.ok(pngWidth(await api.diagram.png(uriOf(f))) > plain, "the exported image carries the legend");
+      await api.diagram.gesture(uriOf(f), { kind: "drop", names: ["Fleet::Engine"] });
+      await c.eventually(async () => assert.ok((await api.diagram.metrics(uriOf(f))).legend!.includes("Part def")), "dropped");
+      await vscode.commands.executeCommand("sysml.diagram.toggleLegend");
+      await c.eventually(async () => assert.strictEqual((await api.diagram.metrics(uriOf(f))).legend, undefined), "legend off");
+      assert.strictEqual(doc(f).style, undefined);
+    })],
+
+    ["applying an aspect draws only its nodes and the lines among them, clearing shows all again, and saving one stores the nodes drawn", withFleet({
+      "tmp-fleet-aspect.sysmld": { kind: "general", root: "Fleet", style: { aspects: { Power: ["n1", "n2", "n3", "gone"] } }, nodes: [
+        { id: "n1", ref: "Fleet::Ship", x: 40, y: 40, w: 160, h: 60 },
+        { id: "n2", ref: "Fleet::Frigate", x: 40, y: 200, w: 160, h: 60 },
+        { id: "n3", ref: "Fleet::Destroyer", x: 40, y: 360, w: 160, h: 60 },
+        { id: "n4", ref: "Fleet::Engine", x: 400, y: 40, w: 160, h: 60 },
+      ] },
+    }, async () => {
+      const f = "tmp-fleet-aspect.sysmld";
+      await open(f);
+      api.diagram.setUi({ pick: async (items: PickItem[]) => items.find((i) => i.label === "Power"), input: async () => "Everything", notify: () => {} });
+      const ids = async () => (await api.diagram.metrics(uriOf(f))).nodes.map((n) => n.id).sort();
+      assert.deepStrictEqual(await ids(), ["n1", "n2", "n3", "n4"]);
+      await vscode.commands.executeCommand("sysml.diagram.applyAspect");
+      await c.eventually(async () => assert.deepStrictEqual(await ids(), ["n1", "n2", "n3"]), "only the aspect's nodes are drawn");
+      assert.ok((await api.diagram.metrics(uriOf(f))).edges.length >= 2, "the lines among them are drawn");
+      assert.strictEqual(doc(f).nodes.length, 4, "the nodes stay in the diagram file");
+      await vscode.commands.executeCommand("sysml.diagram.clearAspect");
+      await c.eventually(async () => assert.deepStrictEqual(await ids(), ["n1", "n2", "n3", "n4"]), "every node is drawn again");
+      assert.strictEqual((doc(f).style as { activeAspect?: string }).activeAspect, undefined);
+      await vscode.commands.executeCommand("sysml.diagram.saveAspect");
+      await waitFor(() => (doc(f).style as { aspects: Record<string, string[]> }).aspects.Everything !== undefined, 10000, "the aspect is saved");
+      assert.deepStrictEqual((doc(f).style as { aspects: Record<string, string[]> }).aspects.Everything, ["n1", "n2", "n3", "n4"]);
+      await vscode.commands.executeCommand("sysml.diagram.deleteAspect");
+      await waitFor(() => (doc(f).style as { aspects: Record<string, string[]> }).aspects.Power === undefined, 10000, "Power is deleted");
     })],
   ];
 }

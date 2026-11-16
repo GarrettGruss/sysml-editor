@@ -68,6 +68,7 @@ export interface TestApi {
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
     setUi(ui: { pickMany?: (items: PickItem[], options: unknown) => Promise<PickItem[] | undefined>; notify?: (message: string) => void; pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined>; saveAs?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined> } | undefined): void;
+    selectionKey(): number;
     activeUri(): string | undefined;
     hoverOf(uri: vscode.Uri): string | undefined;
   };
@@ -107,7 +108,8 @@ export interface Failure { reason: string; goToError?: { uri: string; line: numb
 export interface PickItem { label: string; description?: string; detail?: string }
 export interface DiagramDoc {
   version: number; kind: string; root: string; sources: string[];
-  nodes: { id: string; ref?: string; parent?: string; x?: number; y?: number; w?: number; h?: number }[];
+  nodes: { id: string; ref?: string; parent?: string; x?: number; y?: number; w?: number; h?: number; style?: Record<string, unknown> }[];
+  style?: Record<string, unknown>;
   edges: { id: string; ref?: string; locator?: { kind: string }; source: string; target: string; points?: { x: number; y: number }[]; label?: { dx: number; dy: number; w?: number; h?: number; wrap?: boolean } }[];
 }
 export type Gesture =
@@ -116,7 +118,7 @@ export type Gesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | "showHideMembers" | "displayRelated" | "copy" | "paste" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | "showHideMembers" | "displayRelated" | "copy" | "paste" | `compartment:${string}` }
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[]; x?: number; y?: number }
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number; name?: string; hold?: boolean }
@@ -152,7 +154,7 @@ export interface Metrics {
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; routeHandles: number; labelHandles: number; focusable: boolean; zoom: number;
   view: { x: number; y: number; k: number }; canvas: { w: number; h: number }; highlights: number; staleDraws: number; focusOutline: boolean;
   ghost?: { target?: string; invalid?: string; points: number }; quickBar: string[]; quickAnchor?: { bar: { x: number; y: number }; ghostEnd: { x: number; y: number } }; connectHandles: number; reconnectHandles: number;
-  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; inline?: { value: string; error?: string; purpose: string }; paletteGhost?: { kind: string; name: string; placed: boolean }; descriptions: boolean; theme: string;
+  inheritedNodes: number; palette: string[]; tool?: string; inlineEditor: boolean; inline?: { value: string; error?: string; purpose: string }; paletteGhost?: { kind: string; name: string; placed: boolean }; descriptions: boolean; legend?: string[]; theme: string;
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
 }
 

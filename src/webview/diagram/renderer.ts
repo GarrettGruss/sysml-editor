@@ -3,9 +3,11 @@
  * this class so the drawing technology can be replaced. This implementation is hand-built SVG,
  * with the interaction logic in `interaction.ts` and the drawing in `svg.ts`.
  */
-import { ELEMENT_MIME, type ConnectRelation, type DiagramEdit, type EdgePatch, type DiagramMetrics, type ModelIntent, type NodeCommand, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
+import { ELEMENT_MIME, type ConnectRelation, type DiagramEdit, type EdgePatch, type DiagramMetrics, type AlignCommand, type ModelIntent, type NodeCommand, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
 import { absoluteBoxes, boundsOf, countOutsideParent, countOverCompartments, countOverlaps, describeBox, type Box, type Measure, type Pt } from "./geometry.js";
+import { planAlign, planDistribute, type AlignMode, type DistributeMode } from "./align.js";
+import { legendEntries } from "./legend.js";
 import { InlineInput } from "./inline-input.js";
 import { DOC_SHAPES, UNNAMED_KINDS, defaultStem, nextFreeName } from "../../diagram/authoring.js";
 import { DRAG_THRESHOLD, handleBoxes, Interaction, snap, type InteractionHost, type PointerInput, type Scene } from "./interaction.js";
@@ -135,7 +137,7 @@ export class SvgRenderer implements DiagramRenderer {
     };
     this.ia = new Interaction(ihost);
     this.scene = this.ia.scene;
-    this.tools = new Tools(host, { onModel: (i) => cb.onModel(i), suggest: (id, q) => cb.suggest(id, q), chooseTool: (t) => this.setTool(t), toggleDescriptions: (show) => cb.onEdit({ kind: "style", descriptions: show }) });
+    this.tools = new Tools(host, { onModel: (i) => cb.onModel(i), suggest: (id, q) => cb.suggest(id, q), chooseTool: (t) => this.setTool(t), toggleDescriptions: (show) => cb.onEdit({ kind: "style", descriptions: show }), toggleLegend: (show) => cb.onEdit({ kind: "style", legend: show }) });
     this.wire();
   }
 
@@ -742,11 +744,15 @@ export class SvgRenderer implements DiagramRenderer {
     const x = cx ?? (abs ? r.left + this.view.x + (abs.x + abs.w / 2) * this.view.k : r.left + 20);
     const y = cy ?? (abs ? r.top + this.view.y + (abs.y + abs.h / 2) * this.view.k : r.top + 20);
     const editable = n.resolved && n.props !== undefined && n.props.locked === undefined;
-    const items: { label: string; action: MenuAction }[] = [
+    const sel = this.ia.selection;
+    const several = sel.length > 1 && sel.includes(id);
+    const items: { label: string; action: MenuAction; checked?: boolean }[] = [
       ...(editable ? [{ label: "Rename", action: "rename" as const }] : []),
       ...(editable && DOC_SHAPES.has(n.shape) ? [{ label: n.props?.documentation ? "Edit Description" : "Add Description", action: "description" as const }] : []),
       ...(n.resolved ? [{ label: "Go to Definition", action: "goto" as const }] : []),
       ...(n.resolved && FREE_DIAGRAMS.has(this.vm!.kind) ? [{ label: "Show/Hide Parts and Ports\u2026", action: "showHideMembers" as const }, { label: "Display Related Elements\u2026", action: "displayRelated" as const }] : []),
+      ...(n.compartmentTitles ?? []).map((t) => ({ label: `Show ${t === "doc" ? "Description" : t.charAt(0).toUpperCase() + t.slice(1)}`, action: `compartment:${t}` as const, checked: !(n.hiddenCompartments ?? []).includes(t) })),
+      ...(several ? ALIGN_ITEMS.filter((a) => sel.length >= 3 || !a.action.startsWith("distribute")) : []),
       { label: "Copy", action: "copy" as const },
       { label: "Remove from Diagram", action: "remove" as const },
       ...(n.resolved ? [{ label: "Delete from Model…", action: "deleteModel" as const }] : []),
@@ -766,6 +772,12 @@ export class SvgRenderer implements DiagramRenderer {
     if (items.length) showMenu(document.body, cx, cy, items, (a) => this.invoke(a, id), () => this.svg.focus({ preventScroll: true }));
   }
 
+  /** Align or distribute the selected nodes (D48): one layout edit; distribute needs three nodes. */
+  align(cmd: AlignCommand): void {
+    const mode = ALIGN_BY_COMMAND[cmd];
+    this.ia.arrange((scene, ids) => (mode.align ? planAlign(scene, ids, mode.align) : planDistribute(scene, ids, mode.distribute!)));
+  }
+
   /** The action a menu item performs (also what the test gesture "menu" calls). */
   invoke(action: MenuAction, id: string): void {
     if (this.vm?.edges.some((e) => e.id === id)) {
@@ -773,6 +785,17 @@ export class SvgRenderer implements DiagramRenderer {
       else if (action === "remove") { this.selectedEdge = undefined; this.cb.onEdit({ kind: "remove", ids: [id] }); }
       return;
     }
+    if (action.startsWith("compartment:")) {
+      const title = action.slice("compartment:".length);
+      const n = this.vm?.nodes.find((x) => x.id === id);
+      if (!n) return;
+      const hidden = new Set(n.hiddenCompartments ?? []);
+      if (hidden.has(title)) hidden.delete(title);
+      else hidden.add(title);
+      this.cb.onEdit({ kind: "compartments", id, hidden: [...hidden] });
+      return;
+    }
+    if (isAlign(action)) { this.align(action); return; }
     if (action === "showHideMembers" || action === "displayRelated" || action === "copy" || action === "paste") {
       this.cb.onNodeCommand(action, id, this.ia.selection.includes(id) ? [...this.ia.selection] : [id]);
       return;
@@ -1573,7 +1596,7 @@ export class SvgRenderer implements DiagramRenderer {
       nodes, edges, overlaps: countOverlaps(vm, abs), overflows, outsideParent: countOutsideParent(vm, abs), nodesOverCompartments: countOverCompartments(vm, abs, this.measure),
       ...checkEdges(vm, abs, this.drawn.routes, this.drawn.labels, this.drawn.laidOut),
       selected, menu: [...document.querySelectorAll(".ctx-menu button")].map((b) => b.textContent ?? ""), selectedNamed: named, handles: this.overlay.querySelectorAll("[data-handle]").length, routeHandles: this.overlay.querySelectorAll("[data-route-handle]").length, labelHandles: this.overlay.querySelectorAll("[data-label-handle]").length, inheritedNodes: this.world.querySelectorAll('g[data-inherited="true"]').length,
-      focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(), ...this.tools.state(), ...this.connectMetrics(), inlineEditor: this.editor !== undefined, ...this.inlineMetrics(), descriptions: this.vm?.descriptions !== false, theme: themeOf(),
+      focusable: this.svg.tabIndex >= 0, zoom: this.view.k, ...this.viewMetrics(), ...this.tools.state(), ...this.connectMetrics(), inlineEditor: this.editor !== undefined, ...this.inlineMetrics(), descriptions: this.vm?.descriptions !== false, ...(this.vm?.legend ? { legend: legendEntries(this.vm).nodes.map((n) => n.label).concat(legendEntries(this.vm).edges.map((e) => e.label)) } : {}), theme: themeOf(),
     };
   }
 
@@ -1639,8 +1662,19 @@ type LineGesture =
   | { kind: "bend"; id: string; k: number; start: Pt; base: Pt[]; src: Box; tgt: Box; moved: boolean; out?: Pt[] }
   | { kind: "lmove" | "lresize"; id: string; start: Pt; box: Box; pts: Pt[]; sized: boolean; cur?: LabelLayout; moved: boolean; out?: LabelLayout };
 
+const ALIGN_BY_COMMAND: Record<AlignCommand, { align?: AlignMode; distribute?: DistributeMode }> = {
+  alignLeft: { align: "left" }, alignRight: { align: "right" }, alignTop: { align: "top" }, alignBottom: { align: "bottom" },
+  alignCenter: { align: "center" }, alignMiddle: { align: "middle" },
+  distributeHorizontal: { distribute: "horizontal" }, distributeVertical: { distribute: "vertical" },
+};
+const ALIGN_ITEMS: { label: string; action: AlignCommand }[] = [
+  { label: "Align Left", action: "alignLeft" }, { label: "Align Right", action: "alignRight" }, { label: "Align Top", action: "alignTop" },
+  { label: "Align Bottom", action: "alignBottom" }, { label: "Align Center", action: "alignCenter" }, { label: "Align Middle", action: "alignMiddle" },
+  { label: "Distribute Horizontally", action: "distributeHorizontal" }, { label: "Distribute Vertically", action: "distributeVertical" },
+];
+const isAlign = (a: string): a is AlignCommand => a in ALIGN_BY_COMMAND;
 const FREE_DIAGRAMS = new Set(["general", "interconnection", "requirements"]);
-type MenuAction = "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | NodeCommand;
+type MenuAction = "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | NodeCommand | `compartment:${string}` | AlignCommand;
 
 /** `light`, `dark` or `hc`, from the classes VS Code puts on the webview body. */
 function themeOf(): string {

@@ -19,6 +19,8 @@ export interface ToolsHost {
   chooseTool(tool: Tool | undefined): void;
   /** The per-diagram toggle for the descriptions on the nodes (diagram style, a layout edit). */
   toggleDescriptions(show: boolean): void;
+  /** The per-diagram legend toggle (diagram style, a layout edit). */
+  toggleLegend(show: boolean): void;
 }
 
 export interface PropertiesState {
@@ -63,6 +65,8 @@ export class Tools {
   /** "Show descriptions": the diagram style that shows or hides the first `doc` on the nodes. */
   readonly descriptionToggle = document.createElement("input");
   private readonly descriptionRow = el("label", "palette-toggle");
+  readonly legendToggle = document.createElement("input");
+  private readonly legendRow = el("label", "palette-toggle");
 
   constructor(host: HTMLElement, private readonly cb: ToolsHost) {
     this.descriptionToggle.type = "checkbox";
@@ -71,6 +75,11 @@ export class Tools {
     this.descriptionToggle.addEventListener("change", () => this.cb.toggleDescriptions(this.descriptionToggle.checked));
     this.descriptionRow.title = "Show or hide the descriptions (the first doc comment) on the elements of this diagram. Saved with the diagram layout; the model text does not change.";
     this.descriptionRow.append(this.descriptionToggle, document.createTextNode(" Descriptions"));
+    this.legendToggle.type = "checkbox";
+    this.legendToggle.dataset.toggle = "legend";
+    this.legendToggle.addEventListener("change", () => this.cb.toggleLegend(this.legendToggle.checked));
+    this.legendRow.title = "Show a legend of the element and line kinds drawn. Saved with the diagram layout; the model text does not change.";
+    this.legendRow.append(this.legendToggle, document.createTextNode(" Legend"));
     this.palette.setAttribute("role", "toolbar");
     this.palette.setAttribute("aria-label", "Palette");
     this.props.setAttribute("role", "region");
@@ -85,6 +94,7 @@ export class Tools {
 
   setDiagram(vm: ViewModel): void {
     this.descriptionToggle.checked = vm.descriptions !== false;
+    this.legendToggle.checked = vm.legend === true;
     if (this.kind === vm.kind) return;
     this.kind = vm.kind;
     this.palette.replaceChildren(el("div", "panel-title", "Palette"));
@@ -99,7 +109,7 @@ export class Tools {
       this.palette.append(b);
       this.buttons.push(b);
     }
-    this.palette.append(this.descriptionRow);
+    this.palette.append(this.descriptionRow, this.legendRow);
   }
 
   private isActive(item: PaletteItem): boolean {

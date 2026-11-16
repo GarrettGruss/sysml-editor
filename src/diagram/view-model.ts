@@ -9,6 +9,7 @@ import { endElement, relationOf } from "./relations.js";
 import { nestFamily } from "../edit/nest.js";
 import { unescapeTerminator } from "../edit/comment.js";
 import { DOC_SHAPES } from "./authoring.js";
+import { hiddenCompartments, showsLegend, visibleDocument } from "./style.js";
 
 export type ShapeKind =
   | "definition" | "usage" | "package" | "requirement" | "port" | "unresolved"
@@ -33,6 +34,9 @@ export interface VmNode {
   keyword?: string;
   label: string;
   compartments?: Compartment[];
+  /** Titles of the compartments the node has (`doc` for its description) and those the diagram style hides (D49); hidden ones are not in `compartments`. */
+  compartmentTitles?: string[];
+  hiddenCompartments?: string[];
   /** Documentation text (requirements). */
   doc?: string;
   /** Containing node; absent for ports (they use `attachedTo`). */
@@ -116,6 +120,8 @@ export interface ViewModel {
   edges: VmEdge[];
   /** Whether nodes show their description (the diagram's style, D35; on unless the file says `"descriptions": false`). */
   descriptions?: boolean;
+  /** Whether the diagram draws a legend of the kinds drawn (diagram style, D49). */
+  legend?: boolean;
 }
 
 /** Whether the diagram style shows descriptions. */
@@ -279,7 +285,9 @@ function addPins(nodes: VmNode[], resolution: Resolution, index: ModelIndex): Ma
 }
 
 /** `readOnly` tells why an element's document must not be edited (see `ModelService.blockedReason`). */
-export function buildViewModel(doc: DiagramDocument, resolution: Resolution, index: ModelIndex, readOnly?: (uri: string) => string | undefined): ViewModel {
+export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution, index: ModelIndex, readOnly?: (uri: string) => string | undefined): ViewModel {
+  // An applied aspect (D49) shows only the nodes it lists, and the lines among them.
+  const doc = visibleDocument(fullDoc);
   const nodeOfElement = new Map<Element, string>();
   for (const n of doc.nodes) {
     const el = resolution.get(n.id);
@@ -334,11 +342,23 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
     }
     // The first `doc` of the element (D35), shown unescaped; control nodes, pseudostates, pins and lifelines have no room for it.
     const docText = el.documentation !== undefined ? unescapeTerminator(el.documentation) : undefined;
-    if (docText && showsDescriptions(doc) && DOC_SHAPES.has(shape)) out.doc = docText;
+    const hidden = hiddenCompartments(n);
+    const titles: string[] = [];
+    if (docText && showsDescriptions(doc) && DOC_SHAPES.has(shape)) {
+      titles.push("doc");
+      if (!hidden.includes("doc")) out.doc = docText;
+    }
     const fromName = inheritedOf(n);
     if (general && (shape === "definition" || shape === "usage")) {
       const c = compartmentsOf(el, shown, index, shape === "definition", fromName);
-      if (c.length) out.compartments = c;
+      for (const x of c) titles.push(x.title);
+      const kept = c.filter((x) => !hidden.includes(x.title));
+      if (kept.length) out.compartments = kept;
+    }
+    if (titles.length) {
+      out.compartmentTitles = titles;
+      const h = titles.filter((t) => hidden.includes(t));
+      if (h.length) out.hiddenCompartments = h;
     }
     // A feature shown inside a usage that only inherits it (an Interconnection View of a usage shows its inherited parts and ports).
     const from = fromName;
@@ -471,5 +491,5 @@ export function buildViewModel(doc: DiagramDocument, resolution: Resolution, ind
       }
     }
   }
-  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc) };
+  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc), ...(showsLegend(doc) ? { legend: true } : {}) };
 }

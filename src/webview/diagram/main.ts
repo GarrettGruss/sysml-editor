@@ -256,6 +256,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         else if (m.name === "zoomIn") renderer.zoomBy(1.25);
         else if (m.name === "zoomOut") renderer.zoomBy(0.8);
         else if (m.name === "selectAll") renderer.selectAll();
+        else renderer.align(m.name);
       }).catch(fail);
       break;
     case "select":

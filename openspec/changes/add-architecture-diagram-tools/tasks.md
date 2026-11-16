@@ -6,10 +6,10 @@
 - [x] 1.3 Copy and paste of nodes between diagrams; unit and integration tests for both scenarios
 
 ## 2. Layout and style
-- [ ] 2.1 Align and distribute; unit tests on boxes; integration test for both scenarios
-- [ ] 2.2 Compartment visibility with style keys and old-file load; unit tests and the round-trip scenario
-- [ ] 2.3 Legend toggle and export inclusion; unit test and integration test
-- [ ] 2.4 Aspects save, apply, clear; unit and integration tests
+- [x] 2.1 Align and distribute; unit tests on boxes; integration test for both scenarios
+- [x] 2.2 Compartment visibility with style keys and old-file load; unit tests and the round-trip scenario
+- [x] 2.3 Legend toggle and export inclusion; unit test and integration test
+- [x] 2.4 Aspects save, apply, clear; unit and integration tests
 
 ## 3. Export, relationships, navigation
 - [ ] 3.1 Save and Copy as Image, SVG request, write errors; integration tests for both scenarios
