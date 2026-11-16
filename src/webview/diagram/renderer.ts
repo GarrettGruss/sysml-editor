@@ -3,7 +3,7 @@
  * this class so the drawing technology can be replaced. This implementation is hand-built SVG,
  * with the interaction logic in `interaction.ts` and the drawing in `svg.ts`.
  */
-import { ELEMENT_MIME, type ConnectRelation, type DiagramEdit, type EdgePatch, type DiagramMetrics, type ModelIntent, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
+import { ELEMENT_MIME, type ConnectRelation, type DiagramEdit, type EdgePatch, type DiagramMetrics, type ModelIntent, type NodeCommand, type PngTheme, type TestGesture } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
 import { absoluteBoxes, boundsOf, countOutsideParent, countOverCompartments, countOverlaps, describeBox, type Box, type Measure, type Pt } from "./geometry.js";
 import { InlineInput } from "./inline-input.js";
@@ -43,6 +43,7 @@ export interface RendererCallbacks {
   /** The node or edge id under the pointer; undefined when it left the diagram. Called only on a change. */
   onHover(id: string | undefined): void;
   onRelink(id: string): void;
+  onNodeCommand(command: NodeCommand, id: string | undefined, ids: string[]): void;
   onDrop(names: string[], at?: { x: number; y: number }): void;
   onModel(intent: ModelIntent): void;
   suggest(id: string, query: string): Promise<Suggestion[]>;
@@ -681,6 +682,11 @@ export class SvgRenderer implements DiagramRenderer {
         e.preventDefault();
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !this.editor && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        const k = e.key.toLowerCase();
+        if (k === "c" && this.ia.selection.length) { this.cb.onNodeCommand("copy", undefined, [...this.ia.selection]); e.preventDefault(); return; }
+        if (k === "v") { this.cb.onNodeCommand("paste", undefined, []); e.preventDefault(); return; }
+      }
       // With nothing selected the arrow keys pan the view; with a selection they nudge it (below). Not while a text field has focus.
       const pan = this.ia.selection.length === 0 && this.editor === undefined ? arrowPan(e.key, e.shiftKey) : undefined;
       if (pan && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
@@ -740,6 +746,8 @@ export class SvgRenderer implements DiagramRenderer {
       ...(editable ? [{ label: "Rename", action: "rename" as const }] : []),
       ...(editable && DOC_SHAPES.has(n.shape) ? [{ label: n.props?.documentation ? "Edit Description" : "Add Description", action: "description" as const }] : []),
       ...(n.resolved ? [{ label: "Go to Definition", action: "goto" as const }] : []),
+      ...(n.resolved && FREE_DIAGRAMS.has(this.vm!.kind) ? [{ label: "Show/Hide Parts and Ports\u2026", action: "showHideMembers" as const }, { label: "Display Related Elements\u2026", action: "displayRelated" as const }] : []),
+      { label: "Copy", action: "copy" as const },
       { label: "Remove from Diagram", action: "remove" as const },
       ...(n.resolved ? [{ label: "Delete from Model…", action: "deleteModel" as const }] : []),
       ...(n.shape === "unresolved" ? [{ label: "Re-link…", action: "relink" as const }] : []),
@@ -763,6 +771,10 @@ export class SvgRenderer implements DiagramRenderer {
     if (this.vm?.edges.some((e) => e.id === id)) {
       if (action === "deleteModel") this.cb.onModel({ kind: "deleteFromModel", ids: [id] });
       else if (action === "remove") { this.selectedEdge = undefined; this.cb.onEdit({ kind: "remove", ids: [id] }); }
+      return;
+    }
+    if (action === "showHideMembers" || action === "displayRelated" || action === "copy" || action === "paste") {
+      this.cb.onNodeCommand(action, id, this.ia.selection.includes(id) ? [...this.ia.selection] : [id]);
       return;
     }
     if (action === "rename") this.openEditor(id);
@@ -1627,7 +1639,8 @@ type LineGesture =
   | { kind: "bend"; id: string; k: number; start: Pt; base: Pt[]; src: Box; tgt: Box; moved: boolean; out?: Pt[] }
   | { kind: "lmove" | "lresize"; id: string; start: Pt; box: Box; pts: Pt[]; sized: boolean; cur?: LabelLayout; moved: boolean; out?: LabelLayout };
 
-type MenuAction = "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description";
+const FREE_DIAGRAMS = new Set(["general", "interconnection", "requirements"]);
+type MenuAction = "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | NodeCommand;
 
 /** `light`, `dark` or `hc`, from the classes VS Code puts on the webview body. */
 function themeOf(): string {

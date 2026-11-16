@@ -16,10 +16,12 @@ import { readSettled } from "./read-settled.js";
 import { createDiagramFile, writeDiagramFile } from "./write-uri.js";
 import { exportWithinLimit, RenderQueue } from "./agent-guards.js";
 import { addElement, addElements, rootProblem } from "./create.js";
+import { copyNodes, pasteNodes, type DiagramClip } from "./clipboard.js";
+import { RELATED_LABELS, displayRelated, memberChoices, missingRelated, setMembers, FREE_KINDS, type RelatedKind } from "./related.js";
 import { applyAutoLayout, applyBoxPatches, applyDiagramStyle, applyEdgeLayout, materializePins, removeItems } from "./edits.js";
 import { defaultNameFor } from "./naming.js";
 import { listElements, relinkCandidates } from "./new-diagram.js";
-import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
+import type { DiagramCommand, DiagramEdit, HostToWebview, ModelIntent, NodeCommand, PngTheme, TestGesture, WebviewToHost } from "./protocol.js";
 import { applyUpdates, relink } from "./reconcile.js";
 import { makeSourceMapper, referenceKey, resolveReference } from "./resolve.js";
 import { DiagramState, decideSave, followRename, forceChange, hashViewModel, noteExternalChange, refresh, unforceChange } from "./session.js";
@@ -43,6 +45,10 @@ export interface DiagramUi {
   confirm(message: string, detail: string, action: string): Promise<boolean>;
   /** Show a refused or failed model edit, with "Go to error" or "Go to Definition" when it offers them. */
   fail(failure: OpFailure): Promise<void>;
+  /** Several choices, those with `picked` ticked first; the ticked ones as chosen, or undefined when cancelled. */
+  pickMany<T extends vscode.QuickPickItem>(items: readonly T[], options: vscode.QuickPickOptions): Promise<T[] | undefined>;
+  /** A plain message (nothing to do, a result worth telling). */
+  notify(message: string): void;
   /** A message with action buttons; resolves to the chosen action, or undefined when dismissed. */
   choose(message: string, actions: readonly string[]): Promise<string | undefined>;
   /** Ask where to save a new diagram whose intended path is taken. */
@@ -52,6 +58,11 @@ export interface DiagramUi {
 export const defaultUi: DiagramUi = {
   pick: (items, options) => Promise.resolve(vscode.window.showQuickPick(items, options)),
   input: (options) => Promise.resolve(vscode.window.showInputBox(options)),
+  pickMany: async (items, options) => {
+    const r = await vscode.window.showQuickPick(items, { ...options, canPickMany: true });
+    return r ? [...r] : undefined;
+  },
+  notify: (message) => void vscode.window.showInformationMessage(message),
   fail: (f) => showFailure(f),
   choose: (message, actions) => Promise.resolve(vscode.window.showWarningMessage(message, ...actions)),
   confirm: async (message, detail, action) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action,
@@ -475,6 +486,9 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         this.post(p, { type: "nameCheckResult", requestId: m.requestId, ...r });
         break;
       }
+      case "nodeCommand":
+        void this.nodeCommand(doc, m.command, m.id, m.ids).catch((e) => this.fail("Diagram command", e));
+        break;
       case "relink":
         void this.relinkInteractive(doc, m.id).catch((e) => this.fail("Re-link", e));
         break;
@@ -961,6 +975,63 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     if (!d || !node) return;
     const el = resolveReference(node, d, this.model.index, this.opts(doc));
     if (el) this.revealInTree(el);
+  }
+
+  /** References copied from a diagram, shared by all open diagrams (D47). */
+  private clipboard?: DiagramClip;
+
+  /** The node commands: Show/Hide Parts and Ports, Display Related Elements, Copy and Paste. All are layout edits. */
+  async nodeCommand(doc: SysmlDiagramDocument, command: NodeCommand, id?: string, ids?: string[]): Promise<void> {
+    const cur = doc.state.doc;
+    if (!cur) { this.ui.notify("This diagram cannot be edited: its file does not parse."); return; }
+    const index = this.model.index;
+    const opts = this.opts(doc);
+    const known = (i: unknown): i is string => typeof i === "string" && cur.nodes.some((n) => n.id === i);
+    const selected = (Array.isArray(ids) ? ids : doc.selection).filter(known);
+    if (command === "copy") {
+      const clip = copyNodes(cur, selected);
+      if (!clip) { this.ui.notify("Select one or more nodes to copy."); return; }
+      this.clipboard = clip;
+      return;
+    }
+    if (command === "paste") {
+      if (!this.clipboard) { this.ui.notify("Nothing to paste: copy nodes in a diagram first."); return; }
+      const r = pasteNodes(cur, index, this.clipboard, opts);
+      if (r.added) this.edit(doc, r.doc, "Paste");
+      if (r.skipped) this.ui.notify(`${r.skipped} element${r.skipped === 1 ? " was" : "s were"} skipped: this kind of diagram cannot show ${r.skipped === 1 ? "it" : "them"}.`);
+      else if (!r.added) this.ui.notify("Everything copied is already drawn in this diagram.");
+      return;
+    }
+    const nodeId = known(id) ? id : selected[selected.length - 1];
+    if (nodeId === undefined) { this.ui.notify("Select a node first."); return; }
+    if (!FREE_KINDS.includes(cur.kind)) { this.ui.notify("This command is not available in this kind of diagram."); return; }
+    if (command === "showHideMembers") {
+      const choices = memberChoices(cur, index, nodeId, opts);
+      if (!choices.length) { this.ui.notify("This element has no parts or ports."); return; }
+      const items = choices.map((c) => ({ label: c.label, description: `${c.kind}${c.inheritedFrom ? `, inherited from ${c.inheritedFrom}` : ""}`, picked: c.drawn, key: c.key }));
+      const picked = await this.ui.pickMany(items, { title: "Show/Hide Parts and Ports", placeHolder: "Tick what the diagram shows" });
+      if (!picked) return;
+      const now = this.activeDoc(doc);
+      if (!now) return;
+      const r = setMembers(now, index, nodeId, new Set(picked.map((p) => p.key)), opts, doc.state.viewModel);
+      if (r.added || r.removed) this.edit(doc, r.doc, "Show/Hide Parts and Ports");
+      return;
+    }
+    // displayRelated
+    const missing = missingRelated(cur, index, nodeId, opts);
+    if (!missing.length) { this.ui.notify("Every related element is already drawn."); return; }
+    const kinds = [...new Set(missing.map((m) => m.kind))];
+    const items = kinds.map((k) => ({ label: RELATED_LABELS[k], description: `${missing.filter((m) => m.kind === k).length} not drawn`, picked: false, relKind: k }));
+    const picked = await this.ui.pickMany(items, { title: "Display Related Elements", placeHolder: "Choose the kinds of relation to follow" });
+    if (!picked?.length) return;
+    const now = this.activeDoc(doc);
+    if (!now) return;
+    const r = displayRelated(now, index, nodeId, new Set<RelatedKind>(picked.map((p) => p.relKind)), opts);
+    if (r.added) this.edit(doc, r.doc, "Display Related Elements");
+  }
+
+  private activeDoc(doc: SysmlDiagramDocument): FileDoc | undefined {
+    return doc.state.doc;
   }
 
   /** Add elements to the diagram as one undoable edit; existing ones are just selected. */

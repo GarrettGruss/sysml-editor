@@ -40,6 +40,7 @@ const renderer = new SvgRenderer(document.body, measure, {
   onSelection: (ids) => post({ type: "selection", ids }),
   onHover: (id) => hoverReport(id),
   onRelink: (id) => post({ type: "relink", id }),
+  onNodeCommand: (command, id, ids) => post({ type: "nodeCommand", command, ...(id !== undefined ? { id } : {}), ids }),
   onDrop: (names, at) => post({ type: "dropElements", names, ...(at ? { x: at.x, y: at.y } : {}) }),
   onModel: (intent) => post({ type: "model", intent, ...(generation !== undefined ? { generation } : {}) }),
   suggest: (id, query) => new Promise((resolve) => {

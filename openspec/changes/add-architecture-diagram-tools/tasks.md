@@ -1,9 +1,9 @@
 # Tasks
 
 ## 1. Showing content
-- [ ] 1.1 Related-element query and Show/Hide Parts and Ports; unit tests; verify the show, hide and "Pick a kind" scenarios
-- [ ] 1.2 Display Related Elements command and picker; integration test for both scenarios
-- [ ] 1.3 Copy and paste of nodes between diagrams; unit and integration tests for both scenarios
+- [x] 1.1 Related-element query and Show/Hide Parts and Ports; unit tests; verify the show, hide and "Pick a kind" scenarios
+- [x] 1.2 Display Related Elements command and picker; integration test for both scenarios
+- [x] 1.3 Copy and paste of nodes between diagrams; unit and integration tests for both scenarios
 
 ## 2. Layout and style
 - [ ] 2.1 Align and distribute; unit tests on boxes; integration test for both scenarios

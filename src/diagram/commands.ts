@@ -9,6 +9,7 @@ import { createDiagram, diagramKindsFor } from "./create.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { VIEW_TYPE } from "./diagram-editor.js";
 import { DiagramFileIndex } from "./diagram-index.js";
+import type { NodeCommand } from "./protocol.js";
 import { readSettled } from "./read-settled.js";
 import { serializeDiagram, type DiagramDocument, type DiagramKind } from "./format.js";
 import { KIND_LABELS, defaultDiagramFileName, fileRoots, listElements, uniqueFileName } from "./new-diagram.js";
@@ -205,5 +206,18 @@ export function registerDiagramCommands(deps: DiagramCommandDeps): vscode.Dispos
     vscode.commands.registerCommand("sysml.diagram.autoLayout", () => {
       if (!deps.diagrams.runCommand(active(), "autoLayout")) void vscode.window.showInformationMessage("Open a diagram first: Auto-layout needs a diagram editor to be active.");
     }),
+    ...NODE_COMMANDS.map(([name, command]) =>
+      vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
+        const doc = active();
+        if (!doc) { void vscode.window.showInformationMessage("Open a diagram first."); return; }
+        return deps.diagrams.nodeCommand(doc, command);
+      })),
   ];
 }
+
+const NODE_COMMANDS: readonly (readonly [string, NodeCommand])[] = [
+  ["showHideParts", "showHideMembers"],
+  ["displayRelated", "displayRelated"],
+  ["copyNodes", "copy"],
+  ["pasteNodes", "paste"],
+];

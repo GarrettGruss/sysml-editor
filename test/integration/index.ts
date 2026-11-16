@@ -7,6 +7,7 @@ import * as vscode from "vscode";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { behaviorTests } from "./behavior.js";
 import { interactionTests } from "./diagram-interaction.js";
+import { architectureTests } from "./architecture-tools.js";
 import { foldersTests } from "./folders.js";
 import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
@@ -66,7 +67,7 @@ export interface TestApi {
     state(uri: vscode.Uri): { errorPage: boolean; dirty: boolean; pending: boolean; problems: unknown[]; doc?: DiagramDoc };
     errors(): string[];
     gesture(uri: vscode.Uri, g: Gesture): Promise<void>;
-    setUi(ui: { pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined>; saveAs?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined> } | undefined): void;
+    setUi(ui: { pickMany?: (items: PickItem[], options: unknown) => Promise<PickItem[] | undefined>; notify?: (message: string) => void; pick?: (items: PickItem[], options: unknown) => Promise<PickItem | undefined>; input?: (options: { value?: string; validateInput?: (v: string) => string | undefined }) => Promise<string | undefined>; confirm?: (message: string, detail: string, action: string) => Promise<boolean>; fail?: (f: Failure) => Promise<void>; choose?: (message: string, actions: readonly string[]) => Promise<string | undefined>; saveAs?: (suggested: vscode.Uri) => Promise<vscode.Uri | undefined> } | undefined): void;
     activeUri(): string | undefined;
     hoverOf(uri: vscode.Uri): string | undefined;
   };
@@ -115,7 +116,7 @@ export type Gesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | "showHideMembers" | "displayRelated" | "copy" | "paste" }
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[]; x?: number; y?: number }
   | { kind: "palette"; item: string; id?: string; x?: number; y?: number; name?: string; hold?: boolean }
@@ -686,6 +687,7 @@ export async function run(): Promise<void> {
     }],
     ...diagramTests(),
     ...interactionTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...architectureTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...agentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...editingTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...requirementsTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),

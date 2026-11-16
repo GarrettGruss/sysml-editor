@@ -81,6 +81,30 @@
         "category": "SysML"
       },
       {
+        "command": "sysml.diagram.showHideParts",
+        "title": "Show/Hide Parts and Ports…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.displayRelated",
+        "title": "Display Related Elements…",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.copyNodes",
+        "title": "Copy Nodes",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
+        "command": "sysml.diagram.pasteNodes",
+        "title": "Paste Nodes",
+        "category": "SysML",
+        "enablement": "sysml.diagramActive"
+      },
+      {
         "command": "sysml.tree.addChild",
         "title": "Add Child…",
         "category": "SysML"
@@ -225,6 +249,22 @@
         },
         {
           "command": "sysml.diagram.autoLayout",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.showHideParts",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.displayRelated",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.copyNodes",
+          "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.diagram.pasteNodes",
           "when": "sysml.diagramActive"
         },
         {

@@ -88,6 +88,9 @@ export type ModelIntent =
 
 export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
 
+/** Commands on the selected nodes that need the host (pickers, the shared clipboard). */
+export type NodeCommand = "showHideMembers" | "displayRelated" | "copy" | "paste";
+
 export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
 
 /** Test-only gestures, replayed as DOM events so they take the code paths real input takes. */
@@ -97,7 +100,7 @@ export type TestGesture =
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | NodeCommand }
   /** Open the context menu on a node, as a right click does. */
   | { kind: "contextmenu"; id: string }
   | { kind: "drop"; names: string[]; x?: number; y?: number }
@@ -281,6 +284,8 @@ export type WebviewToHost =
   /** The node or edge id under the pointer; `id` absent when the pointer left the diagram. Throttled by the webview. */
   | { type: "hover"; id?: string }
   | { type: "relink"; id: string }
+  /** `id`: the node the command was chosen on (absent: the selection). */
+  | { type: "nodeCommand"; command: NodeCommand; id?: string; /** The ids selected, for copy. */ ids?: string[] }
   | { type: "model"; intent: ModelIntent; generation?: number }
   /**
    * Is `name` free? For a new element of `kind` in the element of node `ownerId` (the diagram's root when absent), or, with `siblingOf`,
