@@ -61,6 +61,14 @@ export function architectureTests(c: Ctx): Test[] {
       for (const name of [...Object.keys(diagrams), model]) rmSync(uriOf(name).fsPath, { force: true });
       const now = sysmlBytes();
       assert.deepStrictEqual([...now.keys()], [...before.keys()]);
+      // Wait until the workspace no longer lists the temp files, so they cannot leak into later tests.
+      const names = new Set([...Object.keys(diagrams), model]);
+      const listed = async () => {
+        const r = await vscode.lm.invokeTool("sysml_list_diagrams", { toolInvocationToken: undefined, input: {} });
+        const text = r.content.map((p) => (p instanceof vscode.LanguageModelTextPart ? p.value : "")).join("");
+        return (JSON.parse(text) as { diagrams: { path: string }[] }).diagrams.some((d) => names.has(d.path));
+      };
+      for (let i = 0; i < 600 && (await listed()); i++) await new Promise((r) => setTimeout(r, 25));
     }
   };
   const open = async (f: string) => {
