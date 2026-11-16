@@ -52,6 +52,7 @@ const INPUTS: Record<string, unknown> = {
   sysml_set_element_properties: { element: "P::Car::engine", multiplicity: "2" },
   sysml_create_relationship: { kind: "connection", owner: "P::Car", source: "P::Car::engine", target: "P::Car::gearbox" },
   sysml_read_requirements_document: { package: "P" },
+  sysml_read_verification_matrix: { package: "P" },
   sysml_set_transition: { element: "P::S::t1", trigger: "Go", guard: "ready" },
   sysml_create_requirement: { owner: "P", name: "massLimit", id: "R1", documentation: "The mass shall be low." },
 };

@@ -10,9 +10,9 @@ import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { VIEW_TYPE } from "./diagram-editor.js";
 import { DiagramFileIndex } from "./diagram-index.js";
 import { readSettled } from "./read-settled.js";
-import { createDiagramFile } from "./write-uri.js";
 import { serializeDiagram, type DiagramDocument, type DiagramKind } from "./format.js";
-import { DIAGRAM_EXTENSION, KIND_LABELS, defaultDiagramFileName, fileNameProblem, listElements, uniqueFileName } from "./new-diagram.js";
+import { KIND_LABELS, defaultDiagramFileName, fileRoots, listElements, uniqueFileName } from "./new-diagram.js";
+import { uriKey } from "../workspace/uri-key.js";
 import { makeSourceMapper } from "./resolve.js";
 import { makeIndexFilter } from "../workspace/exclude.js";
 
@@ -122,10 +122,24 @@ export function diagramTargetFolder(element: Element): { dir: vscode.Uri; folder
   return first && { dir: first.uri, folder: first };
 }
 
-/** "New Diagram…": choose a kind and a file name, write the file pre-populated from the element, open it. */
-export async function newDiagram(deps: DiagramCommandDeps, node?: ModelNode): Promise<vscode.Uri | undefined> {
+/**
+ * "New Diagram…": choose the root (an element, or a file's top-level element), choose a kind, and open the diagram unsaved (D37).
+ * Nothing is written until the user saves; the intended path is next to the element's file.
+ */
+export async function newDiagram(deps: DiagramCommandDeps, arg?: ModelNode | vscode.Uri): Promise<vscode.Uri | undefined> {
   await deps.model.ready;
-  const element = node ? resolveNode(deps.model.index, node) : await pickElement(deps, "New Diagram from Element");
+  let element: Element | undefined;
+  const fileUri = arg instanceof vscode.Uri ? uriKey(arg) : arg && arg.kind === "file" ? arg.uri : undefined;
+  if (fileUri !== undefined) {
+    const found = fileRoots(deps.model.index, fileUri);
+    if (!found.ok) {
+      void vscode.window.showWarningMessage(`New Diagram: ${found.reason}`);
+      return undefined;
+    }
+    element = found.roots.length === 1
+      ? found.roots[0]
+      : (await deps.diagrams.ui.pick(found.roots.map((e) => ({ label: e.name!, description: e.kind, detail: e.qualifiedName!, element: e })), { title: "New Diagram: choose the root", placeHolder: "Which element is the diagram of?" }))?.element;
+  } else element = arg && !(arg instanceof vscode.Uri) ? resolveNode(deps.model.index, arg) : await pickElement(deps, "New Diagram from Element");
   if (!element) return undefined;
   if (element.qualifiedName === undefined) {
     void vscode.window.showWarningMessage("A diagram needs a named element as its root.");
@@ -142,30 +156,15 @@ export async function newDiagram(deps: DiagramCommandDeps, node?: ModelNode): Pr
   }
   const { dir, folder } = target;
   const taken = new Set((await vscode.workspace.fs.readDirectory(dir).then((d) => d, () => [])).map(([n]) => n));
-  const suggested = uniqueFileName(defaultDiagramFileName(element.name ?? "diagram"), (n) => taken.has(n));
-  const typed = await deps.diagrams.ui.input({
-    title: "New Diagram",
-    prompt: `File name in ${vscode.workspace.asRelativePath(dir)}`,
-    value: suggested,
-    valueSelection: [0, suggested.length - DIAGRAM_EXTENSION.length],
-    validateInput: (v) => fileNameProblem(v, (n) => taken.has(n)),
-  });
-  if (typed === undefined) return undefined;
-  const problem = fileNameProblem(typed, (n) => taken.has(n));
-  if (problem) {
-    void vscode.window.showErrorMessage(`New Diagram: ${problem}`);
-    return undefined;
+  // A diagram that is open and unsaved holds its name too.
+  for (const open of deps.diagrams.openUris()) {
+    const u = vscode.Uri.parse(open);
+    if (u.path.startsWith(dir.path + "/")) taken.add(u.path.slice(dir.path.length + 1));
   }
-  const uri = vscode.Uri.joinPath(dir, typed);
-  if (await exists(uri)) {
-    // Never overwrite: the file appeared after the listing above.
-    void vscode.window.showWarningMessage(`New Diagram: ${typed} was created by something else in the meantime, so nothing was written. Run New Diagram again to choose another name.`);
-    return undefined;
-  }
+  const name = uniqueFileName(defaultDiagramFileName(element.name ?? "diagram"), (n) => taken.has(n));
+  const uri = vscode.Uri.joinPath(dir, name);
   const doc: DiagramDocument = createDiagram(deps.model.index, element.qualifiedName, kind, { sourceOf: makeSourceMapper(folder?.uri.toString()) });
-  await createDiagramFile(uri, new TextEncoder().encode(serializeDiagram(doc)));
-  deps.files.index.set(uri.toString(), serializeDiagram(doc));
-  await vscode.commands.executeCommand("vscode.openWith", uri, VIEW_TYPE);
+  await deps.diagrams.openNew(uri, serializeDiagram(doc));
   return uri;
 }
 
@@ -186,11 +185,11 @@ export async function showInDiagram(deps: DiagramCommandDeps, node?: ModelNode):
   await deps.diagrams.openAndSelect(vscode.Uri.parse(chosen.hit.uri), [chosen.hit.itemId]);
 }
 
-/** "Add to Active Diagram": the elements become nodes of the diagram in the active editor. */
+/** "Add to Diagram": the elements become nodes of the diagram in the active editor. */
 export function addToActiveDiagram(deps: DiagramCommandDeps, clicked?: ModelNode, selected?: readonly ModelNode[]): void {
   const doc = deps.diagrams.activeDocument();
   if (!doc) {
-    void vscode.window.showInformationMessage("Open a diagram first: Add to Active Diagram needs a diagram editor to be active.");
+    void vscode.window.showInformationMessage("Open a diagram first: Add to Diagram needs a diagram editor to be active.");
     return;
   }
   const els = elementsOf(deps, clicked, selected);
@@ -200,19 +199,11 @@ export function addToActiveDiagram(deps: DiagramCommandDeps, clicked?: ModelNode
 export function registerDiagramCommands(deps: DiagramCommandDeps): vscode.Disposable[] {
   const active = () => deps.diagrams.activeDocument();
   return [
-    vscode.commands.registerCommand("sysml.newDiagram", (node?: ModelNode) => newDiagram(deps, node)),
+    vscode.commands.registerCommand("sysml.newDiagram", (node?: ModelNode | vscode.Uri) => newDiagram(deps, node)),
     vscode.commands.registerCommand("sysml.showInDiagram", (node?: ModelNode) => showInDiagram(deps, node)),
     vscode.commands.registerCommand("sysml.addToActiveDiagram", (node?: ModelNode, selected?: ModelNode[]) => addToActiveDiagram(deps, node, selected)),
     vscode.commands.registerCommand("sysml.diagram.autoLayout", () => {
       if (!deps.diagrams.runCommand(active(), "autoLayout")) void vscode.window.showInformationMessage("Open a diagram first: Auto-layout needs a diagram editor to be active.");
-    }),
-    vscode.commands.registerCommand("sysml.diagram.showElement", async () => {
-      const doc = active();
-      if (!doc) {
-        void vscode.window.showInformationMessage("Open a diagram first: Show Element needs a diagram editor to be active.");
-        return;
-      }
-      await deps.diagrams.showElementInteractive(doc);
     }),
   ];
 }

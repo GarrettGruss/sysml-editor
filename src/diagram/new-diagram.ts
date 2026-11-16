@@ -75,3 +75,14 @@ export function relinkCandidates(index: ModelIndex, kind: string | undefined): E
   const all = listElements(index);
   return kind === undefined ? all : all.filter((e) => e.kind === kind);
 }
+
+/** Top-level named elements of a `.sysml` file that can be the root of a diagram, or why the file cannot be used ("New Diagram…" on a file). */
+export function fileRoots(index: ModelIndex, uri: string): { ok: true; roots: Element[] } | { ok: false; reason: string } {
+  const state = index.getDocument(uri);
+  const name = decodeURIComponent(uri.split(/[?#]/, 1)[0]!.split("/").pop() ?? uri);
+  if (!state) return { ok: false, reason: `${name} is not in the model yet; try again in a moment.` };
+  const roots = state.model.roots.filter((r) => r.name !== undefined && r.qualifiedName !== undefined && r.kind !== "import" && !relationOf(r, index));
+  if (state.errors.length > 0 && roots.length === 0) return { ok: false, reason: `${name} has syntax errors and no earlier valid version, so no diagram can be made from it. Fix the errors first.` };
+  if (roots.length === 0) return { ok: false, reason: `${name} has no top-level elements to make a diagram of.` };
+  return { ok: true, roots };
+}

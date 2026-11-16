@@ -79,6 +79,29 @@ describe("view model: specialization and unresolved", () => {
   });
 });
 
+describe("view model: descriptions (D35)", () => {
+  const text = "package P { part def Engine { doc /* Burns *\\/ fuel */ } part engine : Engine; }";
+  const build = (style?: Record<string, unknown>) => {
+    const ix = new ModelIndex();
+    ix.setDocument("file:///ws/m.sysml", text);
+    const doc: DiagramDocument = { version: 1, kind: "general", root: "P", sources: ["m.sysml"], nodes: [{ id: "n1", ref: "P::Engine" }, { id: "n2", ref: "P::engine" }], edges: [], ...(style ? { style } : {}) };
+    return buildViewModel(doc, resolveDiagram(doc, ix), ix);
+  };
+  it("shows the first doc of any node, with the star-slash convention undone", () => {
+    const vm = build();
+    expect(vm.descriptions).toBe(true);
+    expect(vm.nodes[0]!.doc).toBe("Burns */ fuel");
+    expect(vm.nodes[0]!.props?.documentation).toBe("Burns */ fuel");
+    expect(vm.nodes[1]!.doc).toBeUndefined();
+  });
+  it("hides them when the diagram style says so, the element keeps its documentation", () => {
+    const vm = build({ descriptions: false });
+    expect(vm.descriptions).toBe(false);
+    expect(vm.nodes[0]!.doc).toBeUndefined();
+    expect(vm.nodes[0]!.props?.documentation).toBe("Burns */ fuel");
+  });
+});
+
 describe("view model: interconnection view", () => {
   const vm = vmOf("drivetrain-interconnection.sysmld");
   it("ports attach to their owner and the connection ends on the port nodes", () => {

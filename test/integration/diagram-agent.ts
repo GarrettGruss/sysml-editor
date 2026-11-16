@@ -1,5 +1,5 @@
 import * as assert from "node:assert";
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { DiagramDoc, Metrics, PickItem, TestApi } from "./index.js";
@@ -359,6 +359,9 @@ export function agentTests(c: Ctx): Test[] {
         assert.strictEqual(path.basename(created.fsPath), file);
         const uri = uriOf(file);
         await c.eventually(async () => assert.ok((await api.diagram.metrics(uri)).nodes.length >= 1), "the new diagram renders");
+        assert.ok(!existsSync(uri.fsPath), "a new diagram is not written until it is saved");
+        await api.diagram.save(uri);
+        assert.ok(existsSync(uri.fsPath), "saving writes it");
         // a diagram of Wheel has the root only; add the others so there is something to move
         await viaLm("sysml_add_to_diagram", { path: file, elements: ["Vehicle::Car", "Vehicle::Engine"] });
         await c.eventually(async () => assert.strictEqual((await api.diagram.metrics(uri)).nodes.length, 3), "three nodes");

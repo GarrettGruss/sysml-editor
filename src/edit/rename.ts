@@ -47,7 +47,7 @@ function mapQn(old: readonly string[], next: readonly string[], s: string): stri
   return joinQn([...next, ...segs.slice(old.length)]);
 }
 
-function namedOwnerQn(e: Element): string | undefined {
+export function namedOwnerQn(e: Element): string | undefined {
   for (let o = e.owner; o; o = o.owner) if (o.qualifiedName !== undefined) return o.qualifiedName;
   return undefined;
 }
@@ -125,7 +125,7 @@ export function planRename(index: ModelIndex, element: Element, newName: string,
   const c = checkElement(index, element);
   if (!c.ok) return c;
   if (element.name === undefined || !element.nameRange) return fail(`${describeElement(element)} has no name to change.`);
-  if (newName === "" || /[\r\n]/.test(newName)) return fail("The new name must be a single line of text and not empty.");
+  if (newName === "" || /[\u0000-\u001f\u007f]/.test(newName)) return fail("The new name must be a single line of text and not empty.");
   if (newName === element.name) return fail(`The element is already named '${newName}'.`);
   const all = element.qualifiedName !== undefined ? index.findByQualifiedName(element.qualifiedName) : [];
   const decls = all.length > 1 && all.includes(element) ? [...all] : [element];

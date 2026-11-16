@@ -57,7 +57,7 @@ export interface ResolutionExpectations {
 }
 
 /** Position after the edits; undefined when the position is inside text the edits remove or replace. */
-function mapOffset(edits: readonly TextEdit[], off: number): number | undefined {
+export function mapOffset(edits: readonly TextEdit[], off: number): number | undefined {
   let delta = 0;
   for (const e of edits) {
     const { start, end } = e.range;

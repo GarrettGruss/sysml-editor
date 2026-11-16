@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiagramEdit } from "../../diagram/protocol.js";
 import type { Box } from "./geometry.js";
-import { GRID, Interaction, Scene, handleAt, hitTest, planMove, planResize, rubberBand, snap, tabOrder, type InteractionHost, type PointerInput, type SceneItem } from "./interaction.js";
+import { GRID, Interaction, dropTargetAt, Scene, handleAt, hitTest, planMove, planResize, rubberBand, snap, tabOrder, type InteractionHost, type PointerInput, type SceneItem } from "./interaction.js";
 
 /** A container (parent) with a child and a port, plus a free node. Absolute origin of the container is (100, 100). */
 function scene(): Scene {
@@ -232,5 +232,69 @@ describe("Interaction", () => {
     t.ia.setSelection(["kid", "free"]);
     t.ia.setScene(new Scene(scene().items.filter((i) => i.id !== "kid")));
     expect(t.ia.selection).toEqual(["free"]);
+  });
+});
+
+describe("nesting by dropping", () => {
+  const item = (id: string, abs: Box, extra: Partial<SceneItem> = {}): SceneItem => ({ id, rel: abs, abs, min: { w: 60, h: 40 }, headerH: 30, ...extra });
+  const states = () =>
+    new Scene([
+      item("big", { x: 100, y: 100, w: 300, h: 200 }, { nest: "state", movable: true }),
+      item("inner", { x: 120, y: 140, w: 80, h: 40 }, { parent: "big", nest: "state", movable: true }),
+      item("test", { x: 500, y: 100, w: 80, h: 40 }, { nest: "state", movable: true }),
+      item("part", { x: 500, y: 300, w: 80, h: 40 }, { nest: "part", movable: true }),
+      item("inh", { x: 500, y: 400, w: 80, h: 40 }, { nest: "state", movable: false }),
+    ]);
+  it("targets a node of the same family with the pointer well inside it", () => {
+    expect(dropTargetAt(states(), "test", { x: 300, y: 250 })).toEqual({ id: "big" });
+  });
+  it("does not nest when the pointer is within 12 px of the target's border (a sibling overlap)", () => {
+    expect(dropTargetAt(states(), "test", { x: 105, y: 250 })).toBeUndefined();
+    expect(dropTargetAt(states(), "test", { x: 300, y: 295 })).toBeUndefined();
+  });
+  it("does not target another family, the owner it already has, or itself", () => {
+    const s = states();
+    expect(dropTargetAt(s, "part", { x: 300, y: 250 })).toBeUndefined();
+    expect(dropTargetAt(s, "inner", { x: 300, y: 250 })).toBeUndefined();
+    expect(dropTargetAt(s, "test", { x: 540, y: 120 })).toBeUndefined();
+  });
+  it("moves out only when the whole dragged box is outside its parent; an overshoot stays a layout move", () => {
+    const s = states();
+    expect(dropTargetAt(s, "inner", { x: 700, y: 600 }, { x: 40, y: 0 })).toBeUndefined(); // box still overlaps big
+    expect(dropTargetAt(s, "inner", { x: 700, y: 600 }, { x: 400, y: 0 })).toEqual({});
+    expect(dropTargetAt(s, "test", { x: 700, y: 600 }, { x: 400, y: 0 })).toBeUndefined();
+  });
+  it("does not move inherited nodes", () => {
+    expect(dropTargetAt(states(), "inh", { x: 300, y: 250 })).toBeUndefined();
+  });
+  function drag(dwell: boolean) {
+    const nests: [string, string | undefined][] = [];
+    const edits: DiagramEdit[] = [];
+    const targets: (string | undefined)[] = [];
+    const timers: (() => void)[] = [];
+    const ia = new Interaction({
+      onSelection: () => {}, onPreview: () => {}, onEdit: (e) => edits.push(e), onPan: () => {}, onPanEnd: () => {}, onMenu: () => {}, zoom: () => 1,
+      setTimer: (fn) => timers.push(fn), clearTimer: () => {},
+      onDropTarget: (t) => targets.push(t?.id), onNest: (id, t) => nests.push([id, t]),
+    });
+    ia.setScene(states());
+    const p = (x: number, y: number): PointerInput => ({ x, y, sx: x, sy: y, button: 0, shift: false, mod: false, space: false });
+    ia.pointerDown(p(540, 120));
+    ia.pointerMove(p(300, 250));
+    if (dwell) for (const t of timers) t();
+    ia.pointerUp(p(300, 250));
+    return { nests, edits, targets };
+  }
+  it("shows the highlight and nests only after the target stayed the candidate for the dwell time", () => {
+    const r = drag(true);
+    expect(r.targets).toContain("big");
+    expect(r.nests).toEqual([["test", "big"]]);
+    expect(r.edits).toEqual([]);
+  });
+  it("a release before the dwell time is a layout move, not a nest, and shows no highlight", () => {
+    const r = drag(false);
+    expect(r.targets.filter((t) => t !== undefined)).toEqual([]);
+    expect(r.nests).toEqual([]);
+    expect(r.edits).toHaveLength(1);
   });
 });

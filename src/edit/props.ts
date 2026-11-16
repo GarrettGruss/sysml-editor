@@ -8,7 +8,7 @@ import { detectEol, isBlockComment, lineIndent, tokenize, type Tok } from "./tex
 import { fail, type PlanResult, type TextEdit } from "./types.js";
 import { validatePlan } from "./validate.js";
 import { declStart } from "./decl.js";
-import { buildComment, commentStyle, escapeTerminator, newCommentDecl } from "./comment.js";
+import { buildComment, commentStyle, escapeTerminator, newCommentDecl, trimBlankLines } from "./comment.js";
 
 function ownNameTokens(el: Element): Set<number> {
   const s = new Set<number>();
@@ -192,7 +192,7 @@ export function planSetShortName(index: ModelIndex, element: Element, shortName:
 export function planSetDocumentation(index: ModelIndex, element: Element, documentation: string | undefined): PlanResult {
   const c = checkElement(index, element);
   if (!c.ok) return c;
-  const body = documentation === undefined ? undefined : escapeTerminator(documentation.replace(/\r\n/g, "\n").trim());
+  const body = documentation === undefined ? undefined : escapeTerminator(trimBlankLines(documentation));
   const text = c.state.text;
   const doc = element.members.find((m) => m.kind === "doc" && m.range.start.offset >= (element.bodyRange?.start.offset ?? Infinity));
   const label = describeElement(element);

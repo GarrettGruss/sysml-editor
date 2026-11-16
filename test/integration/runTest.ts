@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } from "@vscode/test-electron";
@@ -10,7 +10,45 @@ import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTest
  * into a fresh extensions directory and the same tests run against the INSTALLED extension; the
  * development path then points at a stub that contributes nothing.
  */
+
+/**
+ * One local VS Code test run at a time on a machine: several at once can exhaust memory (a 7 GB WSL
+ * machine crashed twice). The lock is a file in the temp directory holding the owner's pid; a lock
+ * whose process is gone is taken over. Set SYSML_TEST_NO_LOCK=1 to skip it (CI runs one job per machine).
+ */
+async function acquireLock(): Promise<() => void> {
+  if (process.env.SYSML_TEST_NO_LOCK === "1") return () => undefined;
+  const file = path.join(os.tmpdir(), "sysml-editor-vscode-tests.lock");
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  let announced = false;
+  for (;;) {
+    try {
+      const fd = openSync(file, "wx");
+      writeFileSync(fd, String(process.pid));
+      closeSync(fd);
+      const release = () => { try { if (readFileSync(file, "utf8") === String(process.pid)) rmSync(file); } catch { /* already gone */ } };
+      process.on("exit", release);
+      return release;
+    } catch {
+      let owner = NaN;
+      try { owner = Number(readFileSync(file, "utf8")); } catch { continue; }
+      if (!Number.isInteger(owner) || !alive(owner)) { try { rmSync(file); } catch { /* raced */ } continue; }
+      if (!announced) { console.log(`Waiting for another VS Code test run (pid ${owner}) to finish…`); announced = true; }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
 async function main(): Promise<void> {
+  const release = await acquireLock();
+  try {
+    await run();
+  } finally {
+    release();
+  }
+}
+
+async function run(): Promise<void> {
   const root = path.resolve(__dirname, "../../..");
   const version = process.env.VSCODE_VERSION || undefined;
   const workspace = path.join(root, "test/fixtures/workspace-basic");

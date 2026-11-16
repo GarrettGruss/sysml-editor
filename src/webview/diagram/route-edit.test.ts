@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustRoute, repairRoute, addBend, dragBend, dragSegment, routeHandleAt, routeHandles, segmentAt } from "./route-edit.js";
+import { adjustRoute, repairRoute, addBend, dragBend, dragSegment, isSimple, simplify, routeHandleAt, routeHandles, segmentAt } from "./route-edit.js";
 import { isOrthogonal, routeFits } from "./routing.js";
 
 const A = { x: 0, y: 0, w: 100, h: 60 };
@@ -145,5 +145,65 @@ describe("robustness", () => {
     expect(t[0]).toEqual({ x: 110, y: 50 });
     expect(adjustRoute(route, A3, B3, A3, { x: 120, y: 0, w: 200, h: 300 })).toBeUndefined();
     expect(adjustRoute(route, A3, B3, A3, B3)).toEqual(route);
+  });
+});
+
+describe("drag around nodes (test to Packaged)", () => {
+  // `test` sits left of `Packaged`; the route leaves test's right side, runs down and enters Packaged's left side.
+  const T = { x: 0, y: 0, w: 120, h: 80 };
+  const P = { x: 320, y: 140, w: 140, h: 80 };
+  const R = [{ x: 120, y: 40 }, { x: 220, y: 40 }, { x: 220, y: 180 }, { x: 320, y: 180 }];
+  it("routes around the side of test when a vertical segment is dragged back past it", () => {
+    const r = dragSegment(R, 1, -300, T, P);
+    expect(routeFits(r, T, P)).toBe(true);
+    expect(isSimple(r)).toBe(true);
+    expect(r).not.toEqual(R);
+    expect(r[0]!.x).toBe(0);
+  });
+  it("routes around when the horizontal end segment is dragged below test", () => {
+    const r = dragSegment(R, 0, 120, T, P);
+    expect(routeFits(r, T, P)).toBe(true);
+    expect(isSimple(r)).toBe(true);
+    expect(r).not.toEqual(R);
+  });
+  it("flips the corner without extra segments when it is dragged beside the end node", () => {
+    for (const [dx, dy] of [[-150, 90], [-180, 130], [-120, 60], [-100, 200]] as const) {
+      const r = dragBend(R, 2, dx, dy, T, P);
+      expect(routeFits(r, T, P)).toBe(true);
+      expect(isSimple(r)).toBe(true);
+      expect(r.length).toBeLessThanOrEqual(6);
+    }
+    const r = dragBend(R, 1, -150, 90, T, P);
+    expect(routeFits(r, T, P)).toBe(true);
+    expect(isSimple(r)).toBe(true);
+    expect(r.length).toBeLessThanOrEqual(5);
+  });
+  it("simplify cuts loops and spikes", () => {
+    const loop = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 50, y: 50 }, { x: 50, y: -50 }, { x: 200, y: -50 }];
+    const s = simplify(loop);
+    expect(isSimple(s)).toBe(true);
+    expect(s.length).toBeLessThan(loop.length);
+  });
+});
+
+describe("exact routes", () => {
+  const T = { x: 0, y: 0, w: 120, h: 80 };
+  const P = { x: 320, y: 140, w: 140, h: 80 };
+  const R = [{ x: 120, y: 40 }, { x: 220, y: 40 }, { x: 220, y: 180 }, { x: 320, y: 180 }];
+  it("segment dragged past the node: leaves its left side and runs around", () => {
+    expect(dragSegment(R, 1, -300, T, P)).toEqual([{ x: 0, y: 40 }, { x: -80, y: 40 }, { x: -80, y: 180 }, { x: 320, y: 180 }]);
+  });
+  it("bend dragged beside the node: leaves through the bottom, three points", () => {
+    expect(dragBend(R, 1, -150, 90, T, P)).toEqual([{ x: 70, y: 80 }, { x: 70, y: 180 }, { x: 320, y: 180 }]);
+  });
+  it("a loop is cut at its crossing", () => {
+    const loop = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 50, y: 50 }, { x: 50, y: -50 }, { x: 200, y: -50 }];
+    expect(simplify(loop)).toEqual([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: -50 }, { x: 200, y: -50 }]);
+  });
+  it("a route running back over itself is not simple and is simplified", () => {
+    const ov = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 10 }, { x: 50, y: 10 }, { x: 50, y: 0 }, { x: 150, y: 0 }];
+    expect(isSimple(ov)).toBe(false);
+    expect(simplify(ov)).toEqual([{ x: 0, y: 0 }, { x: 150, y: 0 }]);
+    expect(isSimple([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 10 }, { x: 50, y: 10 }])).toBe(true);
   });
 });

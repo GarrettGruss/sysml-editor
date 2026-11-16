@@ -60,7 +60,8 @@ export function labelHandleBoxes(b: Box, size = LABEL_HANDLE): { move: Box; resi
 const inside = (b: Box, p: Pt, slop: number) => p.x >= b.x - slop && p.x <= b.x + b.w + slop && p.y >= b.y - slop && p.y <= b.y + b.h + slop;
 
 /** What of a label lies under `p`: a handle, or its body (which moves it). */
-export function labelHit(b: Box, p: Pt, zoom = 1): "resize" | "move" | "body" | undefined {
+export function labelHit(b: Box, p: Pt, zoom = 1, handles = true): "resize" | "move" | "body" | undefined {
+  if (!handles) return inside(b, p, 0) ? "body" : undefined;
   const h = labelHandleBoxes(b, LABEL_HANDLE / Math.max(zoom, 0.1) + 4);
   if (inside(h.resize, p, 0)) return "resize";
   if (inside(h.move, p, 0)) return "move";

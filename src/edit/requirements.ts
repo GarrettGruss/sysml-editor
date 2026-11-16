@@ -313,12 +313,27 @@ function blockOf(index: ModelIndex, text: string, el: Element): { start: number;
 }
 
 /**
+ * Where an insertion goes so that it lands just above `ref` (and above the comments attached to it): after the member before
+ * those comments, or at the start. `skip` is a member being moved (ignored as a neighbour; "same" when it already sits there).
+ */
+export function positionBefore(index: ModelIndex, ref: Element, skip?: Element): InsertPosition | "same" | undefined {
+  const sibs = ref.owner?.members ?? [];
+  const i = sibs.indexOf(ref);
+  if (i < 0) return undefined;
+  if (skip && sibs[i - 1] === skip) return "same";
+  const refText = index.getDocument(ref.uri)?.text ?? "";
+  const at = attachedStart(index, refText, ref);
+  const prev = sibs.slice(0, i).reverse().find((m) => m !== skip && m.range.end.offset <= at);
+  return prev ? { after: prev } : "start";
+}
+
+/**
  * Cut the declaration of `element` with its attached leading comments and reinsert it at the target with the
  * target's indentation. Within the same owner this is a reorder. Moving to another owner changes the
  * qualified name, so the plan is refused when any reference would stop resolving to the same element
  * (references and diagram files are not rewritten; use rename for that).
  */
-export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarget): PlanResult {
+export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarget, opts: { skipResolutionCheck?: boolean } = {}): PlanResult {
   const c = checkElement(index, element);
   if (!c.ok) return c;
   const text = c.state.text;
@@ -326,6 +341,8 @@ export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarg
   if (!owner) return fail(`${describeElement(element)} is a top-level declaration; choose a package to move it into.`);
   const oc = checkElement(index, owner);
   if (!oc.ok) return oc;
+  const sameDecl = (a: Element, b: Element) => a === b || (a.qualifiedName !== undefined && a.qualifiedName === b.qualifiedName && a.uri === b.uri);
+  for (const ref of [to.before, to.after]) if (ref && (!ref.owner || !sameDecl(ref.owner, owner))) return fail(`${describeElement(ref)} is not a member of ${describeElement(owner)}, so the declaration cannot be placed next to it.`);
   for (let o: Element | undefined = owner; o; o = o.owner) if (o === element) return fail("An element cannot be moved into itself.");
   const sameOwner = owner === element.owner || (owner.qualifiedName !== undefined && owner.qualifiedName === element.owner?.qualifiedName && owner.uri === element.uri);
   if (!sameOwner) {
@@ -340,15 +357,10 @@ export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarg
     position = { after: to.after };
   } else if (to.before) {
     if (to.before === element) return fail("The declaration is already there.");
-    const sibs = owner.members;
-    const i = sibs.indexOf(to.before);
-    if (i < 0) return fail("The reference declaration is not a member of the target.");
-    if (sameOwner && sibs[i - 1] === element) return fail("The declaration is already there.");
-    // The member before the reference's attached comments (a comment right above it travels with it, so go above it).
-    const refText = index.getDocument(to.before.uri)?.text ?? "";
-    const at = attachedStart(index, refText, to.before);
-    const prev = sibs.slice(0, i).reverse().find((m) => m !== element && m.range.end.offset <= at);
-    position = prev ? { after: prev } : "start";
+    const pb = positionBefore(index, to.before, element);
+    if (pb === "same") return fail("The declaration is already there.");
+    if (pb === undefined) return fail("The reference declaration is not a member of the target.");
+    position = pb;
   } else position = to.position ?? "end";
   const ins = insertDecls(index, owner, [block.text], position);
   if (!ins.ok) return ins;
@@ -370,13 +382,14 @@ export function planMoveMember(index: ModelIndex, element: Element, to: MoveTarg
   }
   if (result === text && insEdits.every((e) => e.uri === element.uri)) return fail("The declaration is already there.");
   const plan: PlanOk = { ok: true, edits, description: `Move ${describeElement(element)}${sameOwner ? "" : ` to ${describeElement(owner)}`}` };
-  return checkResolutionPreserved(index, validatePlan(index, plan));
+  const valid = validatePlan(index, plan);
+  return opts.skipResolutionCheck ? valid : checkResolutionPreserved(index, valid);
 }
 
 // ---------------------------------------------------------------------------- document sections and paragraphs
 
 /** Add a package that renders as a section, or (with `appendix`) as an appendix annotated `@Appendix`, after a sibling or at the end. */
-export function planAddSection(index: ModelIndex, parent: Element, name: string, opts: { appendix?: boolean; after?: Element } = {}): PlanResult {
+export function planAddSection(index: ModelIndex, parent: Element, name: string, opts: { appendix?: boolean; after?: Element; before?: Element } = {}): PlanResult {
   const c = checkElement(index, parent);
   if (!c.ok) return c;
   const n = name.trim();
@@ -392,7 +405,14 @@ export function planAddSection(index: ModelIndex, parent: Element, name: string,
     const pkg = enclosingPackage(parent);
     if (pkg && !visibleFrom(index, parent, "DocumentAnnotations", "Appendix")) needs.push({ pkg, text: ANNOTATIONS_IMPORT });
   }
-  const ins = insertWithImports(index, parent, [decl], needs, opts.after ? { after: opts.after } : "end");
+  if (opts.after && opts.before) return fail("Give either the section it goes after or the one it goes above, not both.");
+  let position: InsertPosition = opts.after ? { after: opts.after } : "end";
+  if (opts.before) {
+    const pb = opts.before.owner === parent ? positionBefore(index, opts.before) : undefined;
+    if (pb === undefined || pb === "same") return fail("The section the new one should go above is no longer in that parent; nothing was changed.");
+    position = pb;
+  }
+  const ins = insertWithImports(index, parent, [decl], needs, position);
   if (!ins.ok) return ins;
   return finish(index, ins.edits, `Add ${opts.appendix ? "appendix" : "section"} ${n} to ${describeElement(parent)}`, needs);
 }

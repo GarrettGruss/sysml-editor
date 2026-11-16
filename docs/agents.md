@@ -28,7 +28,9 @@ VS Code is open on that workspace.
 | `sysml_create_requirement` | Create a requirement (or `requirement def`) with an optional id (`<'R1'>`) and documentation. |
 | `sysml_read_requirements_document` | Read a package as a specification document in Markdown: generated section numbers, table of contents, paragraphs, requirement items and appendices, each heading and requirement followed by a `<!-- qn: ... -->` marker with its qualified name. Read-only; output is cut at 60000 characters with a note. |
 
-Results are JSON text. The read-only tools (`sysml_list_files`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_validate`, `sysml_get_editor_context`) never write
+| `sysml_read_verification_matrix` | Read the requirements verification matrix of a package, the same rows, columns and status as the editor's Matrix view: one row per requirement, numbered by ownership, with satisfied by, verification method (from `VerificationMethod` metadata), verified by and status (`not satisfied`, `no verification`, `covered`). `format`: `json` (default), `markdown` or `csv`. Read-only; at most 1000 rows. |
+
+Results are JSON text. The read-only tools (`sysml_list_files`, `sysml_get_element_tree`, `sysml_get_element`, `sysml_validate`, `sysml_get_editor_context`, `sysml_read_verification_matrix`) never write
 files. The four diagram write tools (`sysml_create_diagram`, `sysml_add_to_diagram`, `sysml_remove_from_diagram`,
 `sysml_layout_diagram`) change only `.sysmld` files, never the model or any `.sysml` file; they are marked as not read-only
 (`readOnlyHint: false` over MCP, the `edits-diagram` tag in the manifest).
@@ -198,6 +200,13 @@ contents, numbered sections (`1`, `1.1`, ...; numbers are computed, never in the
 their relationships, and appendices (`@Appendix`, lettered A, B, ...). Headings and requirements end with a marker such as
 `<!-- qn: VehicleSpec::'Performance Requirements'::massLimit -->`; pass that qualified name to the edit tools. Text from the model
 cannot forge a marker (`<!--` and `-->` in model text are escaped).
+
+`sysml_read_verification_matrix` returns the matrix of the requirements editor's Matrix view for a package: rows nested and numbered
+by ownership (packages are section rows), each requirement with `satisfiedBy`, `methods`, `verifiedBy` and `status`. The method is
+read from the standard `@VerificationMethod { kind = VerificationMethodKind::test; }` metadata on the verification case
+(`inspect`, `analyze`, `demo`, `test`). A child requirement counts the `satisfy` of its parent (and of a usage of its owning
+definition); such links carry `via`. Pass/fail results are not part of the model and not shown. `format: "markdown"` or `"csv"` returns
+the editor's export text.
 
 `sysml_create_requirement` and the `verify` and `derivation` kinds of `sysml_create_relationship` go through the same
 `ModelService` operations as the requirements editor and the Requirements View palette, so the text is byte-identical:

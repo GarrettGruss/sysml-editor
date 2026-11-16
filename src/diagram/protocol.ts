@@ -31,6 +31,8 @@ export interface MetricsNode extends NodeBox {
   text?: string;
   /** Drawn as an inherited feature (dashed border, muted fill). */
   inherited?: boolean;
+  /** The hover tooltip of the node (an inherited element's reason, the full description). */
+  tooltip?: string;
 }
 
 /** What the user changed on a line: its whole route, and/or its label layout (`null`: back to the default placement). */
@@ -50,6 +52,8 @@ export type DiagramEdit =
   /** `routes` and `drop`: the stored routes of lines at the moved or resized nodes, adjusted by the webview (or to be removed), in the same edit. */
   | { kind: "layout"; label: "Move" | "Resize" | "Nudge"; boxes: BoxPatch[]; routes?: EdgePoints[]; drop?: string[] }
   | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
+  /** The per-diagram style (D35): show or hide the descriptions (first `doc`) on the nodes. Layout only; the `.sysml` text is untouched. */
+  | { kind: "style"; descriptions: boolean }
   /** A hand-edited route or label layout of lines. */
   | { kind: "edgeLayout"; label: "Route" | "Label"; edges: EdgePatch[] }
   | { kind: "remove"; ids: string[] };
@@ -66,35 +70,61 @@ export interface PropertyChanges {
 /** Model edits requested from the webview. The host asks for names, runs the operation and answers with a new render. */
 export type ModelIntent =
   /** Create an element of `kind` in the element of node `ownerId` (the diagram's root when absent), placed at (x, y) relative to that node. */
-  | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number }
+  | { kind: "add"; paletteKind: string; ownerId?: string; x: number; y: number; /** The name confirmed in the inline input (the next free one when absent). */ name?: string }
   /** `relation`: a relationship tool of the palette (satisfy, verify, derivation, succession, transition, message); absent: a connection. */
   | { kind: "connect"; sourceId: string; targetId: string; relation?: ConnectRelation }
+  /** A node of `paletteKind` and the `relation` line from `sourceId` to it, as one edit; the node at (x, y) relative to the source's container. */
+  | { kind: "connectNew"; sourceId: string; relation: "succession" | "transition"; paletteKind: string; x: number; y: number; /** The name confirmed in the inline input (the next free one when absent). */ name?: string }
+  /** Rewrite one end of the line `id` to end at `nodeId`. */
+  | { kind: "reconnect"; id: string; end: "source" | "target"; nodeId: string }
   /** Trigger, guard and effect of the transition edge `id`, as text (a missing field is left as it is). */
   | { kind: "setTransition"; id: string; changes: { trigger?: string; guard?: string; effect?: string } }
   | { kind: "deleteFromModel"; ids: string[] }
   | { kind: "rename"; id: string; name: string }
   | { kind: "setProperties"; id: string; changes: PropertyChanges }
-  | { kind: "goToDefinition"; id: string };
+  | { kind: "goToDefinition"; id: string }
+  /** Nest by dropping (D33): move the declaration of node `id` into the element of node `targetId` (the diagram's root when absent). */
+  | { kind: "nest"; id: string; targetId?: string };
 
-export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message";
+export type ConnectRelation = "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow";
 
 export type DiagramCommand = "autoLayout" | "fit" | "zoomIn" | "zoomOut" | "selectAll";
 
 /** Test-only gestures, replayed as DOM events so they take the code paths real input takes. */
 export type TestGesture =
   | { kind: "select"; id: string; shift?: boolean }
-  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number }
+  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number; /** Keep the pointer down this many ms before releasing (a nest needs the target highlighted for a while). */ hold?: number }
   | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
   | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
   | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" }
+  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" }
   /** Open the context menu on a node, as a right click does. */
   | { kind: "contextmenu"; id: string }
-  | { kind: "drop"; names: string[] }
+  | { kind: "drop"; names: string[]; x?: number; y?: number }
   /** Choose a palette item, then click a node (or the canvas, with `id` absent) at a point relative to that node. */
-  | { kind: "palette"; item: string; id?: string; x?: number; y?: number }
+  | { kind: "palette"; item: string; id?: string; x?: number; y?: number; /** Type this name into the inline input and press Enter. Absent: Enter with the default name. */ name?: string; /** Leave the inline input open with the default name (or `name`) typed. */ hold?: boolean }
+  /** The pointer moves over the canvas with a palette tool chosen (the ghost follows it). */
+  | { kind: "ghostMove"; x: number; y: number }
+  /** Operate the open inline input: type `text` (replacing its value), then end it with `end` (default: leave it open). */
+  | { kind: "inline"; text?: string; end?: "enter" | "shiftEnter" | "escape" | "blur" }
+  /** Double-click a node on its name or, with `area: "doc"`, on its description (opens the inline input). */
+  | { kind: "dblclick"; id: string; area?: "name" | "doc" }
+  /** Turn the per-diagram description toggle on or off. */
+  | { kind: "descriptions"; show: boolean }
   /** Connection tool: click the source, then the target. */
   | { kind: "connect"; source: string; target: string; relation?: ConnectRelation }
+  /**
+   * Drag a connection from a node (`side`: from its quick-connect handle; `relation`: with that connection tool, else the handle's) to a node
+   * (`target`) or to a canvas point (`x`, `y`, absolute). `hold`: stop with the button down (the ghost line stays); `release` after a hold lets go.
+   */
+  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: ConnectRelation; target?: string; x?: number; y?: number; hold?: boolean }
+  | { kind: "connectRelease" }
+  /** Choose a node kind on the open quick bar, or cancel it (no `kind`). */
+  | { kind: "quickBar"; item?: string }
+  /** Select the line `id`, then drag its `end` onto a node (`target`) or a canvas point (`x`, `y`). */
+  | { kind: "reconnectDrag"; id: string; end: "source" | "target"; target?: string; x?: number; y?: number; hold?: boolean }
+  /** Hover a node (no button) so its quick-connect handles show. */
+  | { kind: "hoverNode"; id: string }
   /** Click an edge (a succession, transition or message) to select it. */
   | { kind: "selectEdge"; id: string }
   /** Press on a message and drag it vertically: nothing may change (messages are placed by time order). */
@@ -116,6 +146,12 @@ export type TestGesture =
   | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
   /** Move the pointer over a node or line (no button pressed), or off the diagram when `id` is absent. */
   | { kind: "hover"; id?: string }
+  /** Click the drawn text box of a line's label (the line need not be selected). */
+  | { kind: "labelClick"; id: string }
+  /** A wheel event on the canvas (a zoom step with `ctrl`, a pan without). */
+  | { kind: "wheel"; deltaY: number; ctrl?: boolean }
+  /** Focus the canvas with a mouse press (`true`) or from the keyboard (`false`). */
+  | { kind: "focusCanvas"; mouse: boolean }
   | { kind: "flush" };
 
 export type HostToWebview =
@@ -130,8 +166,14 @@ export type HostToWebview =
   | { type: "select"; ids: string[] }
   | { type: "testGesture"; requestId: number; gesture: TestGesture }
   | { type: "typeSuggestionsResult"; requestId: number; items: { name: string; qualifiedName: string; library: boolean }[] }
+  /** The answer to `nameCheck`: why the name cannot be used (absent: fine), and the default name of the kind. */
+  | { type: "nameCheckResult"; requestId: number; problem?: string; suggested?: string }
   /** A model edit was refused or failed; shown in the properties panel as well as in a notification. */
-  | { type: "notice"; message: string };
+  | { type: "notice"; message: string }
+  /** The host did not apply the last diagram edit (stale or refused): the webview draws the committed state again. */
+  | { type: "editRejected" }
+  /** The host applied the last diagram edit; sent after any render it caused, so a preview is dropped even when the drawing did not change. */
+  | { type: "editApplied" };
 
 /** Edges, in the metrics: absolute canvas coordinates. */
 export interface MetricsEdge {
@@ -200,11 +242,33 @@ export interface DiagramMetrics {
   properties: { visible: boolean; id?: string; kind?: string; qualifiedName?: string; fields: Record<string, { value: string; disabled: boolean }>; note?: string };
   /** An inline name editor is open. */
   inlineEditor: boolean;
+  /** With an inline input open: its text, the error shown under it, and what it edits (`rename`, `add`, `quick` or `doc`). */
+  inline?: { value: string; error?: string; purpose: string };
+  /** The palette ghost: the kind, the name it shows, and whether it is placed (waiting for the name). */
+  paletteGhost?: { kind: string; name: string; placed: boolean };
+  /** The per-diagram description toggle. */
+  descriptions: boolean;
   /** `light`, `dark` or `hc`, from the editor theme. */
   theme: string;
   focusable: boolean;
   /** Zoom factor. */
   zoom: number;
+  /** The pan and zoom, and the size of the canvas in px. */
+  view: { x: number; y: number; k: number };
+  canvas: { w: number; h: number };
+  /** Selected-line highlight strokes drawn. */
+  highlights: number;
+  /** Times a line was drawn with its old route between the release of a drag and the host's answer (D22): 0. */
+  staleDraws: number;
+  /** A ghost line is on screen (its target when it snaps to one, and why it cannot connect to the node under it), the quick bar's items, the quick-connect and reconnect handles drawn. */
+  ghost?: { target?: string; invalid?: string; points: number };
+  quickBar: string[];
+  /** With the quick bar open: where it sits and where the ghost line ends (canvas coordinates). */
+  quickAnchor?: { bar: { x: number; y: number }; ghostEnd: { x: number; y: number } };
+  connectHandles: number;
+  reconnectHandles: number;
+  /** Whether the canvas shows a focus outline now (the computed outline style is not "none"). */
+  focusOutline: boolean;
 }
 
 export type WebviewToHost =
@@ -218,11 +282,15 @@ export type WebviewToHost =
   | { type: "hover"; id?: string }
   | { type: "relink"; id: string }
   | { type: "model"; intent: ModelIntent; generation?: number }
+  /**
+   * Is `name` free? For a new element of `kind` in the element of node `ownerId` (the diagram's root when absent), or, with `siblingOf`,
+   * in the owner of that node's element (`rename`: that element itself is renamed). The answer also carries the default name of `kind`.
+   */
+  | { type: "nameCheck"; requestId: number; name: string; kind?: string; ownerId?: string; siblingOf?: string; rename?: boolean }
   /** Completion for the type field of the properties panel. */
   | { type: "typeSuggestions"; requestId: number; id: string; query: string }
-  | { type: "showElement" }
   /** Qualified names dropped from the tree onto the diagram. */
-  | { type: "dropElements"; names: string[] }
+  | { type: "dropElements"; names: string[]; x?: number; y?: number }
   | { type: "pngResult"; requestId: number; base64: string; error?: string }
   | ({ type: "metricsResult"; requestId: number } & DiagramMetrics)
   | { type: "gestureResult"; requestId: number; error?: string }

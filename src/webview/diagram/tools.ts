@@ -17,6 +17,8 @@ export interface ToolsHost {
   onModel(intent: ModelIntent): void;
   suggest(id: string, query: string): Promise<Suggestion[]>;
   chooseTool(tool: Tool | undefined): void;
+  /** The per-diagram toggle for the descriptions on the nodes (diagram style, a layout edit). */
+  toggleDescriptions(show: boolean): void;
 }
 
 export interface PropertiesState {
@@ -58,8 +60,17 @@ export class Tools {
   private readonly noticeLine = el("div", "props-notice");
   private suggestSeq = 0;
   private buttons: HTMLButtonElement[] = [];
+  /** "Show descriptions": the diagram style that shows or hides the first `doc` on the nodes. */
+  readonly descriptionToggle = document.createElement("input");
+  private readonly descriptionRow = el("label", "palette-toggle");
 
   constructor(host: HTMLElement, private readonly cb: ToolsHost) {
+    this.descriptionToggle.type = "checkbox";
+    this.descriptionToggle.checked = true;
+    this.descriptionToggle.dataset.toggle = "descriptions";
+    this.descriptionToggle.addEventListener("change", () => this.cb.toggleDescriptions(this.descriptionToggle.checked));
+    this.descriptionRow.title = "Show or hide the descriptions (the first doc comment) on the elements of this diagram. Saved with the diagram layout; the model text does not change.";
+    this.descriptionRow.append(this.descriptionToggle, document.createTextNode(" Descriptions"));
     this.palette.setAttribute("role", "toolbar");
     this.palette.setAttribute("aria-label", "Palette");
     this.props.setAttribute("role", "region");
@@ -73,6 +84,7 @@ export class Tools {
   // ---- palette ---------------------------------------------------------------------------
 
   setDiagram(vm: ViewModel): void {
+    this.descriptionToggle.checked = vm.descriptions !== false;
     if (this.kind === vm.kind) return;
     this.kind = vm.kind;
     this.palette.replaceChildren(el("div", "panel-title", "Palette"));
@@ -87,6 +99,7 @@ export class Tools {
       this.palette.append(b);
       this.buttons.push(b);
     }
+    this.palette.append(this.descriptionRow);
   }
 
   private isActive(item: PaletteItem): boolean {

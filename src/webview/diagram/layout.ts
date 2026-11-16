@@ -5,6 +5,7 @@
  */
 import type { VmNode, ViewModel } from "../../diagram/view-model.js";
 import { layoutSequence } from "./sequence-layout.js";
+import { labelSize, loopExtent, loopSidesFor, type LoopExtent } from "./loops.js";
 import { PAD, PORT_SIZE, absoluteBoxes, describeBox, type Box, type Measure, type Pt } from "./geometry.js";
 
 /** The part of ELK's API used here (the `elkjs` default export satisfies it). */
@@ -47,6 +48,30 @@ const hasPos = (n: VmNode) => n.geometry?.x !== undefined || n.geometry?.y !== u
 /** Action Flow and State Transition views flow from top to bottom (design D17); the others from left to right. */
 const flowsDown = (vm: ViewModel): boolean => vm.kind === "actionFlow" || vm.kind === "stateTransition";
 
+/** Move an end of an orthogonal route from the border of the padded box onto the node's own border; undefined when it cannot stay orthogonal. */
+function clipEnd(pts: Pt[], atStart: boolean, padded: Box, real: Box): Pt[] | undefined {
+  const i = atStart ? 0 : pts.length - 1;
+  const j = atStart ? 1 : pts.length - 2;
+  const p = pts[i]!, q = pts[j]!;
+  const out = pts.map((x) => ({ ...x }));
+  const near = (a: number, b: number) => Math.abs(a - b) < 1;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo + 4), Math.max(lo + 4, hi - 4));
+  if (near(p.x, padded.x) || near(p.x, padded.x + padded.w)) {
+    const y = clamp(p.y, real.y, real.y + real.h);
+    if (!near(y, p.y) && !near(q.y, p.y)) return undefined;
+    if (!near(y, p.y) && pts.length === 2) return undefined;
+    out[i] = { x: near(p.x, padded.x) ? real.x : real.x + real.w, y };
+    if (!near(y, p.y)) out[j] = { x: q.x, y };
+  } else if (near(p.y, padded.y) || near(p.y, padded.y + padded.h)) {
+    const x = clamp(p.x, real.x, real.x + real.w);
+    if (!near(x, p.x) && !near(q.x, p.x)) return undefined;
+    if (!near(x, p.x) && pts.length === 2) return undefined;
+    out[i] = { x, y: near(p.y, padded.y) ? real.y : real.y + real.h };
+    if (!near(x, p.x)) out[j] = { x, y: q.y };
+  } else return undefined;
+  return out;
+}
+
 export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measure): Promise<LayoutResult> {
   if (vm.kind === "sequence") return layoutSequence(vm, measure);
   const byId = new Map(vm.nodes.map((n) => [n.id, n] as const));
@@ -59,6 +84,14 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
       children.set(p, [...(children.get(p) ?? []), n]);
     }
   }
+  // Self-transitions: the space their loops and labels need around a node (design D24).
+  const selfLabels = new Map<string, (string | undefined)[]>();
+  for (const e of vm.edges) if (e.source === e.target && !e.fixed) selfLabels.set(e.source, [...(selfLabels.get(e.source) ?? []), e.label]);
+  const NO_EXTENT: LoopExtent = { l: 0, r: 0, t: 0, b: 0 };
+  const extentOf = (id: string, s: { w: number; h: number }): LoopExtent => {
+    const labels = selfLabels.get(id);
+    return labels ? loopExtent(s.w, s.h, labels, measure, loopSidesFor(vm.kind)) : NO_EXTENT;
+  };
   const boxes = new Map<string, Box>();
   const placed = new Set<string>();
   const mins = new Map<string, { w: number; h: number }>();
@@ -136,19 +169,14 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     let w = 0, h = 0;
     for (const k of kids) {
       const b = boxes.get(k.id)!;
-      w = Math.max(w, b.x + b.w);
-      h = Math.max(h, b.y + b.h);
+      const ext = extentOf(k.id, b);
+      w = Math.max(w, b.x + b.w + ext.r);
+      h = Math.max(h, b.y + b.h + ext.b);
     }
     // Edge labels of a top-to-bottom view sit beside the edges: the container is wide enough that they stay inside it.
     if (flowsDown(vm) && pid !== undefined) {
-      const labelW = Math.max(0, ...vm.edges.filter((e) => e.label !== undefined && liftTo(e.source, pid) !== undefined && liftTo(e.target, pid) !== undefined).map((e) => measure(e.label!, "small") + 12));
+      const labelW = Math.max(0, ...vm.edges.filter((e) => e.label !== undefined && e.source !== e.target && liftTo(e.source, pid) !== undefined && liftTo(e.target, pid) !== undefined).map((e) => labelSize(e.label!, measure).w + 8));
       if (labelW > 0) w = Math.max(w, ...kids.map((k) => boxes.get(k.id)!.x + boxes.get(k.id)!.w / 2 + labelW + 8));
-      // A transition from a state to itself loops outside its right border, with its label beside the loop.
-      for (const e of vm.edges) {
-        const k = liftTo(e.source, pid);
-        if (e.source !== e.target || k === undefined || !boxes.has(k)) continue;
-        w = Math.max(w, boxes.get(k)!.x + boxes.get(k)!.w + 30 + (e.label ? measure(e.label, "small") + 12 : 0));
-      }
     }
     // The extent is measured from the container's top-left; the caller adds the right and bottom padding.
     return kids.length ? { w: w + side, h: h + PAD } : { w: 0, h: 0 };
@@ -165,25 +193,38 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
       const key = `${s}\u0000${t}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      edges.push({ id: e.id, sources: [s], targets: [t], ...(flowsDown(vm) && e.label ? { labels: [{ id: `${e.id}:label`, text: e.label, width: Math.ceil(measure(e.label, "small")) + 8, height: 14 }] } : {}) });
+      edges.push({ id: e.id, sources: [s], targets: [t], ...(flowsDown(vm) && e.label ? { labels: [{ id: `${e.id}:label`, text: e.label, width: labelSize(e.label, measure).w + 4, height: labelSize(e.label, measure).h + 2 }] } : {}) });
     }
+    // A node with self-loops is given room for them (and their labels) around it.
+    const extents = new Map(loose.map((k) => [k.id, extentOf(k.id, sizes.get(k.id)!)] as const));
     const graph: ElkGraph = {
       id: "root",
       layoutOptions: edges.length
         ? { "elk.algorithm": "layered", "elk.direction": flowsDown(vm) ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL", ...(flowsDown(vm) ? { "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.layered.cycleBreaking.strategy": "MODEL_ORDER" } : {}), "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
         : { "elk.algorithm": "rectpacking", "elk.spacing.nodeNode": "40", "elk.aspectRatio": "1.6", "elk.padding": "[top=0,left=0,bottom=0,right=0]" },
       // The start node leads and the done node ends, then the model's own order; ELK keeps it where the edges allow.
-      children: (flowsDown(vm) ? [...loose].sort((a, b) => rank(a) - rank(b)) : loose).map((k) => ({ id: k.id, width: sizes.get(k.id)!.w, height: sizes.get(k.id)!.h })),
+      children: (flowsDown(vm) ? [...loose].sort((a, b) => rank(a) - rank(b)) : loose).map((k) => { const x = extents.get(k.id)!; return { id: k.id, width: sizes.get(k.id)!.w + x.l + x.r, height: sizes.get(k.id)!.h + x.t + x.b }; }),
       edges,
     };
     const out = new Map<string, { x: number; y: number }>();
     const routes: { id: string; pts: Pt[] }[] = [];
     try {
       const res = await elk.layout(graph);
-      for (const c of res.children ?? []) out.set(c.id, { x: c.x ?? 0, y: c.y ?? 0 });
+      for (const c of res.children ?? []) out.set(c.id, { x: (c.x ?? 0) + (extents.get(c.id)?.l ?? 0), y: (c.y ?? 0) + (extents.get(c.id)?.t ?? 0) });
       for (const e of res.edges ?? []) {
         const sec = e.sections?.[0];
-        if (sec) routes.push({ id: e.id, pts: [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint] });
+        const ge = edges.find((x) => x.id === e.id);
+        if (!sec || !ge) continue;
+        // A route ELK computed against a padded node ends on the padded border: pull it onto the node's own border.
+        let pts: Pt[] | undefined = [sec.startPoint, ...(sec.bendPoints ?? []), sec.endPoint].map((q) => ({ x: q.x, y: q.y }));
+        for (const [end, id] of [[0, ge.sources[0]!], [1, ge.targets[0]!]] as const) {
+          const x = extents.get(id);
+          const c = res.children?.find((k) => k.id === id);
+          if (!pts || !x || !c || x.l + x.r + x.t + x.b === 0) continue;
+          const size = sizes.get(id)!;
+          pts = clipEnd(pts, end === 0, { x: c.x ?? 0, y: c.y ?? 0, w: size.w + x.l + x.r, h: size.h + x.t + x.b }, { x: (c.x ?? 0) + x.l, y: (c.y ?? 0) + x.t, w: size.w, h: size.h });
+        }
+        if (pts) routes.push({ id: e.id, pts });
       }
     } catch {
       /* fall through to the grid */
@@ -229,6 +270,9 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const sides: VmNode[][] = [[], []];
     for (const p of list) {
       if (hasPos(p)) continue;
+      // Pins: inputs on the left, outputs on the right (D36).
+      if (p.pin?.direction === "in") { sides[0]!.push(p); continue; }
+      if (p.pin?.direction === "out") { sides[1]!.push(p); continue; }
       let dx = 0;
       for (const e of vm.edges) {
         const other = e.source === p.id ? e.target : e.target === p.id ? e.source : undefined;
@@ -261,6 +305,9 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
   const routes = new Map<string, Pt[]>();
   const finalAbs = absoluteBoxes(vm, boxes);
   for (const r of pending) {
+    // A line that ends at a pin is routed from the pin (ELK routed it between the actions).
+    const ve = vm.edges.find((x) => x.id === r.id);
+    if (ve && (byId.get(ve.source)?.pin || byId.get(ve.target)?.pin)) continue;
     const o = r.pid === undefined ? { x: 0, y: 0 } : finalAbs.get(r.pid);
     if (!o) continue;
     const shift = r.pid === undefined ? topShift : 0;

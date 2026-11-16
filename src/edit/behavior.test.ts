@@ -49,13 +49,14 @@ describe("successions", () => {
     const p = planAddSuccession(index, q("P::A"), q("P::A::a"), q("P::A::b"));
     expect(p.ok).toBe(false);
   });
-  test("start and done as ends, and refusal of unnamed or foreign nodes", () => {
+  test("start and done as ends, and naming of unnamed control nodes, refusal of foreign nodes", () => {
     const { index, q, text } = setup("package P { action def A { action a; decide; } action def B { action c; } }");
     const a = analyze(index, q("P::A"));
     const start = a.synthetic.length ? a.synthetic[0]! : undefined;
     expect(start).toBeUndefined(); // nothing refers to start yet: it is only offered by the view
     const decide = q("P::A").members.find((m) => m.kind === "decide")!;
-    expect(planAddSuccession(index, q("P::A"), q("P::A::a"), decide).ok).toBe(false);
+    // an unnamed decide is named by the plan (`decide decide1;`) and the succession uses that name
+    expect(apply(planAddSuccession(index, q("P::A"), q("P::A::a"), decide), text)).toContain("decide decide1; first a then decide1;");
     expect(planAddSuccession(index, q("P::A"), q("P::A::a"), q("P::B::c")).ok).toBe(false);
     expect(text).toBeTruthy();
   });

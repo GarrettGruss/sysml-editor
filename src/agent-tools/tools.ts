@@ -69,6 +69,7 @@ interface TreeNode {
   locator?: { owner?: string; kind: string; ends: readonly string[] };
   kind: string;
   name?: string;
+  direction?: string;
   type?: string;
   children?: TreeNode[];
   childCount?: number;
@@ -80,6 +81,7 @@ function treeNode(e: Element): TreeNode {
   if (e.qualifiedName !== undefined) n.qualifiedName = e.qualifiedName;
   else n.locator = { owner: e.owner?.qualifiedName, kind: e.kind, ends: e.ends };
   if (e.name !== undefined) n.name = e.name;
+  if (e.direction) n.direction = e.direction;
   const t = typeOf(e);
   if (t) n.type = t;
   return n;
@@ -199,9 +201,10 @@ function describeElement(e: Element, ctx: ToolContext) {
     redefines: e.redefines,
     multiplicity: e.multiplicity,
     documentation: e.documentation,
+    ...(e.direction ? { direction: e.direction } : {}),
     visibility: e.visibility,
     owner: e.owner?.qualifiedName,
-    ownedMembers: owned.slice(0, MEMBER_CAP).map((m) => ({ name: m.name, kind: m.kind, type: typeOf(m) })),
+    ownedMembers: owned.slice(0, MEMBER_CAP).map((m) => ({ name: m.name, kind: m.kind, ...(m.direction ? { direction: m.direction } : {}), type: typeOf(m) })),
     ...(owned.length > MEMBER_CAP ? { ownedMembersTotal: owned.length } : {}),
     relationships: rels.slice(0, MEMBER_CAP).map((m) => ({ kind: m.kind, name: m.name, ends: m.ends, ...lines(m) })),
     ...(rels.length > MEMBER_CAP ? { relationshipsTotal: rels.length } : {}),
@@ -216,7 +219,7 @@ const getElement: ToolDefinition = {
   name: "sysml_get_element",
   description:
     "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, " +
-    "specializes/subsets/redefines, multiplicity, documentation, visibility, owner, owned members (name, kind, type), relationship statements it owns " +
+    "specializes/subsets/redefines, multiplicity, direction (in, out, inout), documentation, visibility, owner, owned members (name, kind, direction, type), relationship statements it owns " +
     "(connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only " +
     "standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. " +
     "Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",

@@ -29,6 +29,8 @@ export interface ImportInfo {
   all?: boolean;
 }
 
+export type FeatureDirection = "in" | "out" | "inout";
+
 export interface Element {
   /** URI of the document this element is declared in. */
   readonly uri: string;
@@ -71,6 +73,8 @@ export interface Element {
    * elements themselves, their own processed text.
    */
   readonly documentation?: string;
+  /** Direction keyword of a feature (`in`, `out`, `inout`), when one was written. */
+  readonly direction?: FeatureDirection;
   /** Visibility keyword if one was written. */
   readonly visibility?: Visibility;
   /** For `import` and `expose` elements. */

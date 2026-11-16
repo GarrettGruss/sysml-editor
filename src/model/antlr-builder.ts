@@ -20,6 +20,7 @@ import type {
   SourcePosition,
   SourceRange,
   Visibility,
+  FeatureDirection,
 } from "./types.js";
 
 const RULE_NAMES = SysMLv2Parser.ruleNames;
@@ -246,6 +247,22 @@ function isKeyword(t: Token): boolean {
   return t.type !== SysMLv2Parser.IDENTIFIER && /^[a-z]+$/.test(t.text ?? "");
 }
 
+/** `in`, `out` or `inout` written in the prefix of a usage. */
+function directionOf(ctx: ParserRuleContext, depth = 0): FeatureDirection | undefined {
+  for (const c of childCtxs(ctx)) {
+    const rn = ruleName(c);
+    if (rn === "featureDirection") {
+      const t = ctxText(c).trim();
+      return t === "in" || t === "out" || t === "inout" ? t : undefined;
+    }
+    if (depth < 3 && rn.endsWith("Prefix")) {
+      const r = directionOf(c, depth + 1);
+      if (r) return r;
+    }
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------- builder
 
 interface MutableElement {
@@ -268,6 +285,7 @@ interface MutableElement {
   ends: string[];
   multiplicity?: string;
   documentation?: string;
+  direction?: FeatureDirection;
   visibility?: Visibility;
   importInfo?: ImportInfo;
   aliasFor?: string;
@@ -356,6 +374,10 @@ class Builder {
     }
     const vis = this.visibilityOf(ctx);
     if (vis) el.visibility = vis;
+    if (el.isUsage) {
+      const dir = directionOf(ctx);
+      if (dir) el.direction = dir;
+    }
     if (rn === "importRule" || rn === "expose") el.importInfo = this.importInfo(ctx);
     if (rn === "documentation" || rn === "comment") {
       const t = ctx.children.find(

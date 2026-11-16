@@ -17,6 +17,8 @@ const good: unknown[] = [
   { type: "moveSection", qn: "P", how: "up" },
   { type: "moveSection", qn: "P", how: { beforeQn: "P::a" } },
   { type: "deleteSection", qn: "P" },
+  { type: "exportMatrix", format: "csv" },
+  { type: "exportMatrix", format: "markdown" },
 ];
 const bad: unknown[] = [
   null, "x", [], {}, { type: "nope" }, { type: 5 },
@@ -37,6 +39,8 @@ const bad: unknown[] = [
   { type: "moveSection", qn: "P", how: { beforeQn: 1 } },
   { type: "moveSection", qn: "P", how: { beforeQn: "a", afterQn: "b" } },
   { type: "setParagraph", key: "k", value: "v" },
+  { type: "exportMatrix", format: "xml" },
+  { type: "exportMatrix" },
 ];
 
 describe("intent shape guard", () => {
@@ -49,5 +53,9 @@ describe("intent shape guard", () => {
       expect(r.ok, JSON.stringify(b)?.slice(0, 80)).toBe(false);
       if (!r.ok) expect(r.reason.length).toBeGreaterThan(5);
     }
+  });
+  test("addSection with both afterQn and beforeQn is rejected", () => {
+    expect(parseIntent({ type: "addSection", parentQn: "P", name: "n", afterQn: "a", beforeQn: "b" }).ok).toBe(false);
+    expect(parseIntent({ type: "addSection", parentQn: "P", name: "n", beforeQn: "b" }).ok).toBe(true);
   });
 });

@@ -41,19 +41,96 @@ function dragRaw(pts: readonly Pt[], i: number, d: number, src: Box, tgt: Box): 
   return { pts: out, inserted: head.length - 1 };
 }
 
-/** Move segment `i` by `d` perpendicular to its direction; the neighbours stretch, collinear bends are removed. */
-export function dragSegment(pts: readonly Pt[], i: number, d: number, src: Box, tgt: Box): Pt[] {
-  if (i < 0 || i >= pts.length - 1) return pts.map((p) => ({ ...p }));
-  return clean(dragRaw(pts, i, d, src, tgt).pts);
+/** Crossing point of two segments that are perpendicular or share a line only in a point, if any. */
+function crossing(a: Pt, b: Pt, c: Pt, d: Pt): Pt | undefined {
+  const ah = isHorizontal(a, b), ch = isHorizontal(c, d);
+  if (ah === ch) {
+    // Parallel segments on one line whose spans overlap run over each other.
+    const same = ah ? eq(a.y, c.y) : eq(a.x, c.x);
+    if (!same) return undefined;
+    const lo = ah ? Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) : Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y));
+    const hi = ah ? Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) : Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y));
+    return lo <= hi + 0.01 ? (ah ? { x: lo, y: a.y } : { x: a.x, y: lo }) : undefined;
+  }
+  const [h0, h1, v0, v1] = ah ? [a, b, c, d] : [c, d, a, b];
+  const x = v0.x, y = h0.y;
+  const inH = x >= Math.min(h0.x, h1.x) - 0.01 && x <= Math.max(h0.x, h1.x) + 0.01;
+  const inV = y >= Math.min(v0.y, v1.y) - 0.01 && y <= Math.max(v0.y, v1.y) + 0.01;
+  return inH && inV ? { x, y } : undefined;
 }
 
-/** Move the bend point `k` (an inner point) by (dx, dy): the two segments meeting there stretch. */
+/** A route with no self-crossings: every loop is cut at its crossing point, collinear points and spikes are removed. The ends stay. */
+export function simplify(input: readonly Pt[]): Pt[] {
+  let pts = clean(input.map((p) => ({ ...p })));
+  for (let guard = 0; guard < 50; guard++) {
+    let cut = false;
+    outer: for (let i = 0; i < pts.length - 1; i++) {
+      for (let j = i + 2; j < pts.length - 1; j++) {
+        const x = crossing(pts[i]!, pts[i + 1]!, pts[j]!, pts[j + 1]!);
+        if (!x) continue;
+        pts = clean([...pts.slice(0, i + 1), x, ...pts.slice(j + 1)]);
+        cut = true;
+        break outer;
+      }
+    }
+    if (!cut) break;
+  }
+  return pts;
+}
+
+/** Whether no two non-adjacent segments of the route touch. */
+export function isSimple(pts: readonly Pt[]): boolean {
+  for (let i = 0; i < pts.length - 1; i++) for (let j = i + 2; j < pts.length - 1; j++) if (crossing(pts[i]!, pts[i + 1]!, pts[j]!, pts[j + 1]!)) return false;
+  return true;
+}
+
+/** The ends of a (dragged) route attached to the nearer side of their nodes. */
+function reattach(input: readonly Pt[], src: Box, tgt: Box, head: boolean, tail: boolean): Pt[] | undefined {
+  let pts = clean(input.map((p) => ({ ...p })));
+  if (pts.length < 3) return undefined;
+  // Only an end the drag touched is attached again; the other end stays where the user left it.
+  if (head) {
+    const h = repairStart(pts, src);
+    if (!h) return undefined;
+    pts = clean(h);
+  }
+  if (tail) {
+    const t = repairStart([...pts].reverse(), tgt);
+    if (!t) return undefined;
+    pts = clean(t.reverse());
+  }
+  return pts;
+}
+
+/** The simplest valid route among the candidates (fewest points, the first wins ties), or the first valid one with `firstWins`. */
+function pick(cands: (Pt[] | undefined)[], src: Box, tgt: Box, firstWins = false): Pt[] | undefined {
+  const ok = cands.filter((c): c is Pt[] => !!c).map((c) => simplify(c)).filter((r) => routeFits(r, src, tgt));
+  return firstWins ? ok[0] : ok.sort((a, b) => a.length - b.length)[0];
+}
+
+/** Move segment `i` by `d` perpendicular to its direction; the neighbours stretch, collinear bends are removed, the route goes around the end nodes. */
+export function dragSegment(pts: readonly Pt[], i: number, d: number, src: Box, tgt: Box): Pt[] {
+  if (i < 0 || i >= pts.length - 1) return pts.map((p) => ({ ...p }));
+  const stub = dragRaw(pts, i, d, src, tgt).pts;
+  const horiz = isHorizontal(pts[i]!, pts[i + 1]!);
+  const naive = pts.map((p, k) => (k === i || k === i + 1 ? (horiz ? { x: p.x, y: p.y + d } : { x: p.x + d, y: p.y }) : { ...p }));
+  // The route that keeps its end points and goes around the node wins; the others are for when that one does not fit.
+  return pick([stub, naive, reattach(naive, src, tgt, i <= 1, i >= pts.length - 3)], src, tgt, true) ?? clean(stub);
+}
+
+/** Move the bend point `k` (an inner point) by (dx, dy): the corner follows the pointer, the two segments meeting there stretch and the corner flips when it crosses over. */
 export function dragBend(pts: readonly Pt[], k: number, dx: number, dy: number, src: Box, tgt: Box): Pt[] {
   if (k < 1 || k > pts.length - 2) return pts.map((p) => ({ ...p }));
   const first = isHorizontal(pts[k - 1]!, pts[k]!);
   const a = dragRaw(pts, k - 1, first ? dy : dx, src, tgt);
-  const b = dragRaw(a.pts, k + a.inserted, first ? dx : dy, src, tgt);
-  return clean(b.pts);
+  const stub = dragRaw(a.pts, k + a.inserted, first ? dx : dy, src, tgt).pts;
+  const naive = pts.map((p, j) => {
+    if (j === k - 1) return first ? { x: p.x, y: p.y + dy } : { x: p.x + dx, y: p.y };
+    if (j === k) return { x: p.x + dx, y: p.y + dy };
+    if (j === k + 1) return first ? { x: p.x + dx, y: p.y } : { x: p.x, y: p.y + dy };
+    return { ...p };
+  });
+  return pick([stub, naive, reattach(naive, src, tgt, k <= 2, k >= pts.length - 3)], src, tgt) ?? clean(stub);
 }
 
 /** Distance from `p` to the segment `a`-`b`, and the nearest point on it. */
@@ -114,6 +191,7 @@ const flipBox = (b: Box): Box => ({ x: b.y, y: b.x, w: b.h, h: b.w });
 function repairStart(pts: readonly Pt[], box: Box): Pt[] | undefined {
   const p0 = pts[0]!, p1 = pts[1]!;
   if (!isHorizontal(p0, p1)) {
+    if (!eq(p0.x, p1.x)) return undefined;
     const r = repairStart(pts.map(flip), flipBox(box));
     return r?.map(flip);
   }
@@ -122,7 +200,14 @@ function repairStart(pts: readonly Pt[], box: Box): Pt[] | undefined {
   if (!right && !left) {
     // The first bend lies over the moved node: leave through its top or bottom instead, straight towards the bend.
     const below = p1.y >= box.y + box.h, above = p1.y <= box.y;
-    if (!below && !above) return undefined;
+    if (!below && !above) {
+      // The bend lies inside the node: leave through the border the next segment runs out of.
+      const p2 = pts[2];
+      if (!p2 || !eq(p1.x, p2.x)) return undefined;
+      if (p2.y >= box.y + box.h) return [{ x: p1.x, y: box.y + box.h }, ...pts.slice(2)];
+      if (p2.y <= box.y) return [{ x: p1.x, y: box.y }, ...pts.slice(2)];
+      return undefined;
+    }
     return [{ x: p1.x, y: below ? box.y + box.h : box.y }, ...pts.slice(1)];
   }
   const bx = right ? box.x + box.w : box.x;

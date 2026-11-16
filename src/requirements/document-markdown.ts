@@ -36,9 +36,10 @@ function sectionLines(s: Section, out: string[]): void {
 export function documentToMarkdown(doc: DocumentModel, cap = DOCUMENT_CHAR_CAP): { text: string; truncated: boolean } {
   const out: string[] = [`# ${oneLine(doc.title)} ${marker(doc.qualifiedName)}`, ""];
   if (doc.version) out.push(`Version ${oneLine(doc.version)}`, "");
-  if (doc.toc.length) {
+  const sections = doc.toc.filter((t) => t.kind === "section");
+  if (sections.length) {
     out.push("## Table of contents", "");
-    for (const t of doc.toc) out.push(`${"  ".repeat(t.level - 1)}- ${oneLine(sectionLabel(t))}`);
+    for (const t of sections) out.push(`${"  ".repeat(t.level - 1)}- ${oneLine(sectionLabel(t))}`);
     out.push("");
   }
   for (const b of doc.blocks) out.push(...blockLines(b));

@@ -10,7 +10,7 @@ export interface ModelNode {
   id: string;
   uri: string;
   /** Absent for element nodes (everything below a file in the Elements view). */
-  kind?: "folder" | "file" | "diagram" | "message";
+  kind?: "folder" | "file" | "diagram" | "message" | "placeholder";
 }
 
 /** A path created or deleted in the workspace: `parent` is the folder URI key above `path`. */
@@ -420,6 +420,7 @@ export function folderInfo(index: ModelIndex, env: FolderEnv, node: ModelNode): 
 /** Parent in the Elements view: element -> file -> folders -> workspace folder. */
 export function folderParent(env: FolderEnv, node: ModelNode): ModelNode | undefined {
   if (isMessageNode(node)) return undefined;
+  if (node.kind === "placeholder") return folderNode(node.uri);
   if (isFolderNode(node)) {
     if (env.roots.some((r) => r.uri === node.uri) || !rootOf(env, node.uri)) return undefined;
     return folderNode(node.uri.slice(0, node.uri.lastIndexOf("/")));

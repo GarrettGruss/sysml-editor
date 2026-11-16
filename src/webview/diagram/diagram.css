@@ -1,6 +1,10 @@
 html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: var(--vscode-editor-background, #ffffff); color: var(--vscode-editor-foreground, #1f2328); font-family: var(--vscode-font-family); }
 .diagram { width: 100vw; height: 100vh; display: block; cursor: default; outline: none; }
-.diagram:focus-visible { outline: 2px solid var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: -2px; }
+.diagram:focus { outline: none; }
+/* Keyboard focus only: a thin inset line, dotted so it does not read as a selection. A press with the mouse never shows it. */
+.diagram:focus-visible { outline: 1px dotted var(--vscode-focusBorder, var(--vscode-editor-foreground)); outline-offset: -3px; }
+.diagram[data-pointer]:focus-visible { outline: none; }
+.diagram .s-sel { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
 .diagram .sel-line { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); fill: none; }
 .diagram .sel-fill { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
 .diagram .band { fill: var(--vscode-focusBorder, var(--vscode-editor-foreground)); stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
@@ -50,7 +54,13 @@ html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: 
 .props-reason { color: var(--vscode-editorWarning-foreground, inherit); }
 .props-notice { color: var(--vscode-errorForeground, inherit); }
 .props-goto { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid var(--vscode-button-border, transparent); padding: 3px 10px; cursor: pointer; font-family: inherit; font-size: inherit; }
-.inline-editor { position: fixed; z-index: 11; box-sizing: border-box; height: 22px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, currentColor)); padding: 1px 4px; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); font-weight: bold; }
+.inline-wrap { position: fixed; z-index: 11; box-sizing: border-box; }
+.inline-editor { display: block; width: 100%; box-sizing: border-box; height: 22px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border, currentColor)); padding: 1px 4px; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); font-weight: bold; }
+.inline-wrap.inline-doc .inline-editor { font-weight: normal; height: auto; resize: both; line-height: 1.3; }
+.inline-wrap.has-error .inline-editor { border-color: var(--vscode-inputValidation-errorBorder, #be1100); }
+.inline-error { margin-top: 1px; padding: 2px 4px; background: var(--vscode-inputValidation-errorBackground, #5a1d1d); color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground)); border: 1px solid var(--vscode-inputValidation-errorBorder, #be1100); font-family: var(--vscode-font-family); font-size: calc(var(--vscode-font-size) - 1px); }
+.inline-error[hidden] { display: none; }
+.palette-toggle { display: flex; align-items: center; gap: 4px; margin-top: 8px; cursor: pointer; }
 
 /* No text selection while dragging, panning, resizing or connecting on the canvas. */
 svg, svg * { -webkit-user-select: none; user-select: none; }
@@ -58,3 +68,13 @@ svg, svg * { -webkit-user-select: none; user-select: none; }
 .diagram [data-label-handle="resize"] { cursor: nwse-resize; }
 .ctx-menu button[aria-checked="true"]::before { content: "\2713"; margin-right: 6px; }
 .ctx-menu button[aria-checked="false"]::before { content: ""; display: inline-block; width: 1em; margin-right: 6px; }
+.diagram .drop-target-stroke { stroke: var(--vscode-focusBorder, var(--vscode-editor-foreground)); }
+
+.diagram .ghost-bad { stroke: var(--vscode-errorForeground, #d13438); fill: none; }
+.diagram [data-connect-handle] { cursor: crosshair; }
+.diagram [data-reconnect-handle] { cursor: grab; }
+.ghost-tip { position: fixed; z-index: 12; max-width: 280px; padding: 3px 8px; pointer-events: none; background: var(--vscode-editorHoverWidget-background, var(--vscode-editorWidget-background)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-editorWidget-border, transparent)); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.ghost-tip[hidden] { display: none; }
+.quick-bar { position: fixed; z-index: 11; display: flex; gap: 3px; padding: 4px; background: var(--vscode-editorWidget-background, var(--vscode-editor-background)); color: var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground)); border: 1px solid var(--vscode-editorWidget-border, var(--vscode-contrastBorder, transparent)); box-shadow: 0 2px 6px var(--vscode-widget-shadow, transparent); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); }
+.quick-bar button { background: var(--vscode-button-secondaryBackground, transparent); color: var(--vscode-button-secondaryForeground, inherit); border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, transparent)); padding: 2px 8px; cursor: pointer; font: inherit; }
+.quick-bar button:hover, .quick-bar button:focus-visible { background: var(--vscode-button-background); color: var(--vscode-button-foreground); outline: none; }

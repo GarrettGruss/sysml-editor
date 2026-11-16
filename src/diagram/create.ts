@@ -25,16 +25,28 @@ export function nextId(doc: Pick<DiagramDocument, "nodes" | "edges">, prefix: "n
 
 /** The kinds of diagram a root can have. A general view fits everything; the behaviour views need a matching element. */
 export function diagramKindsFor(element: Element): DiagramKind[] {
-  const kinds: DiagramKind[] = ["general", "interconnection", "requirements"];
+  const kinds: DiagramKind[] = ["general"];
+  if (isStructure(element)) kinds.push("interconnection");
+  kinds.push("requirements");
   if (isActionLike(element) && element.qualifiedName !== undefined) kinds.push("actionFlow");
   if (isStateKind(element.kind) && element.qualifiedName !== undefined) kinds.push("stateTransition");
   if (ownsMessages(element)) kinds.push("sequence");
   return kinds;
 }
 
+const STRUCTURE_KEYWORDS = new Set(["part", "item", "interface", "connection"]);
+
+/** Whether the element is a part, item, interface or connection definition or usage (an Interconnection View shows what it owns). */
+export function isStructure(e: Element): boolean {
+  const words = e.kind.split(" ");
+  const base = words[words.length - 1] === "def" ? words[words.length - 2] : words[words.length - 1];
+  return base !== undefined && STRUCTURE_KEYWORDS.has(base);
+}
+
 /** Why `element` cannot be the root of a diagram of this kind, or undefined. */
 export function rootProblem(kind: DiagramKind, element: Element): string | undefined {
   const what = `${element.kind}${element.name !== undefined ? ` '${element.name}'` : ""}`;
+  if (kind === "interconnection" && !isStructure(element)) return `An Interconnection View needs a part, item, interface or connection definition or usage as its root; ${what} is none of these.`;
   if (kind === "actionFlow" && !isActionLike(element)) return `An Action Flow View needs an action or an action definition as its root; ${what} is neither.`;
   if (kind === "stateTransition" && !isStateKind(element.kind)) return `A State Transition View needs a state or a state definition as its root; ${what} is neither.`;
   if (kind === "sequence" && !ownsMessages(element)) return `A Sequence View needs an occurrence, part or interaction that owns messages as its root; ${what} owns no \`message\`.`;
@@ -183,11 +195,11 @@ export interface AddedElements {
 }
 
 /**
- * Add elements the way the user does (drop, "Add to Active Diagram", "Show Element"): a node inside
+ * Add elements the way the user does (drop, "Add to Diagram"): a node inside
  * the node of its owner when that is on an Interconnection View, otherwise at top level, plus the
  * relationship statements around it whose ends are both on the diagram. Touches only the diagram.
  */
-export function addElements(doc: DiagramDocument, index: ModelIndex, elements: readonly Element[], opts: ResolveOptions = {}): AddedElements {
+export function addElements(doc: DiagramDocument, index: ModelIndex, elements: readonly Element[], opts: ResolveOptions & { at?: { x: number; y: number } } = {}): AddedElements {
   const out: AddedElements = { doc, ids: [], added: [] };
   for (const element of elements) {
     if (relationOf(element, index)) {
@@ -215,6 +227,11 @@ export function addElements(doc: DiagramDocument, index: ModelIndex, elements: r
     out.ids.push(r.id);
     if (!r.added) continue;
     out.added.push(r.id);
+    // A drop puts a top-level node at the pointer (several are staggered); the layout keeps a stored position.
+    if (opts.at && parent === undefined) {
+      const k = out.added.filter((i) => i.startsWith("n")).length - 1;
+      out.doc = { ...out.doc, nodes: out.doc.nodes.map((n) => (n.id === r.id ? { ...n, x: Math.round(opts.at!.x + 24 * k), y: Math.round(opts.at!.y + 24 * k) } : n)) };
+    }
     const rootEl = resolveReference({ ref: out.doc.root }, out.doc, index, opts);
     const parentEl = parent !== undefined ? res0.get(parent) : undefined;
     const owners = [...new Set([element, element.owner, parentEl, rootEl].filter((o): o is Element => !!o))];

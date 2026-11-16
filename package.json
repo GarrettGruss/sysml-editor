@@ -4,6 +4,7 @@
   "description": "Graphical and model-aware editor for SysML v2",
   "version": "0.0.1",
   "publisher": "your-publisher",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/GarrettGruss/sysml-editor.git"
@@ -59,12 +60,6 @@
         "category": "SysML"
       },
       {
-        "command": "sysml.newFile",
-        "title": "New SysML File",
-        "category": "SysML",
-        "icon": "$(new-file)"
-      },
-      {
         "command": "sysml.newDiagram",
         "title": "New Diagram…",
         "category": "SysML"
@@ -76,18 +71,13 @@
       },
       {
         "command": "sysml.addToActiveDiagram",
-        "title": "Add to Active Diagram",
+        "title": "Add to Diagram",
         "category": "SysML",
         "enablement": "sysml.diagramActive"
       },
       {
         "command": "sysml.diagram.autoLayout",
         "title": "Auto-layout Diagram",
-        "category": "SysML"
-      },
-      {
-        "command": "sysml.diagram.showElement",
-        "title": "Show Element on Diagram…",
         "category": "SysML"
       },
       {
@@ -137,6 +127,24 @@
         "title": "Change View",
         "category": "SysML",
         "icon": "$(list-filter)"
+      },
+      {
+        "command": "sysml.tree.newFile",
+        "title": "New File",
+        "category": "SysML",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "sysml.tree.newFolder",
+        "title": "New Folder",
+        "category": "SysML",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "sysml.tree.refresh",
+        "title": "Refresh",
+        "category": "SysML",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -149,6 +157,11 @@
         {
           "command": "sysml.newDiagram",
           "when": "view == sysmlModel && viewItem =~ /^sysmlElement/",
+          "group": "diagram@1"
+        },
+        {
+          "command": "sysml.newDiagram",
+          "when": "view == sysmlModel && viewItem == sysmlFile",
           "group": "diagram@1"
         },
         {
@@ -187,9 +200,14 @@
           "group": "requirements@1"
         },
         {
-          "command": "sysml.newFile",
-          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/",
+          "command": "sysml.tree.newFile",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/ && sysml.treeFilter != diagrams",
           "group": "edit@1"
+        },
+        {
+          "command": "sysml.tree.newFolder",
+          "when": "view == sysmlModel && viewItem =~ /^sysmlFolder/ && sysml.treeFilter != diagrams",
+          "group": "edit@2"
         }
       ],
       "commandPalette": [
@@ -207,10 +225,6 @@
         },
         {
           "command": "sysml.diagram.autoLayout",
-          "when": "sysml.diagramActive"
-        },
-        {
-          "command": "sysml.diagram.showElement",
           "when": "sysml.diagramActive"
         },
         {
@@ -232,9 +246,22 @@
         {
           "command": "sysml.diagram.deleteFromModel",
           "when": "sysml.diagramActive"
+        },
+        {
+          "command": "sysml.tree.newFile",
+          "when": "sysml.treeFilter != diagrams"
+        },
+        {
+          "command": "sysml.tree.newFolder",
+          "when": "sysml.treeFilter != diagrams"
         }
       ],
       "explorer/context": [
+        {
+          "command": "sysml.newDiagram",
+          "when": "resourceExtname == .sysml",
+          "group": "navigation@8"
+        },
         {
           "command": "sysml.openRequirementsEditor",
           "when": "resourceExtname == .sysml",
@@ -243,19 +270,29 @@
       ],
       "view/title": [
         {
-          "command": "sysml.newFile",
+          "command": "sysml.tree.newFile",
           "when": "view == sysmlModel && sysml.treeFilter != diagrams",
           "group": "navigation@1"
         },
         {
-          "command": "sysml.tree.clearSearch",
-          "when": "view == sysmlModel && sysml.searchActive",
-          "group": "navigation@0"
+          "command": "sysml.tree.newFolder",
+          "when": "view == sysmlModel && sysml.treeFilter != diagrams",
+          "group": "navigation@2"
+        },
+        {
+          "command": "sysml.tree.refresh",
+          "when": "view == sysmlModel",
+          "group": "navigation@3"
         },
         {
           "command": "sysml.tree.changeView",
           "when": "view == sysmlModel",
-          "group": "navigation"
+          "group": "navigation@101"
+        },
+        {
+          "command": "sysml.tree.clearSearch",
+          "when": "view == sysmlModel && sysml.searchActive",
+          "group": "navigation@102"
         }
       ]
     },
@@ -350,7 +387,7 @@
       {
         "name": "sysml_get_element",
         "displayName": "SysML: Get Element",
-        "modelDescription": "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, specializes/subsets/redefines, multiplicity, documentation, visibility, owner, owned members (name, kind, type), relationship statements it owns (connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",
+        "modelDescription": "Get the details of one SysML v2 element by qualified name (for example VehicleModel::Vehicle): kind, name, short name, types, specializes/subsets/redefines, multiplicity, direction (in, out, inout), documentation, visibility, owner, owned members (name, kind, direction, type), relationship statements it owns (connect, bind, satisfy, ... with their ends), the file (workspace-relative) and 1-based line range of its declaration, and whether it is read-only standard library content. Use sysml_get_element_tree first to discover qualified names. A package declared in several files returns one entry per declaration. Returns JSON: { elements: [...] }. If nothing matches, an error names the closest existing prefix.",
         "toolReferenceName": "sysmlGetElement",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
@@ -1076,6 +1113,42 @@
           ],
           "additionalProperties": false
         }
+      },
+      {
+        "name": "sysml_read_verification_matrix",
+        "displayName": "SysML: Read Verification Matrix",
+        "modelDescription": "Read the requirements verification matrix of a package, the same rows, columns and status as the requirements editor's Matrix view: one row per requirement, nested and numbered by ownership (1, 1.1, ...; packages are section rows), with satisfied by, verification method, verified by and status. The method comes from the standard VerificationMethod metadata on the verification case (@VerificationMethod { kind = VerificationMethodKind::test; }): inspect, analyze, demo or test. Status is `not satisfied` (no satisfy statement, own or counted from a parent requirement), `partly satisfied` (a requirement definition, or a requirement it owns, whose usages are not all satisfied; `usages` gives satisfied and total), `no verification` (satisfied, no verification case verifies it, own or counted from a parent requirement) or `covered`. Satisfaction counted from elsewhere has `via` set. Pass/fail results are not part of the model and not shown. `package` is the qualified name of the package. `format` is `json` (default: summary and rows with qualified names, to pass to the edit tools), `markdown` or `csv` (the editor's export text). At most 1000 rows. Read-only.",
+        "toolReferenceName": "sysmlReadVerificationMatrix",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "package": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Qualified name of the package, e.g. VehicleSpec."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "json",
+                "markdown",
+                "csv"
+              ],
+              "description": "Result format; default json."
+            }
+          },
+          "required": [
+            "package"
+          ],
+          "additionalProperties": false
+        }
       }
     ],
     "customEditors": [
@@ -1110,7 +1183,7 @@
     "gate:parser": "npm run generate:parser && tsx scripts/parser-gate.ts",
     "gate:parser:record": "npm run generate:parser && tsx scripts/parser-gate.ts --write",
     "generate:manifest": "tsx scripts/generate-manifest.ts",
-    "package": "npm run build && vsce package --no-dependencies --skip-license",
+    "package": "npm run build && vsce package --no-dependencies",
     "check:vsix": "tsx scripts/check-vsix.ts"
   },
   "devDependencies": {

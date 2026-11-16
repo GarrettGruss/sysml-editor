@@ -78,6 +78,11 @@ export class DiagramState {
     this.version = 1;
   }
 
+  /** Mark the document changed without an undo entry (a new diagram that has no file yet received a model-forced change). */
+  touch(): void {
+    this.version++;
+  }
+
   get dirty(): boolean {
     return this.version !== this.savedVersion;
   }

@@ -10,6 +10,7 @@ import { removeItems } from "../diagram/edits.js";
 import type { DiagramDocument, DiagramEdge, DiagramNode } from "../diagram/format.js";
 import { referenceFor, referenceKey, type SourceMapper } from "../diagram/resolve.js";
 import type { ElementLocator, ElementReference } from "../diagram/format.js";
+import { quoteName, splitQualified } from "../model/index.js";
 
 export interface ChangeContext {
   uri: string;
@@ -263,6 +264,193 @@ export function retargetChange(oldKey: string | undefined, next: () => ElementRe
         changed = true;
         const { ref: _r, locator: _l, ...rest } = e;
         return { ...rest, ...old } as DiagramEdge;
+      });
+      return changed ? { ...doc, edges } : doc;
+    },
+  };
+}
+
+/**
+ * Unnamed control nodes that a statement named (`fork;` to `fork fork1;`): their diagram nodes change from a locator to the
+ * new reference, and the entries of the later unnamed twins move up by one. Applies to the saved state of every diagram file.
+ */
+export function nameNodesChange(named: readonly { oldKey: string | undefined; ref: string }[], label: string): DiagramChange {
+  const was = new Map<string, DiagramNode>();
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      // Every old key is resolved against the unchanged nodes first, so naming one node never disturbs finding the next.
+      const hits = new Map<string, { ref: string; group: string; k: number }>();
+      const renamed: { group: string; k: number }[] = [];
+      for (const n of named) {
+        if (!n.oldKey || doc.nodes.some((x) => x.ref === n.ref)) continue; // nothing to name, or already applied to this document
+        const old = doc.nodes.find((x) => referenceKey(x) === n.oldKey);
+        if (!old?.locator) continue;
+        const group = referenceKey({ locator: { ...old.locator, index: 0 } });
+        const k = old.locator.index ?? 0;
+        hits.set(old.id, { ref: n.ref, group, k });
+        renamed.push({ group, k });
+      }
+      if (!hits.size) return doc;
+      const nodes = doc.nodes.map((x) => {
+        const hit = hits.get(x.id);
+        if (hit) {
+          if (!was.has(ctx.uri + "\0" + x.id)) was.set(ctx.uri + "\0" + x.id, x);
+          const { locator: _l, ...rest } = x;
+          return { ...rest, ref: hit.ref } as DiagramNode;
+        }
+        const xl = x.locator;
+        if (!xl) return x;
+        const group = referenceKey({ locator: { ...xl, index: 0 } });
+        const at = xl.index ?? 0;
+        const shift = renamed.filter((r) => r.group === group && r.k < at).length;
+        if (!shift) return x;
+        if (!was.has(ctx.uri + "\0" + x.id)) was.set(ctx.uri + "\0" + x.id, x);
+        const { index: _i, ...restL } = xl;
+        return { ...x, locator: at - shift > 0 ? { ...restL, index: at - shift } : restL } as DiagramNode;
+      });
+      return { ...doc, nodes };
+    },
+    revert(doc, ctx) {
+      let changed = false;
+      const nodes = doc.nodes.map((x) => {
+        const old = was.get(ctx.uri + "\0" + x.id);
+        if (!old) return x;
+        changed = true;
+        return old;
+      });
+      return changed ? { ...doc, nodes } : doc;
+    },
+  };
+}
+
+/** Two changes as one: `first` is applied before `second`, and reverted after it. */
+export function composeChanges(first: DiagramChange, second: DiagramChange, label: string): DiagramChange {
+  return {
+    ...second,
+    target: "all",
+    label,
+    apply: (doc, ctx) => second.apply(first.apply(doc, ctx), ctx),
+    revert: (doc, ctx) => first.revert(second.revert(doc, ctx), ctx),
+  };
+}
+
+const joinSegs = (segs: readonly string[]) => segs.map(quoteName).join("::");
+
+/** `s` with the prefix `old` (unquoted segments) replaced by `next`; undefined when `s` does not start with it. */
+function mapPrefix(old: readonly string[], next: readonly string[], s: string): string | undefined {
+  const segs = splitQualified(s);
+  if (segs.length < old.length || !old.every((o, i) => segs[i] === o)) return undefined;
+  return joinSegs([...next, ...segs.slice(old.length)]);
+}
+
+/**
+ * Nesting moved an element (design D33): every reference to it and to what it owns follows the new qualified name, the ends of
+ * lines written with the old text follow, and its node moves into the node of its new owner (when that is on the diagram; the
+ * position is dropped so the webview places it). Applies to the saved state of every diagram file and to open documents.
+ */
+export function nestChange(oldQn: string, newQn: string, ownerQn: string, endsChanges: readonly { ownerQn: string | undefined; kind: string; oldEnds: string[]; newEnds: string[] }[], label: string): DiagramChange {
+  const was = new Map<string, DiagramNode>();
+  const key = (e: readonly string[]) => e.map((x) => splitQualified(x).join("\0")).join("\u0001");
+  const remap = (doc: DiagramDocument, from: string, to: string, ends: typeof endsChanges, fwd: boolean): DiagramDocument => {
+    const oldS = splitQualified(from), newS = splitQualified(to);
+    const fixRef = <T extends { ref?: string; locator?: ElementLocator }>(i: T): T => {
+      let out = i;
+      if (i.ref !== undefined) {
+        const n = mapPrefix(oldS, newS, i.ref);
+        if (n !== undefined) out = { ...out, ref: n };
+      }
+      if (i.locator) {
+        let l: ElementLocator = { ...i.locator, ends: [...i.locator.ends] };
+        for (const c of ends) {
+          const a = fwd ? c.oldEnds : c.newEnds, b = fwd ? c.newEnds : c.oldEnds;
+          if (c.kind === l.kind && c.ownerQn !== undefined && key([c.ownerQn]) === key([l.owner]) && key(a) === key(l.ends)) {
+            l = { ...l, ends: [...b] };
+            break;
+          }
+        }
+        const o = mapPrefix(oldS, newS, l.owner);
+        if (o !== undefined) l = { ...l, owner: o };
+        out = { ...out, locator: l };
+      }
+      return out;
+    };
+    const root = mapPrefix(oldS, newS, doc.root) ?? doc.root;
+    return { ...doc, root, nodes: doc.nodes.map(fixRef), edges: doc.edges.map(fixRef) };
+  };
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      let next = remap(doc, oldQn, newQn, endsChanges, true);
+      if (JSON.stringify(next) === JSON.stringify(doc)) return doc;
+      const moved = next.nodes.find((n) => n.ref === newQn);
+      if (moved) {
+        const ownerNode = next.nodes.find((n) => n.ref === ownerQn);
+        was.set(ctx.uri + "\0" + moved.id, doc.nodes.find((n) => n.id === moved.id)!);
+        const { x: _x, y: _y, parent: _p, ...rest } = moved;
+        const fresh: DiagramNode = { ...rest, ...(ownerNode ? { parent: ownerNode.id } : {}) } as DiagramNode;
+        next = { ...next, nodes: next.nodes.map((n) => (n.id === moved.id ? fresh : n)) };
+      }
+      return next;
+    },
+    revert(doc, ctx) {
+      let next = remap(doc, newQn, oldQn, endsChanges, false);
+      const nodes = next.nodes.map((n) => {
+        const old = was.get(ctx.uri + "\0" + n.id);
+        return old ? { ...old, ref: oldQn } as DiagramNode : n;
+      });
+      next = { ...next, nodes };
+      return next;
+    },
+  };
+}
+
+/** A node and the line to it, placed on one diagram together: the node first, so the line finds both of its ends. Reverts in the opposite order. */
+export function placeNodeAndLineChange(node: DiagramChange, line: DiagramChange, label: string): DiagramChange {
+  const same = (c: DiagramChange, uri: string) => c.target === "all" || c.target.uri === uri;
+  return {
+    target: node.target,
+    label,
+    apply: (doc, ctx) => (same(line, ctx.uri) ? line.apply(same(node, ctx.uri) ? node.apply(doc, ctx) : doc, ctx) : doc),
+    revert: (doc, ctx) => (same(node, ctx.uri) ? node.revert(same(line, ctx.uri) ? line.revert(doc, ctx) : doc, ctx) : doc),
+    createdKeys: () => [...(node.createdKeys?.() ?? []), ...(line.createdKeys?.() ?? [])],
+    createdIn: () => new Map([...(node.createdIn?.() ?? []), ...(line.createdIn?.() ?? [])]),
+  };
+}
+
+/**
+ * A line whose end was rewritten: its entry follows the rewritten statement (a new locator) and, when the new end node is
+ * on the diagram, points at it; the stored route no longer fits the new end and is dropped. Applies to every diagram file.
+ */
+export function reconnectChange(oldKey: string | undefined, next: () => ElementReference | undefined, end: "source" | "target", endKey: () => string | undefined, label: string): DiagramChange {
+  const was = new Map<string, DiagramEdge>();
+  return {
+    target: "all",
+    label,
+    apply(doc, ctx) {
+      const to = next();
+      if (!oldKey || !to) return doc;
+      let changed = false;
+      const edges = doc.edges.map((e) => {
+        if (referenceKey(e) !== oldKey) return e;
+        changed = true;
+        was.set(ctx.uri + "\0" + e.id, e);
+        const { ref: _r, locator: _l, points: _p, ...rest } = e;
+        const k = endKey();
+        const node = k !== undefined ? doc.nodes.find((n) => referenceKey(n) === k) : undefined;
+        return { ...rest, ...to, ...(node ? { [end]: node.id } : {}) } as DiagramEdge;
+      });
+      return changed ? { ...doc, edges } : doc;
+    },
+    revert(doc, ctx) {
+      let changed = false;
+      const edges = doc.edges.map((e) => {
+        const old = was.get(ctx.uri + "\0" + e.id);
+        if (!old) return e;
+        changed = true;
+        return old;
       });
       return changed ? { ...doc, edges } : doc;
     },
