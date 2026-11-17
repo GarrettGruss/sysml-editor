@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ModelIndex } from "../model/index.js";
-import { callTool, toolDefinitions, type ToolContext } from "../agent-tools/index.js";
+import { callTool, toolDefinitions, type ToolContext, type UiDriver } from "../agent-tools/index.js";
 import { FakeDiagrams, fixtureDiagram, fixtureText } from "../agent-tools/test-support.js";
 import { FakeHost } from "../model-service/fake-host.js";
 import { ModelService } from "../model-service/service.js";
@@ -26,7 +26,18 @@ diagrams.files.set("ports-general.sysmld", fixtureDiagram("ports-general.sysmld"
 const host = new FakeHost(index);
 host.buffers.set(ROOT + "m.sysml", M_TEXT);
 host.disk.set(ROOT + "m.sysml", M_TEXT);
+/** A driver that is on and does nothing, so the UI-control tools run over MCP like any other. */
+const uiDriver: UiDriver = {
+  gate: () => ({ enabled: true, trusted: true }),
+  workspaceRoots: () => ["/w"],
+  audit: () => {},
+  runCommand: async () => ({ ok: true, completed: true, prompts: [] }),
+  prompts: () => [],
+  answer: async () => ({ ok: true, remaining: [] }),
+  state: async () => ({ selection: [], menus: [], undo: [], messages: [], prompts: [], navigation: [], clipboard: "none" }),
+};
 const ctx: ToolContext = {
+  ui: uiDriver,
   diagrams,
   edits: { service: new ModelService(host), isTrusted: () => true, diagramUri: async (p) => ROOT + p },
   index,
@@ -57,6 +68,9 @@ const INPUTS: Record<string, unknown> = {
   sysml_read_verification_matrix: { package: "P" },
   sysml_set_transition: { element: "P::S::t1", trigger: "Go", guard: "ready" },
   sysml_create_requirement: { owner: "P", name: "massLimit", id: "R1", documentation: "The mass shall be low." },
+  sysml_ui_command: { command: "undo" },
+  sysml_ui_answer: { cancel: true },
+  sysml_ui_state: {},
 };
 /** More inputs of tools above: the relationship kinds of the requirements editor, over both channels. */
 const MORE: [string, unknown][] = [

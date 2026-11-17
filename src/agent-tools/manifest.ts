@@ -15,6 +15,7 @@ export interface LmToolManifestEntry {
 }
 
 const MODEL_TOOLS = /^sysml_(create_element|delete_element|rename_element|set_element_properties|create_relationship|create_requirement)$/;
+const UI_TOOLS = /^sysml_ui_/;
 const words = (name: string) => name.replace(/^sysml_/, "").split("_");
 const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
 
@@ -27,7 +28,7 @@ export function lmToolManifest(): LmToolManifestEntry[] {
     toolReferenceName: "sysml" + words(t.name).map(cap).join(""),
     canBeReferencedInPrompt: true,
     when: "config.sysml.agent.channels != 'mcp'",
-    tags: ["sysml", t.readOnly ? "read-only" : MODEL_TOOLS.test(t.name) ? "edits-model" : "edits-diagram"],
+    tags: ["sysml", ...(UI_TOOLS.test(t.name) ? ["ui-control"] : []), t.readOnly ? "read-only" : MODEL_TOOLS.test(t.name) ? "edits-model" : UI_TOOLS.test(t.name) ? "controls-ui" : "edits-diagram"],
     inputSchema: t.inputSchema,
   }));
 }

@@ -561,6 +561,12 @@
             "Language Model Tools only. No MCP server."
           ],
           "description": "How AI agents reach the SysML tools. Changes apply without reloading."
+        },
+        "sysml.agent.uiControl": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Let AI agents drive and observe the editor window through the `sysml_ui_*` tools (run allowlisted commands, answer prompts, act in diagrams). User-level only: a workspace cannot turn it on. Never available in an untrusted workspace. Every action is logged to the `SysML Agent UI` output channel."
         }
       }
     },
@@ -1483,6 +1489,112 @@
           "required": [
             "package"
           ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_ui_command",
+        "displayName": "SysML: Ui Command",
+        "modelDescription": "Run an editor command as the user would from the command palette or a menu: any `sysml.*` command, or core undo, redo, save, save all, back and forward (ids: undo, redo, workbench.action.files.save, workbench.action.files.saveAll, workbench.action.navigateBack, workbench.action.navigateForward). Other ids are refused. `args` are the command's arguments (JSON values; strings that are file paths must lie inside the workspace). The call returns when the command finishes or as soon as it opens a prompt (a quick pick, input box, confirmation or dialog); the result lists the open prompts, which you answer with sysml_ui_answer. Delete commands ask for confirmation, which you must answer explicitly. Works only when the user has turned on the setting sysml.agent.uiControl in a trusted workspace; every call is logged.",
+        "toolReferenceName": "sysmlUiCommand",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "ui-control",
+          "controls-ui"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "The command id, e.g. sysml.createDiagram or undo."
+            },
+            "args": {
+              "type": "array",
+              "items": {},
+              "description": "Arguments passed to the command, at most 8."
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_ui_answer",
+        "displayName": "SysML: Ui Answer",
+        "modelDescription": "Answer an open prompt (a quick pick, multi-pick, input box, confirmation, choice dialog or save dialog), as listed by sysml_ui_command or sysml_ui_state. Give exactly one of: `pick` (an item label), `picks` (item labels, for a multi-pick), `text` (for an input box; a validation message comes back and the box stays open), `confirm: true`, `path` (for a save dialog; must be inside the workspace), or `cancel: true`. `prompt` is the prompt id; omitted it is the oldest open prompt. A prompt left open times out as cancelled. Needs sysml.agent.uiControl on, in a trusted workspace; every call is logged.",
+        "toolReferenceName": "sysmlUiAnswer",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "ui-control",
+          "controls-ui"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Id of the prompt; default the oldest open one."
+            },
+            "pick": {
+              "type": "string",
+              "maxLength": 1000,
+              "description": "The label of the item to choose."
+            },
+            "picks": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 1000
+              },
+              "description": "Labels of the items to tick."
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 10000,
+              "description": "The text for an input box."
+            },
+            "confirm": {
+              "type": "boolean",
+              "description": "true confirms; to decline use cancel."
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 4096,
+              "description": "File path for a save dialog, inside the workspace."
+            },
+            "cancel": {
+              "type": "boolean",
+              "description": "true cancels the prompt."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_ui_state",
+        "displayName": "SysML: Ui State",
+        "modelDescription": "Observe the editor window: whether UI control is enabled, the active editor and its dirty flag, the selection in open diagrams, open context menus and their items, the undo and redo labels of each diagram, the messages shown to the user (information, warning, error) since the last read (each is reported once), open prompts, navigation history, and what the clipboard holds (none, text, image or elements; never its content). When UI control is off or the workspace is untrusted it answers `enabled: false` with the reason instead of failing. Read-only; every call is logged.",
+        "toolReferenceName": "sysmlUiState",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "ui-control",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
           "additionalProperties": false
         }
       }

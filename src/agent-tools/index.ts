@@ -36,3 +36,6 @@ export function invokeTool(name: string, input: unknown, ctx: ToolContext): Tool
 export async function callTool(name: string, input: unknown, ctx: ToolContext): Promise<ToolResult> {
   return invokeTool(name, input, ctx);
 }
+export { uiToolDefinitions } from "./ui-tools.js";
+export * from "./ui-driver.js";
+export { PromptBroker, MessageLog, isAllowedCommand, validateCommandArgs, resolveInWorkspace, formatAuditLine } from "./ui-support.js";
