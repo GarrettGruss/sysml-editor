@@ -29,6 +29,7 @@ import { makeSourceMapper, referenceKey, resolveReference } from "./resolve.js";
 import { DiagramState, decideSave, followRename, forceChange, hashViewModel, noteExternalChange, refresh, unforceChange } from "./session.js";
 import { dropEntriesChange, type DiagramChange } from "../model-service/diagram-changes.js";
 import type { DiagramDocument as FileDoc, DiagramDocument as DiagramFile, DiagramProblem } from "./format.js";
+import { showError, showInfo, showWarning } from "../ui-messages.js";
 
 export const VIEW_TYPE = "sysml.diagram";
 const REFRESH_DEBOUNCE_MS = 50;
@@ -68,13 +69,13 @@ export const defaultUi: DiagramUi = {
     const r = await vscode.window.showQuickPick(items, { ...options, canPickMany: true });
     return r ? [...r] : undefined;
   },
-  notify: (message) => void vscode.window.showInformationMessage(message),
+  notify: (message) => void showInfo(message),
   fail: (f) => showFailure(f),
   choose: (message, actions) => Promise.resolve(vscode.window.showWarningMessage(message, ...actions)),
   confirm: async (message, detail, action) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action,
   saveAs: async (suggested) => Promise.resolve(vscode.window.showSaveDialog({ defaultUri: suggested, filters: { "SysML diagram": ["sysmld"] }, title: "Save Diagram" })),
   saveImage: async (suggested) => Promise.resolve(vscode.window.showSaveDialog({ defaultUri: suggested, filters: { PNG: ["png"], SVG: ["svg"] }, title: "Save Diagram as Image" })),
-  error: (message) => void vscode.window.showErrorMessage(message),
+  error: (message) => void showError(message),
 };
 
 export class SysmlDiagramDocument implements vscode.CustomDocument {
@@ -172,7 +173,11 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   /** New diagrams waiting to be opened with no file: intended URI to generated text (D37). */
   private readonly newDocs = new Map<string, string>();
   private timer?: ReturnType<typeof setTimeout>;
-  ui: DiagramUi = defaultUi;
+  private baseUi: DiagramUi = defaultUi;
+  /** A layer over the questions asked of the user: the agent UI driver answers them while an agent drives the window (D57). */
+  uiLayer?: (base: DiagramUi) => DiagramUi;
+  get ui(): DiagramUi { return this.uiLayer ? this.uiLayer(this.baseUi) : this.baseUi; }
+  set ui(v: DiagramUi) { this.baseUi = v; }
   /** Called when a node is selected in a diagram and the tree should follow (set by the extension). */
   revealInTree?: (element: Element) => void;
   /** Why a document cannot be edited (library aside); nodes of such elements are locked in the view model. Set by the extension. */
@@ -270,7 +275,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         const change = noteExternalChange(doc.state, text);
         if (change === "reload") this.rerender(doc);
         else if (change === "conflict") {
-          void vscode.window.showWarningMessage(`${uri.path.split("/").pop()} changed on disk while it has unsaved changes. Saving will ask whether to overwrite it.`);
+          void showWarning(`${uri.path.split("/").pop()} changed on disk while it has unsaved changes. Saving will ask whether to overwrite it.`);
         }
       } catch {
         /* deleted: keep what is open */
@@ -551,7 +556,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       doc.state.snapshot = undefined; // an undone rename must not be detected again
       this.rerender(doc);
     };
-    this._onDidChange.fire({ document: doc, label, undo: () => redraw(e.undo()), redo: () => redraw(e.redo()) });
+    this.fireEdit(doc, label, () => redraw(e.undo()), () => redraw(e.redo()));
     this.rerender(doc);
   }
 
@@ -604,7 +609,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
           doc.state.disk = prev.disk;
           doc.state.raw = prev.raw;
           if (attempt < 2) continue; // read again and re-apply the change to the new text
-          void vscode.window.showWarningMessage(`${doc.uri.path.split("/").pop()} changed on disk while the model edit was being saved to it. The diagram file was not updated.`);
+          void showWarning(`${doc.uri.path.split("/").pop()} changed on disk while the model edit was being saved to it. The diagram file was not updated.`);
           this.rerender(doc);
           return false;
         }
@@ -627,13 +632,38 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   recordModelEdit(uri: vscode.Uri, label: string, undo: () => Promise<void>, redo: () => Promise<void>): void {
     const doc = this.docs.get(uri.toString());
     if (!doc) return;
-    this._onDidChange.fire({ document: doc, label, undo: async () => { await undo(); this.rerender(doc); }, redo: async () => { await redo(); this.rerender(doc); } });
+    this.fireEdit(doc, label, async () => { await undo(); this.rerender(doc); }, async () => { await redo(); this.rerender(doc); });
   }
+
+  /** Per diagram, the labels of the edits Undo and Redo would act on next (last entry first), for the agent UI state. */
+  private readonly editLabels = new Map<string, { undo: string[]; redo: string[] }>();
+
+  /** Fire an edit event and keep its label where `undoLabels` can find it. */
+  private fireEdit(doc: SysmlDiagramDocument, label: string, undo: () => unknown, redo: () => unknown): void {
+    const h = this.editLabels.get(doc.uri.toString()) ?? { undo: [], redo: [] };
+    this.editLabels.set(doc.uri.toString(), h);
+    h.undo.push(label);
+    h.redo.length = 0;
+    const wrap = (run: () => unknown, from: string[], to: string[]) => (): unknown => {
+      const r = run();
+      const move = () => { const l = from.pop(); if (l !== undefined) to.push(l); };
+      return r instanceof Promise ? r.then((v) => { move(); return v; }) : (move(), r);
+    };
+    this._onDidChange.fire({ document: doc, label, undo: wrap(undo, h.undo, h.redo) as () => void, redo: wrap(redo, h.redo, h.undo) as () => void });
+  }
+
+  /** The labels Undo and Redo would act on for each open diagram (D58). */
+  undoLabels(): { uri: string; undo?: string; redo?: string }[] {
+    return [...this.editLabels].filter(([k]) => this.docs.has(k)).map(([uri, h]) => ({ uri, ...(h.undo.length ? { undo: h.undo[h.undo.length - 1]! } : {}), ...(h.redo.length ? { redo: h.redo[h.redo.length - 1]! } : {}) }));
+  }
+
+  /** What the last copy in a diagram put on the clipboard: node references, or an image. For the agent UI state. */
+  lastCopy?: "elements" | "image";
 
   private fail(what: string, e: unknown): void {
     const msg = e instanceof Error ? e.message : String(e);
     this.log(`diagram ${what} failed: ${msg}`);
-    void vscode.window.showErrorMessage(`${what} failed: ${msg}`);
+    void showError(`${what} failed: ${msg}`);
   }
 
   /** A layout or remove edit from the webview: one undoable edit of the diagram file, never of the model. */
@@ -990,7 +1020,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
   /** "Delete from Model…" on the selected nodes (the command and the context menu). */
   async deleteSelectionFromModel(doc: SysmlDiagramDocument): Promise<void> {
     if (!doc.selection.length) {
-      void vscode.window.showInformationMessage("Select an element in the diagram first.");
+      void showInfo("Select an element in the diagram first.");
       return;
     }
     await this.onModelIntent(doc, { kind: "deleteFromModel", ids: [...doc.selection] });
@@ -1034,6 +1064,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
       const clip = copyNodes(cur, selected);
       if (!clip) { this.ui.notify("Select one or more nodes to copy."); return; }
       this.clipboard = clip;
+      this.lastCopy = "elements";
       return;
     }
     if (command === "paste") {
@@ -1165,7 +1196,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     try {
       const key = await this.openPanelKey(doc);
       const r = await this.request<"copyResult">(key, (requestId) => ({ type: "copyImage", requestId, theme: this.imageTheme() }));
-      if (r.copied) return "copied";
+      if (r.copied) { this.lastCopy = "image"; return "copied"; }
       if (!r.base64) throw new Error(r.error ?? "the image could not be created");
       const choice = await this.ui.choose(`The image could not be put on the clipboard (${r.error ?? "not allowed"}). Save it as a file instead?`, ["Save as Image..."]);
       return choice ? ((await this.saveImage(doc, { png: r.base64 })) ? "saved" : "failed") : "failed";

@@ -1,11 +1,11 @@
 ## 1. Foundation
-- [ ] 1.1 Add `UiDriver` interface, command allowlist and workspace path check in `src/agent-tools/`, with unit tests for refusals (unlisted id, outside path, setting off, untrusted)
-- [ ] 1.2 Add user-level (scope `application`) setting `sysml.agent.uiControl`, the "SysML Agent UI" output channel and per-call logging; unit test for the log line
-- [ ] 1.3 Move `Gesture`, `ReqGesture` and webview hooks to a shared module used by the test API and the driver (D56)
+- [x] 1.1 Add `UiDriver` interface, command allowlist and workspace path check in `src/agent-tools/`, with unit tests for refusals (unlisted id, outside path, setting off, untrusted)
+- [x] 1.2 Add user-level (scope `application`) setting `sysml.agent.uiControl`, the "SysML Agent UI" output channel and per-call logging; unit test for the log line
+- [x] 1.3 Move `Gesture`, `ReqGesture` and webview hooks to a shared module used by the test API and the driver (D56)
 
 ## 2. Driver and tools
-- [ ] 2.1 Implement the vscode-side `UiDriver`; prompt recording and `sysml_ui_answer` with timeout (D57); unit tests with a fake driver
-- [ ] 2.2 `sysml_ui_command` and `sysml_ui_state` (selection, dirty, undo label, messages, prompts, nav history, clipboard kind)
+- [x] 2.1 Implement the vscode-side `UiDriver`; prompt recording and `sysml_ui_answer` with timeout (D57); unit tests with a fake driver
+- [x] 2.2 `sysml_ui_command` and `sysml_ui_state` (selection, dirty, undo label, messages, prompts, nav history, clipboard kind)
 - [ ] 2.3 `sysml_ui_diagram`: gestures, context menu listing and click by label, toggles
 - [ ] 2.4 `sysml_ui_requirements` and `sysml_ui_tree`
 - [ ] 2.5 Webview screenshot hook and `sysml_ui_screenshot` (D59)

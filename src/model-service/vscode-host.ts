@@ -13,6 +13,7 @@ import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import type { DiagramChange } from "./diagram-changes.js";
 import { makeExcludeFilter } from "../workspace/exclude.js";
 import type { ApplyOutcome, ForceOutcome, ModelHost, ModelService, OpFailure, OpOk } from "./service.js";
+import { reportMessage } from "../ui-messages.js";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -109,6 +110,7 @@ export class VsCodeModelHost implements ModelHost {
 
   warn(message: string, action?: { label: string; command: string }): void {
     void (async () => {
+      reportMessage("warning", message);
       const pick = await vscode.window.showWarningMessage(message, ...(action ? [action.label] : []));
       if (action && pick === action.label) await vscode.commands.executeCommand(action.command);
     })();
@@ -198,6 +200,7 @@ export async function showFailure(f: OpFailure): Promise<void> {
   const actions: string[] = [];
   if (f.goToError) actions.push("Go to error");
   if (f.goToDefinition) actions.push("Go to Definition");
+  reportMessage("warning", f.reason);
   const pick = await vscode.window.showWarningMessage(f.reason, ...actions);
   const spot = pick === "Go to error" ? f.goToError : pick === "Go to Definition" ? f.goToDefinition : undefined;
   if (!spot) return;

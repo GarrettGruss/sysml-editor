@@ -7,6 +7,7 @@ import { isFolderNode, nodeForElement, type ModelNode } from "./tree/tree-model.
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { VsCodeDiagramService } from "./diagram/agent-service.js";
 import { AgentIntegration } from "./agent-integration.js";
+import { VsCodeUiDriver } from "./agent-ui-driver.js";
 import { DiagramEditorProvider, VIEW_TYPE as DIAGRAM_VIEW_TYPE, type DiagramTestApi } from "./diagram/diagram-editor.js";
 import { WorkspaceModel } from "./workspace/workspace-model.js";
 import { ModelService } from "./model-service/service.js";
@@ -15,6 +16,7 @@ import { ModelActions } from "./model-service/interactive.js";
 import { registerModelCommands } from "./model-service/commands.js";
 import { RequirementsEditor, type RequirementsTestApi } from "./requirements/editor.js";
 import { registerRequirementsCommands } from "./requirements/commands.js";
+import { showError } from "./ui-messages.js";
 
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
@@ -70,7 +72,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   model.ready
     .catch((e: unknown) => {
       log.error("loading the SysML model failed", e instanceof Error ? e : String(e));
-      void vscode.window.showErrorMessage("SysML: loading the model failed. See the SysML output channel for details.");
+      void showError("SysML: loading the model failed. See the SysML output channel for details.");
     })
     .finally(() => {
       view.message = undefined;
@@ -79,12 +81,15 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     provider.setQuery("");
     search.setText("");
   }, (uri) => model.indexFile(uri));
+  const uiDriver = new VsCodeUiDriver({ diagrams, requirements, newEntry: () => newEntry.testApi, log: (m) => log.info(m) });
+  agent.ui = uiDriver;
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
   context.subscriptions.push(
     log,
     model,
     agent,
+    uiDriver,
     provider,
     view,
     view.onDidExpandElement((e) => provider.setExpanded(e.element, true)),

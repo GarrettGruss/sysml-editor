@@ -103,7 +103,7 @@ export class RequirementsEditor implements vscode.Disposable {
     },
     pickMany: async (items, title) => {
       if (this.uiOverride.pickMany) return this.uiOverride.pickMany(items, title);
-      const r = await vscode.window.showQuickPick(items.map((i) => ({ label: i.label, ...(i.description ? { description: i.description } : {}), id: i.id })), { title, canPickMany: true, matchOnDescription: true });
+      const r = await this.diagramUi().pickMany(items.map((i) => ({ label: i.label, ...(i.description ? { description: i.description } : {}), id: i.id })), { title, matchOnDescription: true });
       return r?.map((x) => x.id);
     },
     pickVerification: async (cases: PickItem[], title) => {

@@ -6,6 +6,7 @@ import { resolveNode, type ModelNode } from "../tree/tree-model.js";
 import type { WorkspaceModel } from "../workspace/workspace-model.js";
 import type { RequirementsEditor } from "./editor.js";
 import type { RequirementsScope } from "./protocol.js";
+import { showError, showInfo, showWarning } from "../ui-messages.js";
 
 export function registerRequirementsCommands(deps: { model: WorkspaceModel; editor: RequirementsEditor; extensionUri: vscode.Uri; selection: () => readonly ModelNode[] }): vscode.Disposable[] {
   const pickPackage = async (): Promise<RequirementsScope | undefined> => {
@@ -19,7 +20,7 @@ export function registerRequirementsCommands(deps: { model: WorkspaceModel; edit
       deps.model.index.getDocument(u)?.model.roots.forEach(walk);
     }
     if (!pkgs.length) {
-      void vscode.window.showInformationMessage("No SysML packages were found in the workspace.");
+      void showInfo("No SysML packages were found in the workspace.");
       return undefined;
     }
     const pick = await vscode.window.showQuickPick(pkgs, { title: "Open Requirements Editor", placeHolder: "Choose a package" });
@@ -34,7 +35,7 @@ export function registerRequirementsCommands(deps: { model: WorkspaceModel; edit
       const scope = deps.editor.scopeOf(el);
       if (scope) return scope;
       if (el) {
-        void vscode.window.showInformationMessage("Choose a package (or a .sysml file) to open the requirements editor on.");
+        void showInfo("Choose a package (or a .sysml file) to open the requirements editor on.");
         return undefined;
       }
     }
@@ -48,7 +49,7 @@ export function registerRequirementsCommands(deps: { model: WorkspaceModel; edit
     vscode.commands.registerCommand("sysml.copyDocumentAnnotations", async () => {
       const folders = vscode.workspace.workspaceFolders ?? [];
       if (folders.length === 0) {
-        void vscode.window.showInformationMessage("Open a folder first: the library is copied into the workspace.");
+        void showInfo("Open a folder first: the library is copied into the workspace.");
         return undefined;
       }
       let folder = folders[0]!;
@@ -66,13 +67,13 @@ export function registerRequirementsCommands(deps: { model: WorkspaceModel; edit
         else await vscode.workspace.fs.writeFile(target, bytes);
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code === "EEXIST") {
-          void vscode.window.showWarningMessage("DocumentAnnotations.sysml already exists in that folder; it was not overwritten.");
+          void showWarning("DocumentAnnotations.sysml already exists in that folder; it was not overwritten.");
           return target.toString();
         }
-        void vscode.window.showErrorMessage(`Could not copy DocumentAnnotations.sysml: ${e instanceof Error ? e.message : String(e)}`);
+        void showError(`Could not copy DocumentAnnotations.sysml: ${e instanceof Error ? e.message : String(e)}`);
         return undefined;
       }
-      void vscode.window.showInformationMessage("Copied DocumentAnnotations.sysml into the workspace. It replaces the bundled copy for name resolution, and other SysML tools can resolve @DocumentRoot and @Appendix.");
+      void showInfo("Copied DocumentAnnotations.sysml into the workspace. It replaces the bundled copy for name resolution, and other SysML tools can resolve @DocumentRoot and @Appendix.");
       return target.toString();
     }),
   ];
