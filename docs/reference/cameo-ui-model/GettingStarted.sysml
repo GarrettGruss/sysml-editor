@@ -17,7 +17,6 @@ package CameoUI_GST {
     part def SearchResultsTab :> BrowserTab { part foundInDiagrams : ModelElement[0..*]; part foundInModel : ModelElement[0..*]; }
     part def LockViewTab :> BrowserTab { attribute filterUser : Label; }
     part def BrowserToolbar :> Toolbar;
-    part def QuickFindDialog :> Dialog;
     part def FavoritesMenu :> Menu;
     part def SelectElementTypeDialog :> Dialog;
     part def QuickPropertiesPanel :> Panel { part zoomTab : ZoomTab; part documentationTab : DocumentationTab; part propertiesTab : PropertiesTab; }
@@ -25,11 +24,9 @@ package CameoUI_GST {
     part def DocumentationTab :> Panel { attribute text : String; attribute isHtml : Boolean; }
     part def PropertiesTab :> Panel { part elementPage : Panel; part symbolPage : Panel; part tagsPage : Panel; part languagePage : Panel; part traceabilityPage : Panel; }
     part def ImageLibraryTab :> Panel { part quickFilter : Field; part imageTree : ContainmentTree; part previewArea : Panel; }
-    part def StatusLine :> Toolbar;
     part def WelcomeTab :> Panel;
     part def SamplesTab :> Panel;
     part def FindSearchBar :> Panel { part keyword : Field; part matchCase : Option; }
-    part def EnvironmentOptionsDialog :> Dialog { part groupTree : Field; part quickFilter : Field; part descriptionArea : Panel; }
     part def OptionGroup { attribute name : Label; part options : Option[0..*]; }
     part def KeyboardOptions :> OptionGroup { part commandSearch : Field; part newShortcutBox : Field; part currentKeys : Field; }
     part def PathVariableDialog :> Dialog { part name : Field; part description : Field; part value : Field; }
@@ -47,27 +44,25 @@ package CameoUI_GST {
     part def LookAndFeelMenu :> Menu;
     part def CustomThemeDialog :> Dialog;
 
-    part def Perspective { attribute name : Label; }
     part def FullFeaturedPerspective :> Perspective;
     part def QuickStartPerspective :> Perspective;
     part def SoftwareArchitectPerspective :> Perspective;
     part def SystemAnalystPerspective :> Perspective;
-    enum def ItemVisibility { enum standardAndExpert; enum expertOnly; enum hidden; }
     enum def CustomizableArea { enum mainMenu; enum mainToolbars; enum diagramToolbars; enum modelingElementsToolbar; enum smartManipulators; enum shortcutMenuActions; enum createDiagramDialog; }
 
     // Cross-section references, kept as plain references only.
     part def GettingStartedXrefs {
-        ref printDialog : Dialog;            // TODO xref: PrintDialog (006 Diagramming)
-        ref specificationWindow : SpecificationWindow;   // TODO xref: SpecificationWindow content (009 Working with model elements)
-        ref findDialog : Dialog;             // TODO xref: FindDialog (010 Tools)
-        ref reportWizard : Wizard;           // TODO xref: ReportWizard (010 Tools)
-        ref diagramPalette : Palette;        // TODO xref: DiagramPalette (006 Diagramming)
-        ref presentationMode : Mode;         // TODO xref: PresentationMode (006 Diagramming)
-        ref projectOptionsDialog : Dialog;   // TODO xref: ProjectOptionsDialog (002 Working with projects)
-        ref openProject : Command;           // TODO xref: OpenProject (002 Working with projects)
-        ref saveProject : Command;           // TODO xref: SaveProject (002 Working with projects)
-        ref serverProjectLocks : Panel;      // TODO xref: ServerProjectLocks (002 Working with projects)
-        ref smartPackage : ModelElement;     // TODO xref: SmartPackage (009 Working with model elements)
+        ref printDialog : CameoUI_DGM::PrintDialog;
+        ref specificationWindow : SpecificationWindow;
+        ref findDialog : CameoUI_PRJ::FindDialog;
+        ref reportWizard : CameoUI_TLS::ReportWizard;
+        ref diagramPalette : Palette;
+        ref presentationMode : CameoUI_DGM::PresentationMode;
+        ref projectOptionsDialog : ProjectOptionsDialog;
+        ref openProject : CameoUI_PRJ::OpenProject;
+        ref saveProject : CameoUI_PRJ::SaveProject;
+        ref serverProjectLocks : CameoUI_PRJ::ServerProjectLocksPanel;
+        ref smartPackage : CameoUI_ELM::SmartPackage;
     }
 
     // ---- Commands ----

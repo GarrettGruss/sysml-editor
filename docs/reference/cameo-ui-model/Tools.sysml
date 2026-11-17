@@ -153,13 +153,17 @@ package CameoUI_TLS {
     state def PerformanceRecording { state idle; state recording; state showingResults; }
 
     // ---- Cross-section references ----
-    ref specificationWindow : SpecificationWindow[0..1]; // TODO xref: SpecificationWindow property editing (009 Working with model elements)
-    ref quickFindDialog : Dialog[0..1]; // TODO xref: QuickFindDialog, Ctrl+Alt+F (001 Getting started or 009 Working with model elements)
-    ref validationResultsPanel : Panel[0..1]; // TODO xref: ValidationResultsPanel (validation section)
-    ref environmentOptionsDialog : Dialog[0..1]; // TODO xref: EnvironmentOptionsDialog (001 Getting started)
-    ref projectUsages : Dialog[0..1]; // TODO xref: ProjectUsagesDialog (002 Working with projects)
-    ref createDiagramCommand : Command[0..1]; // TODO xref: CreateDiagram (006 Diagramming)
-    ref tracingRelationMap : DiagramType[0..1]; // TODO xref: RelationMap (005 Diagrams)
+    ref specificationWindow : SpecificationWindow[0..1];
+    ref quickFindDialog : QuickFindDialog[0..1];
+    ref validationResultsPanel : ValidationResultsPanel[0..1];
+    ref environmentOptionsDialog : EnvironmentOptionsDialog[0..1];
+    ref projectUsages : CameoUI_PRJ::UsedProjectsDialog[0..1];
+    ref createDiagramCommand : CameoUI_DGM::CreateDiagram[0..1];
+    ref tracingRelationMap : CameoUI_DGT::RelationMapType[0..1];
+
+    part def ReportWizard :> Wizard;
+    part def ModelVisualizerPanel :> Panel;
+    part def ValidationRule { attribute name : Label; }
 
     // ---- Procedures ----
     action def StartLocalMerge {

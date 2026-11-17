@@ -16,6 +16,7 @@ package CameoUI {
     part def Dialog { attribute title : Label; part fields : Field[0..*]; }
     part def Field { attribute title : Label; }
     part def Option :> Field;   // a setting, in a Properties/Options dialog
+    part def Tab :> Panel;
     part def Wizard :> Dialog;
 
     // Commands: anything the user can invoke. Menu items and buttons reference them.
@@ -35,6 +36,23 @@ package CameoUI {
     part def Palette :> Panel;
     part def ModelElement { attribute name : Label; }
     part def Property :> Field;
+
+    // Shared dialogs and panels
+    part def SelectElementDialog :> Dialog { part treeTab : Field; part searchScope : Option; }
+    part def ProjectOptionsDialog :> Dialog { part optionGroups : Panel; part descriptionArea : Panel; part resetToDefaults : ToolbarButton; part showDescription : ToolbarButton; }
+    part def EnvironmentOptionsDialog :> Dialog { part groupTree : Field; part quickFilter : Field; part descriptionArea : Panel; part createBackup : Option; part richXmi : Option; part recoveryOnIdle : Option; part idleMinutes : Option; part openLastProject : Option; part notificationOptions : Option; }
+    part def QuickFindDialog :> Dialog { part searchFor : Field; part searchByName : Field; part matchTextAnywhere : Option; part useCamelCase : Option; part applyFilter : Option; part hideUncommonElements : Option; part excludeAuxiliaryResources : Option; }
+    part def ValidationResultsPanel :> Panel;
+    part def ContainmentTreePanel :> Panel { part tree : ContainmentTree; }
+    part def StatusLine :> Panel;
+    part def Legend { attribute name : Label; }
+    part def Stereotype { attribute name : Label; }
+    part def ProjectResource { attribute name : Label; attribute location : Label; }
+    part def Notification { attribute text : Label; attribute severity : Label; }
+    part def ShortcutBinding { attribute keys : Label; ref invokes : Command[0..1]; }
+    part def Perspective { attribute name : Label; }
+    enum def Visibility { enum standardAndExpert; enum expertOnly; enum hidden; }
+    action def SymbolProperties :> Command;   // Alt+Enter
 
     // Generic modes and steps
     state def Mode;

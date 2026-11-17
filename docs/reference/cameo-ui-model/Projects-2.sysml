@@ -5,14 +5,12 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-001'> createProject {
         doc /* The user can start a new project from the File menu, the main toolbar or Ctrl+Shift+N, pick a project type under a domain, name it and choose where it is stored. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148587/Creating+a+new+project */
     }
-    // TODO xref: Environment Options (Customizing environment)
     requirement <'CAM-PRJ-002'> newProjectStructure {
         doc /* A new project starts with an empty root Model package, a File View package and the standard profile packages, and the user cannot rename or delete the built-in packages. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148587/Creating+a+new+project */
     }
     requirement <'CAM-PRJ-003'> projectProperties {
         doc /* A Project Properties dialog from the File menu shows and edits the project title, author, version and description. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148589/Project+Properties+dialog */
     }
-    // TODO xref: Stereotype (Profiling)
     requirement <'CAM-PRJ-004'> compatibilityRange {
         doc /* The user can set a Version and a lower Compatible With value so that older profile versions can still edit projects made with newer ones. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148589/Project+Properties+dialog */
     }
@@ -76,7 +74,6 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-024'> attachFile {
         doc /* Any file can be attached to the project, as a drag onto the diagram, a drag onto a tree element, or Create Element > Attached File, and becomes an Attached File element with size, author and dates. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148740/Attaching+reattaching+and+detaching+files */
     }
-    // TODO xref: Specification window (Model browser)
     requirement <'CAM-PRJ-025'> reattachFile {
         doc /* The file of an Attached File can be replaced from its specification window, which updates Modified At. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148740/Attaching+reattaching+and+detaching+files */
     }
@@ -89,7 +86,6 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-028'> attachedImageInHtml {
         doc /* An attached image is inserted into HTML text on a diagram from the Advanced HTML Editor, by URL or from the attached list. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148742/Working+with+attached+files */
     }
-    // TODO xref: Advanced HTML Editor (Diagramming)
     requirement <'CAM-PRJ-029'> saveAttachedFileAs {
         doc /* Save File As writes an attached file back to the local file system. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148742/Working+with+attached+files */
     }
@@ -108,7 +104,6 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-034'> browserOptions {
         doc /* Project options control the model browser, such as grouping composite instances and showing diagram abbreviations. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148755/Setting+project+options */
     }
-    // TODO xref: Style Engine (Diagramming)
     requirement <'CAM-PRJ-035'> interchangeOptions {
         doc /* Option groups exist for OWL import and export, concept modeling and the glossary table, such as export syntax and URI strategy. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148755/Setting+project+options */
     }
@@ -142,14 +137,12 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-045'> findScope {
         doc /* Type, Scope and Properties boxes narrow a search by element type with subtypes, by package, and by property values. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148761/Find+dialog */
     }
-    // TODO xref: Select Element Type dialog (Model browser)
     requirement <'CAM-PRJ-046'> findOptions {
         doc /* Options let the user clear previous results, load unloaded diagrams and used projects, include standard profiles or smart packages, find elements unused in diagrams, and show results in a new tab. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148761/Find+dialog */
     }
     requirement <'CAM-PRJ-047'> searchResultsActions {
         doc /* Search results can be added to Favorites or saved as a dynamic or static Smart Package. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148761/Find+dialog */
     }
-    // TODO xref: Smart Package (Model browser)
     requirement <'CAM-PRJ-048'> findById {
         doc /* Typing [xmi.id]= followed by an id in What finds that element. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148761/Find+dialog */
     }
@@ -195,7 +188,6 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-062'> useProject {
         doc /* The Use Project wizard, from File or Options > Project Usages, selects a project from the file system or a predefined path and sets accessibility, load mode and mount locations. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148855/Using+other+projects+in+a+project */
     }
-    // TODO xref: Path variables (Customizing environment)
     requirement <'CAM-PRJ-063'> usedAccessibility {
         doc /* Used projects are read-only by default and can be switched to read-write in the Used Projects dialog, or opened separately. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148855/Using+other+projects+in+a+project */
     }
@@ -214,7 +206,6 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-068'> integrityValidation {
         doc /* Validation reports mount-location conflicts, conflicting required versions and cyclic dependencies among used projects. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148896/Validating+project+integrity */
     }
-    // TODO xref: Validation (Validation)
     requirement <'CAM-PRJ-069'> automatedUsages {
         doc /* Since 17.0.3 the tool creates and rearranges automated usages itself, without freezing versions, and flags unconfirmed ones as invalid. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148863/Automated+project+usages */
     }
@@ -227,7 +218,6 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-072'> integrityAnalysis {
         doc /* Run Composition Integrity Analysis from the browser, results panel or diagram toolbar lists recovered elements as REF, SRE and URE entries. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148869/Managing+unresolved+references */
     }
-    // TODO xref: Active Validation Results panel (Validation)
     requirement <'CAM-PRJ-073'> replaceRecovered {
         doc /* A reference to a recovered element can be redirected to another element, one element at a time or all references at once. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148887/Replacing+recovered+element+with+another+element */
     }
@@ -237,14 +227,12 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-075'> removeRecoveredSymbol {
         doc /* A recovered element's symbol is removed from a diagram with the smart manipulator, Delete, or the results panel. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148889/Removing+recovered+element+symbol */
     }
-    // TODO xref: Smart manipulator toolbar (Diagramming)
     requirement <'CAM-PRJ-076'> avoidRecovery {
         doc /* Confirmation prompts and the Detect Illegal Model References and Composition Inspection (Standard or Advanced) options prevent recovered elements. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148892/How+to+avoid+triggering+element+recovery */
     }
     requirement <'CAM-PRJ-077'> importFormats {
         doc /* File > Import From lists importers such as another project, Excel/CSV, XMI, MOF, ReqIF, OWL, XPDL, FMU, Simulink, Modelica and Enterprise Architect XMI. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148605/Importing+data+from+other+UML+tools+and+formats */
     }
-    // TODO xref: ReqIF import (Requirements)
     requirement <'CAM-PRJ-078'> mofExport {
         doc /* Export To > MOF XMI File exports the whole model or selected packages as EMOF or CMOF, with optional validation that warns about skipped diagrams and behavior. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148906/Exporting+projects+to+MOF+files */
     }
@@ -257,7 +245,6 @@ package CameoUI_PRJ_2 {
     requirement <'CAM-PRJ-081'> ecoreModeling {
         doc /* Ecore is modeled on class diagrams; classes, enumerations and operations map directly, attributes and references are told apart automatically, and annotations are comments with key-value details. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148919/Ecore+modeling */
     }
-    // TODO xref: Class diagram (Diagramming)
     requirement <'CAM-PRJ-082'> ecoreExport {
         doc /* Whole models or selected packages export to .ecore with a validation suite, map data types, and used projects must be exported first and saved afterwards. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148927/Exporting+projects+to+Ecore+files */
     }
@@ -281,5 +268,22 @@ package CameoUI_PRJ_2 {
     }
     requirement <'CAM-PRJ-089'> eaLimitations {
         doc /* Known limits are documented, such as lost diagram legends, n-ary views and alternative images, and fixed lifeline positions. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148729/Known+Limitations+and+Constraints */
+    }
+
+    // Cross-section references
+    part def PrjXrefs {
+        ref environmentOptions : EnvironmentOptionsDialog;
+        ref stereotype : Stereotype;
+        ref specificationWindow : SpecificationWindow;
+        ref advancedHtmlEditor : CameoUI_ELM::AdvancedHtmlEditorDialog;
+        ref styleEngine : CameoUI_DGM::StyleEngineDialog;
+        ref selectElementType : CameoUI_DGT::SelectElementTypeDialog;
+        ref smartPackage : CameoUI_ELM::SmartPackage;
+        ref pathVariables : CameoUI_GST::PathVariableDialog;
+        ref validation : CameoUI_TLS::ValidationRule[0..*];
+        ref activeValidationResults : ValidationResultsPanel;
+        ref smartManipulator : CameoUI_DGM::SmartManipulatorToolbar;
+        ref importReqIf : CameoUI_PRJ::ImportReqIf;
+        ref classDiagram : CameoUI_DGT::ClassDiagramType;
     }
 }

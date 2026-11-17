@@ -38,13 +38,6 @@ package CameoUI_DGT {
     part def RequirementTableType :> TableType;
 
     // ---- Screens ----
-    // TODO xref: SpecificationWindow property editing (009 Working with model elements)
-    // TODO xref: ProjectOptionsDialog (002 Working with projects)
-    // TODO xref: SelectElementDialog (009 Working with model elements)
-    // TODO xref: CreateDiagramDialog (006 Diagramming)
-    // TODO xref: ModelVisualizer (010 Tools)
-    // TODO xref: Validation rules and ValidateDiagram results (010 Tools)
-    // TODO xref: Refactor Convert To (009 Working with model elements)
     part def CriteriaArea :> Panel { part boxes : Field[0..*]; part filterBox : Field; part toggleButton : ToolbarButton; }
     part def TableToolbarSet :> Toolbar;
     part def TableGrid :> Panel { part rowNumbers : Field; part columnHeaders : Field; part cells : Field[0..*]; }
@@ -688,5 +681,16 @@ package CameoUI_DGT {
     }
     requirement <'CAM-DGT-119'> loadTablePartially {
         doc /* Load Partially is auto, enabled or disabled; when active, filter and find narrow and Select All is off. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227149756/Partial+loading+in+tables */
+    }
+    part def CustomizeDiagramsWizard :> Wizard;
+    part def DgtXrefs {
+        ref specificationWindow : SpecificationWindow;
+        ref projectOptions : ProjectOptionsDialog;
+        ref selectElement : SelectElementDialog;
+        ref createDiagramDialog : CameoUI_DGM::CreateDiagramDialog;
+        ref modelVisualizer : CameoUI_TLS::ModelVisualizerPanel;
+        ref validationRule : CameoUI_TLS::ValidationRule[0..*];
+        ref validateDiagram : ValidateDiagram;
+        ref convertTo : CameoUI_ELM::ConvertTo;
     }
 }

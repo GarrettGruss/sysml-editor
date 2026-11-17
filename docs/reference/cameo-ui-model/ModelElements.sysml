@@ -7,7 +7,6 @@ package CameoUI_ELM {
     part def ExcelCsvImportDialog :> Dialog { part importMapSource : Field; part mappingOptions : Option; part mappingArea : Field; }
     part def SaveImportMapDialog :> Dialog;
     part def ManageMapGroupsDialog :> Dialog;
-    part def SelectElementDialog :> Dialog { part treeTab : Field; part searchScope : Option; }
     part def SelectTypeDialog :> Dialog { part hideUncommon : Option; part filterByImports : Option; }
     part def SelectElementTypeDialog :> Dialog;
     part def SpecificationToolbar :> Toolbar;
@@ -53,7 +52,6 @@ package CameoUI_ELM {
     action def ReverseFlowDirection :> Command;
     action def SwapSymbols :> Command;
     action def Extract :> Command;
-    action def SymbolProperties :> Command;   // Alt+Enter
     action def MakeDefaultStyle :> Command;
     action def CloneStyle :> Command;
     action def PasteStyle :> Command;   // Ctrl+Shift+V
@@ -483,11 +481,6 @@ package CameoUI_ELM {
         action selectElements;
         then action moveWithButtonsKeysOrDrag;
     }
-    // TODO xref: ProjectOptionsDialog (Projects)
-    // TODO xref: CustomizeDiagramsWizard (Diagrams)
-    // TODO xref: ContainmentTreePanel (Getting started)
-    // TODO xref: ValidationResultsWindow (Tools)
-    // TODO xref: ImageLibraryPane definition shared with Projects (Projects)
 
     // ---- Requirements ----
     requirement <'CAM-ELM-001'> pasteListCreatesElements {
@@ -696,5 +689,13 @@ package CameoUI_ELM {
     }
     requirement <'CAM-ELM-069'> reorderInLists {
         doc /* Elements in dialog lists can be reordered with buttons, Ctrl+arrows or dragging. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227151213/Reordering+elements */
+    }
+    part def SmartPackage :> ModelElement { attribute isDynamic : Boolean; }
+    part def ElmXrefs {
+        ref projectOptions : ProjectOptionsDialog;
+        ref customizeDiagrams : CameoUI_DGT::CustomizeDiagramsWizard;
+        ref containmentTree : ContainmentTreePanel;
+        ref validationResults : ValidationResultsPanel;
+        ref imageLibrary : ImageLibraryPane;
     }
 }

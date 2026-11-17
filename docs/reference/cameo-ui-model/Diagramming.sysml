@@ -520,7 +520,6 @@ package CameoUI_DGM {
         then action openOptionsOptional;
         then action setOverwrite;
         then action clickSave;
-        // TODO xref: ProjectOptions (Customizing environment)
     }
     action def DefineLayoutTemplate {
         doc /* Page: Defining and setting a layout template. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227150051/Setting+diagram+as+layout+template */
@@ -971,4 +970,6 @@ package CameoUI_DGM {
     requirement <'CAM-DGM-114'> toolbarLabelTools {
         doc /* The toolbar can reset label position, rotate a label, remove break points and set rectilinear. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/271516078/Understanding+Diagram+Toolbar */
     }
+    part def StyleEngineDialog :> Dialog;
+    part def DgmXrefs { ref projectOptions : ProjectOptionsDialog; }
 }

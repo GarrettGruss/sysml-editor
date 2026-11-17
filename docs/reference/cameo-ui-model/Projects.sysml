@@ -7,15 +7,12 @@ package CameoUI_PRJ {
     part def ProjectPropertiesDialog :> Dialog { part author : Field; part version : Field; part compatibleWith : Field; part sharedPackagesTab : Panel; part usedProjectsTab : Panel; part advancedTab : Panel; }
     part def SaveDialog :> Dialog { part directory : Field; part fileName : Field; part format : Option; }
     part def CloseAllQuestionDialog :> Dialog;
-    part def EnvironmentOptionsDialog :> Dialog { part createBackup : Option; part richXmi : Option; part recoveryOnIdle : Option; part idleMinutes : Option; part openLastProject : Option; part notificationOptions : Option; }
-    part def ProjectOptionsDialog :> Dialog { part optionGroups : Panel; part descriptionArea : Panel; part resetToDefaults : ToolbarButton; part showDescription : ToolbarButton; }
     part def ExportTemplateDialog :> Dialog { part templateName : Field; part templateDescription : Field; }
     part def SelectFileToAttachDialog :> Dialog;
     part def AttachedFileElement :> ModelElement { attribute attachedAt : Label; attribute modifiedAt : Label; attribute size : Label; attribute author : Label; attribute file : Label; }
     part def DisclaimerConfigurationClass :> ModelElement { attribute text : Label[0..*]; }
     part def SelectElementTypeDialog :> Dialog { attribute includeSubtypes : Label; attribute includeCustomTypes : Label; }
     part def FindDialog :> Dialog { part what : Field; part type : Field; part scope : Field; part properties : Field; part optionsArea : Panel; part clearPrevious : Option; part loadDiagrams : Option; part includeStandardProfiles : Option; part includeAdditionalContent : Option; part searchUnusedInDiagrams : Option; part resultsInNewWindow : Option; }
-    part def QuickFindDialog :> Dialog { part searchFor : Field; part searchByName : Field; part matchTextAnywhere : Option; part useCamelCase : Option; part applyFilter : Option; part hideUncommonElements : Option; part excludeAuxiliaryResources : Option; }
     part def FindAndReplaceDialog :> Dialog { part findWhat : Field; part replaceWith : Field; part type : Field; part scope : Field; }
     part def SearchResultsTab :> Panel;
     part def DiagramSearchBar :> Toolbar;
@@ -26,12 +23,10 @@ package CameoUI_PRJ {
     part def UseProjectWizard :> Wizard { part sourceStep : WizardStep; part optionsStep : WizardStep; }
     part def UsedProjectsDialog :> Dialog { part accessibility : Option; part loadMode : Option; part useIndex : Option; part packages : Field; }
     part def ProjectOptionsIndexingGroup :> Panel;
-    part def ValidationResultsPanel :> Panel;
     part def SelectTargetFileDialog :> Dialog { part mofKind : Option; part validate : Option; }
     part def ImportEnterpriseArchitectDialog :> Dialog { part inputFile : Field; part outputFile : Field; part switchAggregationSide : Option; part excludeEaData : Option; part openAfterConversion : Option; part generateLog : Option; }
     part def ProjectMenu :> Menu;
     part def ProjectToolbar :> Toolbar;
-    part def StatusLine :> Panel;
 
     // ---- Commands ----
     action def NewProject :> Command;                // File > New Project, Ctrl+Shift+N
@@ -235,4 +230,6 @@ package CameoUI_PRJ {
         doc /* Page: Working with Enterprise Architect Import. Source: https://docs.nomagic.com/spaces/MD2024xR3/pages/227148607/Working+with+Enterprise+Architect+Import */
         action chooseImportEa; then action specifyInputFile; then action specifyOutputFile; then action chooseConversionOption; then action clickImport;
     }
+    part def ServerProjectLocksPanel :> Panel;
+    action def ImportReqIf :> Command;   // File > Import From > ReqIF
 }
