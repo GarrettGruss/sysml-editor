@@ -43,7 +43,7 @@ describe("tool definitions", () => {
       "sysml_list_diagrams", "sysml_read_diagram", "sysml_create_diagram", "sysml_add_to_diagram", "sysml_remove_from_diagram", "sysml_layout_diagram", "sysml_apply_diagram_aspect", "sysml_show_hide_diagram_members", "sysml_get_editor_context",
       "sysml_create_element", "sysml_delete_element", "sysml_rename_element", "sysml_set_element_properties", "sysml_create_relationship", "sysml_set_transition",
       "sysml_read_requirements_document", "sysml_create_requirement", "sysml_read_verification_matrix",
-      "sysml_ui_command", "sysml_ui_answer", "sysml_ui_state",
+      "sysml_ui_command", "sysml_ui_answer", "sysml_ui_state", "sysml_ui_diagram", "sysml_ui_requirements", "sysml_ui_tree", "sysml_ui_screenshot",
     ]);
     for (const t of toolDefinitions) {
       expect(t.name).toMatch(/^[a-z]+(_[a-z]+)*$/);

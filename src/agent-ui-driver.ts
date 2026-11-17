@@ -5,12 +5,16 @@
  */
 import * as vscode from "vscode";
 import {
-  type AnswerOutcome, type CommandOutcome, type UiAnswer, type UiDriver, type UiGate, type UiPrompt, type UiState,
+  type AnswerOutcome, type CommandOutcome, type DiagramGesture, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg,
+  type ScreenshotTarget, type TreeNodeInfo, type TreeOutcome, type UiAnswer, type UiDriver, type UiGate, type UiPrompt, type UiState,
 } from "./agent-tools/ui-driver.js";
 import { MessageLog, PromptBroker, resolveInWorkspace, runUntilPromptOrDone, type PromptResult } from "./agent-tools/ui-support.js";
 import type { DiagramEditorProvider, DiagramUi } from "./diagram/diagram-editor.js";
 import { VIEW_TYPE as DIAGRAM_VIEW_TYPE } from "./diagram/diagram-editor.js";
 import type { RequirementsEditor } from "./requirements/editor.js";
+import type { RequirementsScope } from "./requirements/protocol.js";
+import type { ModelTreeProvider } from "./tree/tree-provider.js";
+import type { ModelNode } from "./tree/tree-model.js";
 import type { NewEntryTestApi } from "./tree/new-entry-flow.js";
 import { setMessageSink } from "./ui-messages.js";
 
@@ -28,6 +32,7 @@ export interface UiDriverDeps {
   diagrams: DiagramEditorProvider;
   requirements: RequirementsEditor;
   newEntry(): NewEntryTestApi | undefined;
+  tree: { provider: ModelTreeProvider; view: vscode.TreeView<ModelNode> };
   log(message: string): void;
 }
 
@@ -132,6 +137,11 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
         const r = await ask({ kind: "save", title: "Save Diagram", value: suggested.fsPath });
         return r.cancelled || !r.path ? undefined : vscode.Uri.file(r.path);
       },
+      saveFile: async (suggested, title, filters) => {
+        if (!this.routing()) return base.saveFile(suggested, title, filters);
+        const r = await ask({ kind: "save", title, value: suggested?.fsPath ?? "" });
+        return r.cancelled || !r.path ? undefined : vscode.Uri.file(r.path);
+      },
       saveImage: async (suggested) => {
         if (!this.routing()) return base.saveImage(suggested);
         const r = await ask({ kind: "save", title: "Save Diagram as Image", value: suggested.fsPath });
@@ -157,11 +167,16 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     return list;
   }
 
-  async runCommand(id: string, args: unknown[]): Promise<CommandOutcome> {
+  runCommand(id: string, args: unknown[]): Promise<CommandOutcome> {
+    return this.execute(id, args.map(toEditorArgs));
+  }
+
+  /** Run a command with arguments that are already editor values. */
+  private async execute(id: string, args: unknown[]): Promise<CommandOutcome> {
     this.touch();
     let run: Promise<unknown>;
     try {
-      run = Promise.resolve(vscode.commands.executeCommand(id, ...args.map(toEditorArgs)));
+      run = Promise.resolve(vscode.commands.executeCommand(id, ...args));
     } catch (e) {
       return { ok: false, reason: e instanceof Error ? e.message : String(e), prompts: this.prompts() };
     }
@@ -232,6 +247,151 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       navigation: this.deps.requirements.testApi.navigation(),
       clipboard,
     };
+  }
+
+  // ---- webviews and the tree -------------------------------------------------------------------------
+
+  async diagramGesture(path: string, gesture: DiagramGesture): Promise<DiagramObservation> {
+    this.touch();
+    const uri = vscode.Uri.file(path);
+    const api = this.deps.diagrams.testApi;
+    await api.open(uri);
+    await api.gesture(uri, gesture);
+    // A gesture that edits redraws a moment later: read until the boxes stop changing.
+    let m = await api.metrics(uri);
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      const next = await api.metrics(uri);
+      const same = JSON.stringify(next.nodes) === JSON.stringify(m.nodes) && next.selected.join() === m.selected.join();
+      m = next;
+      if (same) break;
+    }
+    return {
+      path: vscode.workspace.asRelativePath(uri, false),
+      selected: m.selected,
+      menu: m.menu,
+      nodes: m.nodes.slice(0, 300).map((n) => ({ id: n.id, x: Math.round(n.x), y: Math.round(n.y), w: Math.round(n.w), h: Math.round(n.h) })),
+      edgeCount: m.edges.length,
+      ...(m.legend ? { legend: m.legend } : {}),
+      descriptions: m.descriptions,
+      inlineEditor: m.inlineEditor,
+      ...(m.inline ? { inline: m.inline } : {}),
+      quickBar: m.quickBar,
+      ...(m.tool ? { tool: m.tool } : {}),
+      zoom: m.zoom,
+      clipboard: this.deps.diagrams.lastCopy ?? "none",
+    };
+  }
+
+  private scopeOf(s: RequirementsScopeArg): RequirementsScope {
+    return s.kind === "package" ? { kind: "package", qualifiedName: s.qualifiedName } : { kind: "file", uri: vscode.Uri.file(s.path).toString() };
+  }
+
+  async requirements(scopeArg: RequirementsScopeArg, action: RequirementsAction): Promise<RequirementsObservation> {
+    this.touch();
+    const scope = this.scopeOf(scopeArg);
+    const api = this.deps.requirements.testApi;
+    switch (action.kind) {
+      case "open": await api.open(scope, action.view); break;
+      case "view": await api.open(scope, action.view); await api.setView(scope, action.view); break;
+      case "gesture": await api.open(scope); await api.gesture(scope, action.gesture); break;
+      case "exportMatrix": await api.open(scope, "matrix"); await api.exportMatrix(scope, action.format, action.path); break;
+      case "observe": await api.open(scope); break;
+    }
+    await api.settled(scope).catch(() => undefined);
+    const m = await api.metrics(scope);
+    return {
+      view: m.view,
+      scopeName: m.scopeName,
+      outline: (m.document?.outline ?? []).slice(0, 200).map((o) => ({ number: o.number, heading: o.heading, level: o.level, items: o.items })),
+      items: (m.document?.items ?? []).slice(0, 200).map((i) => ({ id: i.id, name: i.name, text: i.text.length > 300 ? `${i.text.slice(0, 300)}...` : i.text, number: i.number })),
+      matrixRows: (m.matrix?.rows ?? []).slice(0, 200).map((r) => ({ qn: r.qn, kind: r.kind, number: r.number, id: r.id, satisfiedBy: r.satisfiedBy, verifiedBy: r.verifiedBy, status: r.status })),
+      pendingEdits: m.pendingEdits ?? [],
+      ...(m.notice ? { notice: m.notice } : {}),
+      errors: m.errors ?? [],
+    };
+  }
+
+  private readonly treeNodes = new Map<string, ModelNode>();
+
+  private infoOf(node: ModelNode, depth: number): TreeNodeInfo {
+    const item = this.deps.tree.provider.getTreeItem(node);
+    const label = typeof item.label === "string" ? item.label : item.label?.label ?? node.id;
+    const sel = new Set(this.deps.tree.view.selection.map((n) => n.id));
+    return {
+      id: node.id,
+      label,
+      ...(typeof item.description === "string" && item.description ? { description: item.description } : {}),
+      contextValue: item.contextValue ?? "",
+      depth,
+      hasChildren: item.collapsibleState !== undefined && item.collapsibleState !== vscode.TreeItemCollapsibleState.None,
+      selected: sel.has(node.id),
+    };
+  }
+
+  async treeList(parent: string | undefined, depth: number, limit: number): Promise<TreeNodeInfo[]> {
+    this.touch();
+    const p = this.deps.tree.provider;
+    let start: ModelNode | undefined;
+    if (parent !== undefined) {
+      start = this.treeNodes.get(parent);
+      if (!start) throw new Error("Unknown parent node: list from the roots first and use an id from the result.");
+    }
+    const out: TreeNodeInfo[] = [];
+    const walk = async (n: ModelNode | undefined, level: number): Promise<void> => {
+      for (const c of await Promise.resolve(p.getChildren(n))) {
+        if (out.length >= limit) return;
+        if (this.treeNodes.size > 5000) this.treeNodes.clear();
+        this.treeNodes.set(c.id, c);
+        out.push(this.infoOf(c, level));
+        if (level < depth) await walk(c, level + 1);
+      }
+    };
+    await walk(start, 1);
+    return out;
+  }
+
+  async treeNode(id: string): Promise<TreeNodeInfo | undefined> {
+    const n = this.treeNodes.get(id);
+    return n ? this.infoOf(n, 0) : undefined;
+  }
+
+  async treeSelect(ids: string[]): Promise<TreeOutcome> {
+    this.touch();
+    const nodes: ModelNode[] = [];
+    for (const id of ids) {
+      const n = this.treeNodes.get(id);
+      if (!n) return { ok: false, reason: `Unknown node "${id.slice(0, 80)}": list the tree first.` };
+      nodes.push(n);
+    }
+    for (const n of nodes) await this.deps.tree.provider.revealNode(this.deps.tree.view, n, (m) => this.deps.log(m));
+    return { ok: true };
+  }
+
+  async treeCollapseAll(): Promise<void> {
+    this.touch();
+    await vscode.commands.executeCommand("workbench.actions.treeView.sysmlModel.collapseAll");
+  }
+
+  async treeCommand(command: string, nodeId: string | undefined): Promise<CommandOutcome> {
+    this.touch();
+    if (nodeId === undefined) return this.execute(command, []);
+    const node = this.treeNodes.get(nodeId);
+    if (!node) return { ok: false, reason: "Unknown node: list the tree first.", prompts: this.prompts() };
+    await this.deps.tree.provider.revealNode(this.deps.tree.view, node, (m) => this.deps.log(m));
+    return this.execute(command, [node]);
+  }
+
+  async screenshot(target: ScreenshotTarget): Promise<string> {
+    this.touch();
+    if (target.kind === "diagram") {
+      const uri = vscode.Uri.file(target.path);
+      if (!this.deps.diagrams.openUris().includes(uri.toString())) throw new Error("That diagram is not open. Open it first (sysml_ui_diagram with gesture flush).");
+      const k = vscode.window.activeColorTheme.kind;
+      const dark = k === vscode.ColorThemeKind.Dark || k === vscode.ColorThemeKind.HighContrast;
+      return this.deps.diagrams.testApi.pngWindow(uri, dark ? "editor-dark" : "editor-light");
+    }
+    return this.deps.requirements.testApi.png(this.scopeOf(target.scope));
   }
 
   dispose(): void {

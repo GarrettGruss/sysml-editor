@@ -58,6 +58,8 @@ export interface DiagramUi {
   saveAs(suggested: vscode.Uri): Promise<vscode.Uri | undefined>;
   /** Ask where to save the diagram image; the extension (`.png` or `.svg`) picks the format. */
   saveImage(suggested: vscode.Uri): Promise<vscode.Uri | undefined>;
+  /** Ask where to save an exported file (the requirements matrix). */
+  saveFile(suggested: vscode.Uri | undefined, title: string, filters: Record<string, string[]>): Promise<vscode.Uri | undefined>;
   /** An error the user must see (an image that could not be written). */
   error(message: string): void;
 }
@@ -75,6 +77,7 @@ export const defaultUi: DiagramUi = {
   confirm: async (message, detail, action) => (await vscode.window.showWarningMessage(message, { modal: true, detail }, action)) === action,
   saveAs: async (suggested) => Promise.resolve(vscode.window.showSaveDialog({ defaultUri: suggested, filters: { "SysML diagram": ["sysmld"] }, title: "Save Diagram" })),
   saveImage: async (suggested) => Promise.resolve(vscode.window.showSaveDialog({ defaultUri: suggested, filters: { PNG: ["png"], SVG: ["svg"] }, title: "Save Diagram as Image" })),
+  saveFile: async (suggested, title, filters) => Promise.resolve(vscode.window.showSaveDialog({ ...(suggested ? { defaultUri: suggested } : {}), filters, title, saveLabel: title })),
   error: (message) => void showError(message),
 };
 

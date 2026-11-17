@@ -71,6 +71,63 @@ export type CommandOutcome =
   | { ok: true; completed: boolean; result?: unknown; prompts: UiPrompt[] }
   | { ok: false; reason: string; prompts: UiPrompt[] };
 
+/** What a diagram shows after a gesture settled: the metrics the integration tests read, bounded for an agent. */
+export interface DiagramObservation {
+  path: string;
+  selected: string[];
+  /** Labels of the context menu that is open (empty when none). */
+  menu: string[];
+  nodes: { id: string; x: number; y: number; w: number; h: number }[];
+  edgeCount: number;
+  /** Labels in the legend when it is shown. */
+  legend?: string[];
+  descriptions: boolean;
+  inlineEditor: boolean;
+  inline?: { value: string; error?: string; purpose: string };
+  quickBar: string[];
+  tool?: string;
+  zoom: number;
+  clipboard: UiState["clipboard"];
+}
+
+export type RequirementsScopeArg = { kind: "package"; qualifiedName: string } | { kind: "file"; path: string };
+export type RequirementsView = "table" | "matrix" | "document";
+
+/** What the requirements editor shows, as the integration tests read it. */
+export interface RequirementsObservation {
+  view: RequirementsView;
+  scopeName: string;
+  outline: { number: string; heading: string; level: number; items: number }[];
+  items: { id: string; name: string; text: string; number: string }[];
+  matrixRows: { qn: string; kind: string; number: string; id: string; satisfiedBy: string[]; verifiedBy: string[]; status: string }[];
+  pendingEdits: string[];
+  notice?: { level: string; message: string };
+  errors: string[];
+}
+
+export type RequirementsAction =
+  | { kind: "open"; view?: RequirementsView }
+  | { kind: "view"; view: RequirementsView }
+  | { kind: "gesture"; gesture: RequirementsGesture }
+  | { kind: "exportMatrix"; format: "csv" | "markdown"; path: string }
+  | { kind: "observe" };
+
+/** A node of the model tree as listed for an agent. */
+export interface TreeNodeInfo {
+  id: string;
+  label: string;
+  description?: string;
+  /** The context value that decides which commands the node offers. */
+  contextValue: string;
+  depth: number;
+  hasChildren: boolean;
+  selected: boolean;
+}
+
+export type TreeOutcome = { ok: true } | { ok: false; reason: string };
+
+export type ScreenshotTarget = { kind: "diagram"; path: string } | { kind: "requirements"; scope: RequirementsScopeArg };
+
 export interface UiDriver {
   gate(): UiGate;
   /** Absolute paths of the workspace folders. */
@@ -82,4 +139,18 @@ export interface UiDriver {
   prompts(): UiPrompt[];
   answer(promptId: number | undefined, answer: UiAnswer): Promise<AnswerOutcome>;
   state(): Promise<UiState>;
+  /** Replay a gesture on the open diagram at the absolute `path` (opening it when it is not open); resolves after it settled. Throws with the webview's reason. */
+  diagramGesture(path: string, gesture: DiagramGesture): Promise<DiagramObservation>;
+  /** Act in the requirements editor of a scope (a file scope has an absolute path) and observe it. Throws with the reason. */
+  requirements(scope: RequirementsScopeArg, action: RequirementsAction): Promise<RequirementsObservation>;
+  /** Visible nodes below `parent` (the roots when absent), to `depth` levels, at most `limit`. Throws when `parent` is unknown. */
+  treeList(parent: string | undefined, depth: number, limit: number): Promise<TreeNodeInfo[]>;
+  /** The node last listed with this id. */
+  treeNode(id: string): Promise<TreeNodeInfo | undefined>;
+  treeSelect(ids: string[]): Promise<TreeOutcome>;
+  treeCollapseAll(): Promise<void>;
+  /** Run a tree command, with the node as its argument when `nodeId` is given (the node is selected first). */
+  treeCommand(command: string, nodeId: string | undefined): Promise<CommandOutcome>;
+  /** A PNG of what the webview of the diagram or requirements editor shows, as base64. Throws when it is not open. */
+  screenshot(target: ScreenshotTarget): Promise<string>;
 }

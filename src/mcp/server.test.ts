@@ -26,6 +26,7 @@ diagrams.files.set("ports-general.sysmld", fixtureDiagram("ports-general.sysmld"
 const host = new FakeHost(index);
 host.buffers.set(ROOT + "m.sysml", M_TEXT);
 host.disk.set(ROOT + "m.sysml", M_TEXT);
+const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64");
 /** A driver that is on and does nothing, so the UI-control tools run over MCP like any other. */
 const uiDriver: UiDriver = {
   gate: () => ({ enabled: true, trusted: true }),
@@ -35,6 +36,14 @@ const uiDriver: UiDriver = {
   prompts: () => [],
   answer: async () => ({ ok: true, remaining: [] }),
   state: async () => ({ selection: [], menus: [], undo: [], messages: [], prompts: [], navigation: [], clipboard: "none" }),
+  diagramGesture: async (path) => ({ path, selected: [], menu: [], nodes: [], edgeCount: 0, descriptions: true, inlineEditor: false, quickBar: [], zoom: 1, clipboard: "none" }),
+  requirements: async () => ({ view: "document", scopeName: "P", outline: [], items: [], matrixRows: [], pendingEdits: [], errors: [] }),
+  treeList: async () => [],
+  treeNode: async () => undefined,
+  treeSelect: async () => ({ ok: true }),
+  treeCollapseAll: async () => {},
+  treeCommand: async () => ({ ok: true, completed: true, prompts: [] }),
+  screenshot: async () => PNG_B64,
 };
 const ctx: ToolContext = {
   ui: uiDriver,
@@ -71,6 +80,10 @@ const INPUTS: Record<string, unknown> = {
   sysml_ui_command: { command: "undo" },
   sysml_ui_answer: { cancel: true },
   sysml_ui_state: {},
+  sysml_ui_diagram: { path: "/w/a.sysmld", gesture: { kind: "flush" } },
+  sysml_ui_requirements: { package: "P", action: "observe" },
+  sysml_ui_tree: { op: "list" },
+  sysml_ui_screenshot: { path: "/w/a.sysmld" },
 };
 /** More inputs of tools above: the relationship kinds of the requirements editor, over both channels. */
 const MORE: [string, unknown][] = [
@@ -164,7 +177,8 @@ describe("MCP server over HTTP", () => {
       const r = await client.callTool({ name, arguments: input as Record<string, unknown> });
       reset();
       const expected = await callTool(name, input, ctx);
-      expect(r.content).toEqual([{ type: "text", text: expected.text }]);
+      expect((r.content as unknown[])[0]).toEqual({ type: "text", text: expected.text });
+      expect((r.content as unknown[]).length).toBe(expected.image ? 2 : 1);
       expect(r.isError).toBeUndefined();
     }
     await client.close();

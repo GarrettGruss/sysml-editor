@@ -68,6 +68,8 @@ export class RequirementsEditor implements vscode.Disposable {
   private readonly navLog: string[] = [];
   private uiOverride: Partial<RequirementsUi> = {};
   revealInTree?: (el: Element) => void;
+  /** The questions asked of the user, recorded when an agent drives the window (for the commands that ask before a scope is chosen). */
+  get questions(): DiagramUi { return this.diagramUi(); }
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -253,7 +255,7 @@ export class RequirementsEditor implements vscode.Disposable {
     let path = target;
     if (path === undefined) {
       const base = p.scope.kind === "package" ? p.scope.qualifiedName.replace(/[^A-Za-z0-9_.-]+/g, "-") : decodeURIComponent(p.scope.uri.split("/").pop() ?? "requirements").replace(/\.[^.]*$/, "");
-      const dest = await vscode.window.showSaveDialog({ saveLabel: "Export Matrix", defaultUri: vscode.workspace.workspaceFolders?.[0] ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, `${base}-matrix.${format === "csv" ? "csv" : "md"}`) : undefined, filters: format === "csv" ? { CSV: ["csv"] } : { Markdown: ["md"] } });
+      const dest = await this.diagramUi().saveFile(vscode.workspace.workspaceFolders?.[0] ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, `${base}-matrix.${format === "csv" ? "csv" : "md"}`) : undefined, "Export Matrix", format === "csv" ? { CSV: ["csv"] } : { Markdown: ["md"] });
       if (!dest) return { ok: true, message: "cancelled" };
       path = dest.fsPath;
     }

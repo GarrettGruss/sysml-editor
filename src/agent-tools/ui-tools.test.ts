@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pathToFileURL } from "node:url";
-import { callTool, toolDefinitions, type CommandOutcome, type ToolContext, type UiAnswer, type UiDriver, type UiGate, type UiState } from "./index.js";
+import { callTool, toolDefinitions, type CommandOutcome, type DiagramGesture, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg, type ScreenshotTarget, type TreeNodeInfo, type ToolContext, type UiAnswer, type UiDriver, type UiGate, type UiState } from "./index.js";
 import { MessageLog, PromptBroker, formatAuditLine, isAllowedCommand, runUntilPromptOrDone } from "./ui-support.js";
 
 const ROOT = "/work/space";
@@ -26,6 +26,32 @@ class FakeDriver implements UiDriver {
   async state(): Promise<UiState> {
     return { selection: [], menus: [], undo: [], messages: this.messages.drain(), prompts: this.broker.list(), navigation: [], clipboard: "none" };
   }
+  gestures: { path: string; gesture: DiagramGesture }[] = [];
+  async diagramGesture(path: string, gesture: DiagramGesture): Promise<DiagramObservation> {
+    this.gestures.push({ path, gesture });
+    return { path, selected: [], menu: ["Align Left"], nodes: [], edgeCount: 0, descriptions: true, inlineEditor: false, quickBar: [], zoom: 1, clipboard: "none" };
+  }
+  reqCalls: { scope: RequirementsScopeArg; action: RequirementsAction }[] = [];
+  async requirements(scope: RequirementsScopeArg, action: RequirementsAction): Promise<RequirementsObservation> {
+    this.reqCalls.push({ scope, action });
+    return { view: "document", scopeName: "P", outline: [], items: [], matrixRows: [], pendingEdits: [], errors: [] };
+  }
+  treeInfos: TreeNodeInfo[] = [
+    { id: "pkg", label: "P", contextValue: "sysmlElement", depth: 1, hasChildren: true, selected: false },
+    { id: "dir", label: "src", contextValue: "sysmlFolder", depth: 1, hasChildren: true, selected: false },
+  ];
+  treeRan: { command: string; node: string | undefined }[] = [];
+  async treeList() { return this.treeInfos; }
+  async treeNode(id: string) { return this.treeInfos.find((n) => n.id === id); }
+  async treeSelect(): Promise<{ ok: true }> { return { ok: true }; }
+  async treeCollapseAll() {}
+  async treeCommand(command: string, node: string | undefined): Promise<CommandOutcome> {
+    this.treeRan.push({ command, node });
+    return { ok: true, completed: true, prompts: [] };
+  }
+  shot = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]).toString("base64");
+  shots: ScreenshotTarget[] = [];
+  async screenshot(t: ScreenshotTarget) { this.shots.push(t); return this.shot; }
 }
 
 const ctxOf = (ui?: UiDriver): ToolContext => ({ index: undefined as never, uriToPath: () => undefined, pathToUri: () => undefined, ...(ui ? { ui } : {}) });
@@ -248,5 +274,113 @@ describe("sysml_ui_state", () => {
     expect(first.json.enabled).toBe(true);
     expect(first.json.messages.map((m: { text: string }) => m.text)).toEqual(["b", "c", "d"]);
     expect((await call(d, "sysml_ui_state", {})).json.messages).toEqual([]);
+  });
+});
+
+describe("sysml_ui_diagram", () => {
+  const P = `${ROOT}/a.sysmld`;
+  it("passes a valid gesture and returns the observation, with the menu labels", async () => {
+    const d = new FakeDriver();
+    const r = await call(d, "sysml_ui_diagram", { path: "a.sysmld", gesture: { kind: "contextmenu", id: "n1" } });
+    expect(r.isError).toBeFalsy();
+    expect(r.json.menu).toEqual(["Align Left"]);
+    expect(d.gestures).toEqual([{ path: P, gesture: { kind: "contextmenu", id: "n1" } }]);
+    await call(d, "sysml_ui_diagram", { path: "a.sysmld", gesture: { kind: "menuItem", label: "Align Left" } });
+    expect(d.gestures[1]!.gesture).toEqual({ kind: "menuItem", label: "Align Left" });
+  });
+  it("refuses hostile input and runs nothing", async () => {
+    const d = new FakeDriver();
+    for (const input of [
+      { path: "/etc/passwd.sysmld", gesture: { kind: "flush" } },
+      { path: "../x.sysmld", gesture: { kind: "flush" } },
+      { path: "a.txt", gesture: { kind: "flush" } },
+      { path: "a.sysmld", gesture: { kind: "eval", code: "1" } },
+      { path: "a.sysmld", gesture: { kind: "select" } },
+      { path: "a.sysmld", gesture: { kind: "select", id: "n1", extra: 1 } },
+      { path: "a.sysmld", gesture: { kind: "drag", id: "n1", dx: Infinity, dy: 0 } },
+      { path: "a.sysmld", gesture: { kind: "drag", id: "n1", dx: 1e12, dy: 0 } },
+      { path: "a.sysmld", gesture: { kind: "menu", id: "n1", action: "rm -rf" } },
+      { path: "a.sysmld", gesture: { kind: "key", key: "x".repeat(1000) } },
+      { path: "a.sysmld", gesture: { kind: "__proto__" } },
+      { path: "a.sysmld", gesture: [] },
+    ]) {
+      const r = await call(d, "sysml_ui_diagram", input);
+      expect(r.isError, JSON.stringify(input)).toBe(true);
+    }
+    expect(d.gestures).toEqual([]);
+  });
+  it("is gated", async () => {
+    const d = new FakeDriver();
+    d.gateState = { enabled: false, trusted: true };
+    const r = await call(d, "sysml_ui_diagram", { path: "a.sysmld", gesture: { kind: "flush" } });
+    expect(r.isError).toBe(true);
+    expect(d.gestures).toEqual([]);
+  });
+});
+
+describe("sysml_ui_requirements", () => {
+  it("switches the view and builds gestures", async () => {
+    const d = new FakeDriver();
+    expect((await call(d, "sysml_ui_requirements", { package: "P", action: "view", view: "matrix" })).isError).toBeFalsy();
+    await call(d, "sysml_ui_requirements", { package: "P", action: "dragToc", fromQn: "P::A", ontoQn: "P::B", position: "before" });
+    await call(d, "sysml_ui_requirements", { file: "m.sysml", action: "click", selector: "[data-testid=add-root-requirement]" });
+    expect(d.reqCalls[0]).toEqual({ scope: { kind: "package", qualifiedName: "P" }, action: { kind: "view", view: "matrix" } });
+    expect(d.reqCalls[1]!.action).toEqual({ kind: "gesture", gesture: { kind: "dragToc", fromQn: "P::A", ontoQn: "P::B", position: "before" } });
+    expect(d.reqCalls[2]!.scope).toEqual({ kind: "file", path: `${ROOT}/m.sysml` });
+  });
+  it("refuses a bad scope, selector, path or view", async () => {
+    const d = new FakeDriver();
+    for (const input of [
+      { action: "observe" },
+      { package: "P", file: "m.sysml", action: "observe" },
+      { file: "/etc/x.sysml", action: "observe" },
+      { package: "P", action: "click", selector: "a\u0000b" },
+      { package: "P", action: "click" },
+      { package: "P", action: "exportMatrix", format: "csv", path: "/tmp/out.csv" },
+      { package: "P", action: "view", view: "grid" },
+      { package: "P", action: "eval" },
+    ]) expect((await call(d, "sysml_ui_requirements", input)).isError, JSON.stringify(input)).toBe(true);
+    expect(d.reqCalls).toEqual([]);
+    expect((await call(d, "sysml_ui_requirements", { package: "P", action: "exportMatrix", format: "csv", path: "out.csv" })).isError).toBeFalsy();
+    expect(d.reqCalls[0]!.action).toEqual({ kind: "exportMatrix", format: "csv", path: `${ROOT}/out.csv` });
+  });
+});
+
+describe("sysml_ui_tree", () => {
+  it("lists nodes and runs offered commands", async () => {
+    const d = new FakeDriver();
+    expect((await call(d, "sysml_ui_tree", { op: "list" })).json.nodes).toHaveLength(2);
+    expect((await call(d, "sysml_ui_tree", { op: "command", command: "sysml.tree.rename", node: "pkg" })).isError).toBeFalsy();
+    expect((await call(d, "sysml_ui_tree", { op: "command", command: "sysml.tree.refresh" })).isError).toBeFalsy();
+    expect((await call(d, "sysml_ui_tree", { op: "command", command: "sysml.tree.newFile", node: "dir" })).isError).toBeFalsy();
+    expect(d.treeRan).toEqual([{ command: "sysml.tree.rename", node: "pkg" }, { command: "sysml.tree.refresh", node: undefined }, { command: "sysml.tree.newFile", node: "dir" }]);
+  });
+  it("refuses a command not offered for the node, unknown nodes and unlisted commands", async () => {
+    const d = new FakeDriver();
+    for (const input of [
+      { op: "command", command: "sysml.tree.deleteFile", node: "pkg" },
+      { op: "command", command: "sysml.tree.rename", node: "dir" },
+      { op: "command", command: "sysml.tree.rename" },
+      { op: "command", command: "sysml.tree.rename", node: "nope" },
+      { op: "command", command: "workbench.action.terminal.new", node: "pkg" },
+      { op: "command", command: "sysml.tree.refresh", node: "pkg" },
+      { op: "delete" },
+      { op: "select", nodes: [] },
+    ]) expect((await call(d, "sysml_ui_tree", input)).isError, JSON.stringify(input)).toBe(true);
+    expect(d.treeRan).toEqual([]);
+  });
+});
+
+describe("sysml_ui_screenshot", () => {
+  it("returns a PNG image and refuses outside paths", async () => {
+    const d = new FakeDriver();
+    const r = await callTool("sysml_ui_screenshot", { path: "a.sysmld" }, ctxOf(d));
+    expect(r.isError).toBeFalsy();
+    expect(r.image?.mimeType).toBe("image/png");
+    expect(d.shots).toEqual([{ kind: "diagram", path: `${ROOT}/a.sysmld` }]);
+    expect((await call(d, "sysml_ui_screenshot", { path: "/etc/a.sysmld" })).isError).toBe(true);
+    expect((await call(d, "sysml_ui_screenshot", {})).isError).toBe(true);
+    d.shot = Buffer.from("not a png at all").toString("base64");
+    expect((await call(d, "sysml_ui_screenshot", { path: "a.sysmld" })).isError).toBe(true);
   });
 });

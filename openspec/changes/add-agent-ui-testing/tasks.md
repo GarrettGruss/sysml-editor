@@ -6,10 +6,10 @@
 ## 2. Driver and tools
 - [x] 2.1 Implement the vscode-side `UiDriver`; prompt recording and `sysml_ui_answer` with timeout (D57); unit tests with a fake driver
 - [x] 2.2 `sysml_ui_command` and `sysml_ui_state` (selection, dirty, undo label, messages, prompts, nav history, clipboard kind)
-- [ ] 2.3 `sysml_ui_diagram`: gestures, context menu listing and click by label, toggles
-- [ ] 2.4 `sysml_ui_requirements` and `sysml_ui_tree`
-- [ ] 2.5 Webview screenshot hook and `sysml_ui_screenshot` (D59)
-- [ ] 2.6 Register all tools in the MCP manifest and `package.json` LM tools; manifest tests
+- [x] 2.3 `sysml_ui_diagram`: gestures, context menu listing and click by label, toggles
+- [x] 2.4 `sysml_ui_requirements` and `sysml_ui_tree`
+- [x] 2.5 Webview screenshot hook and `sysml_ui_screenshot` (D59)
+- [x] 2.6 Register all tools in the MCP manifest and `package.json` LM tools; manifest tests
 
 ## 3. Integration tests
 - [ ] 3.1 Through MCP and LM, in a trusted workspace: tools refused with the setting off, allowlist refusals, audit log

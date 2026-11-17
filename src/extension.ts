@@ -81,7 +81,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     provider.setQuery("");
     search.setText("");
   }, (uri) => model.indexFile(uri));
-  const uiDriver = new VsCodeUiDriver({ diagrams, requirements, newEntry: () => newEntry.testApi, log: (m) => log.info(m) });
+  const uiDriver = new VsCodeUiDriver({ diagrams, requirements, newEntry: () => newEntry.testApi, tree: { provider, view }, log: (m) => log.info(m) });
   agent.ui = uiDriver;
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
@@ -116,7 +116,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
           { label: "All", filter: "all" },
         ];
         for (const i of items) if (i.filter === provider.filter) i.description = "current";
-        filter = (await vscode.window.showQuickPick(items, { placeHolder: "Show in the SysML Model view" }))?.filter;
+        filter = (await diagrams.ui.pick(items, { placeHolder: "Show in the SysML Model view", title: "Show in the SysML Model view" }))?.filter;
       }
       if (filter) await provider.setFilter(filter);
     }),

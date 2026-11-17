@@ -29,6 +29,10 @@ export type DiagramGesture =
   | { kind: "dblclick"; id: string; area?: "name" | "doc" }
   /** Turn the per-diagram description toggle on or off. */
   | { kind: "descriptions"; show: boolean }
+  /** Turn the per-diagram legend toggle on or off. */
+  | { kind: "legend"; show: boolean }
+  /** Click the item with this label in the context menu that is open. */
+  | { kind: "menuItem"; label: string }
   /** Connection tool: click the source, then the target. */
   | { kind: "connect"; source: string; target: string; relation?: ConnectRelation }
   /**

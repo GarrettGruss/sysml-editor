@@ -2,6 +2,7 @@
  * Pieces of the UI-control tools that need no editor: the command allowlist, argument and path validation, the audit
  * line, the prompt broker and the message log. No `vscode` import.
  */
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import type { AnswerOutcome, MessageLevel, PromptKind, UiAnswer, UiMessage, UiPrompt } from "./ui-driver.js";
@@ -51,11 +52,37 @@ export function resolveInWorkspace(p: string, roots: readonly string[]): string 
   } else {
     abs = path.isAbsolute(p) || /^[a-zA-Z]:[\\/]/.test(p) ? path.resolve(p) : path.resolve(roots[0]!, p);
   }
+  // Symlinks are resolved on both sides, so a link inside the workspace cannot lead outside it.
+  const real = realPathOf(abs);
   for (const r of roots) {
-    const rel = path.relative(path.resolve(r), abs);
+    const rel = path.relative(realPathOf(path.resolve(r)), real);
     if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return abs;
   }
   return undefined;
+}
+
+/**
+ * The real path of `p`: symlinks resolved for the nearest existing ancestor, with the part that does not exist yet
+ * appended. A dangling symlink is followed to its target, so creating through it is judged by where it leads.
+ */
+export function realPathOf(p: string, depth = 0): string {
+  const tail: string[] = [];
+  let cur = p;
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(cur), ...tail.reverse());
+    } catch {
+      try {
+        if (depth < 20 && fs.lstatSync(cur).isSymbolicLink()) return path.join(realPathOf(path.resolve(path.dirname(cur), fs.readlinkSync(cur)), depth + 1), ...tail.reverse());
+      } catch {
+        // Not a link either: it does not exist, look one level up.
+      }
+      const parent = path.dirname(cur);
+      if (parent === cur) return p;
+      tail.push(path.basename(cur));
+      cur = parent;
+    }
+  }
 }
 
 export type ArgsResult = { ok: true; args: unknown[] } | { ok: false; reason: string };
@@ -290,4 +317,37 @@ export async function runUntilPromptOrDone<T>(command: Promise<T>, broker: Promp
     stop();
     if (timer) clearTimeout(timer);
   }
+}
+
+
+// ---- selectors, gestures and the tree (inputs of the webview and tree tools) --------------------------
+
+/** A CSS selector for the requirements webview: bounded, printable. It runs only inside the sandboxed webview. */
+export function validSelector(sel: unknown): sel is string {
+  return typeof sel === "string" && sel.length > 0 && sel.length <= 300 && !/[\u0000-\u001f\u007f]/.test(sel);
+}
+
+/** Tree commands in the view title (`view/title` of package.json). */
+export const TREE_TITLE_COMMANDS: readonly string[] = ["sysml.tree.newFile", "sysml.tree.newFolder", "sysml.tree.refresh", "sysml.tree.changeView", "sysml.tree.clearSearch"];
+
+/** Tree commands a node offers by its context value (`view/item/context` of package.json); a unit test compares this with the manifest. */
+export const TREE_NODE_COMMANDS: readonly { command: string; contextValue: RegExp }[] = [
+  { command: "sysml.goToDefinition", contextValue: /^sysmlElement/ },
+  { command: "sysml.newDiagram", contextValue: /^sysmlElement/ },
+  { command: "sysml.newDiagram", contextValue: /^sysmlFile$/ },
+  { command: "sysml.showInDiagram", contextValue: /^sysmlElement/ },
+  { command: "sysml.addToActiveDiagram", contextValue: /^sysmlElement/ },
+  { command: "sysml.tree.addChild", contextValue: /^sysmlElement$/ },
+  { command: "sysml.tree.rename", contextValue: /^sysmlElement$/ },
+  { command: "sysml.tree.delete", contextValue: /^sysmlElement$/ },
+  { command: "sysml.tree.deleteFile", contextValue: /^sysmlFile$/ },
+  { command: "sysml.openRequirementsEditor", contextValue: /^sysmlElement/ },
+  { command: "sysml.tree.newFile", contextValue: /^sysmlFolder/ },
+  { command: "sysml.tree.newFolder", contextValue: /^sysmlFolder/ },
+];
+
+/** Whether the tree offers `command` for a node with this context value (any title command needs no node). */
+export function treeCommandOffered(command: string, contextValue: string | undefined): boolean {
+  if (contextValue === undefined) return TREE_TITLE_COMMANDS.includes(command);
+  return TREE_NODE_COMMANDS.some((c) => c.command === command && c.contextValue.test(contextValue));
 }

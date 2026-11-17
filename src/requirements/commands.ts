@@ -23,7 +23,7 @@ export function registerRequirementsCommands(deps: { model: WorkspaceModel; edit
       void showInfo("No SysML packages were found in the workspace.");
       return undefined;
     }
-    const pick = await vscode.window.showQuickPick(pkgs, { title: "Open Requirements Editor", placeHolder: "Choose a package" });
+    const pick = await deps.editor.questions.pick(pkgs, { title: "Open Requirements Editor", placeHolder: "Choose a package" });
     return pick ? { kind: "package", qualifiedName: pick.qn } : undefined;
   };
   const scopeFrom = async (arg: unknown): Promise<RequirementsScope | undefined> => {
@@ -54,7 +54,7 @@ export function registerRequirementsCommands(deps: { model: WorkspaceModel; edit
       }
       let folder = folders[0]!;
       if (folders.length > 1) {
-        const pick = await vscode.window.showQuickPick(folders.map((f) => ({ label: f.name, description: f.uri.fsPath, folder: f })), { title: "Copy DocumentAnnotations.sysml into which folder?" });
+        const pick = await deps.editor.questions.pick(folders.map((f) => ({ label: f.name, description: f.uri.fsPath, folder: f })), { title: "Copy DocumentAnnotations.sysml into which folder?" });
         if (!pick) return undefined;
         folder = pick.folder;
       }
