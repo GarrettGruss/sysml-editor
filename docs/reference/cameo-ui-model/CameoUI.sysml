@@ -1,8 +1,9 @@
 package CameoUI {
+    private import ScalarValues::*;
     doc /* Root of the Cameo/MagicDraw UI reference model. Section files are packages that import CameoUI::*. Shared vocabulary only; keep it small. */
 
     // Value types
-    attribute def Label :> ScalarValues::String;
+    attribute def Label :> String;
     enum def SelectionMode { enum partialCoverage; enum completeCoverage; }
 
     // Screens and chrome
