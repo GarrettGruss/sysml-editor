@@ -41,7 +41,7 @@ Our editor against each requirement in `../cameo-ui-model/GettingStarted.sysml`,
 | CAM-GST-035 | createElementInTree | Supported | sysml.tree.addChild and sysml.newDiagram in the tree context menu. |
 | CAM-GST-036 | createRelationFromTree | Missing | Relationships are created in diagrams or text only. |
 | CAM-GST-037 | openSpecificationWindow | Partial | Diagram properties panel and the requirements editor edit properties; no general specification window. |
-| CAM-GST-038 | validationCommands | Partial | Parser diagnostics show in the Problems view; no validation suites. |
+| CAM-GST-038 | validationCommands | Partial | sysml_validate LM tool reports syntax and unresolved names; no VS Code Problems-panel collection in src/, no suites. |
 | CAM-GST-039 | goToCommand | Supported | sysml.goToDefinition. |
 | CAM-GST-040 | refactorConvert | Missing | No convert-to command. |
 | CAM-GST-041 | relatedElementsList | Missing | No related-elements submenu in the tree (the diagram has Display Related Elements). |

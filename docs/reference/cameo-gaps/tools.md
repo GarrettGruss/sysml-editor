@@ -31,8 +31,8 @@ Our editor against each requirement in `../cameo-ui-model/Tools.sysml`. Ratings 
 | CAM-TLS-025 | metricParameters | Missing | No parameter definitions. |
 | CAM-TLS-026 | metricDefinitions | Missing | No metric formulas. |
 | CAM-TLS-027 | metricUseCases | Missing | No expression scripting. |
-| CAM-TLS-028 | validationMetric | Missing | No validation rules to measure. |
-| CAM-TLS-029 | validationDashboard | Missing | No dashboards. |
+| CAM-TLS-028 | validationMetric | Partial | sysml_validate (package.json LM tool) reports syntax and unresolved names; src/requirements/gaps.ts counts requirement coverage; no metric suite. |
+| CAM-TLS-029 | validationDashboard | Partial | Requirements editor Matrix view and sysml_read_verification_matrix give a coverage status table (src/requirements/matrix.ts); no general dashboard. |
 | CAM-TLS-030 | transformationsAvailable | Missing | No transformations. |
 | CAM-TLS-031 | transformationWizard | Missing | No wizard. |
 | CAM-TLS-032 | transformationDestination | Missing | No destination choice. |
@@ -66,8 +66,8 @@ Our editor against each requirement in `../cameo-ui-model/Tools.sysml`. Ratings 
 ## Summary
 
 - Supported: 0
-- Partial: 2
-- Missing: 56
+- Partial: 4
+- Missing: 54
 - Total: 58
 
 Most of this section is outside the editor's scope: merge and patch overlap with git, plugins and servers do not exist in the extension, and code engineering is UML and Java specific.

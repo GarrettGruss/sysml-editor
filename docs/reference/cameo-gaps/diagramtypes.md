@@ -126,9 +126,9 @@ Status of our editor per requirement, judged from `src/` and `package.json`.
 
 ## Summary
 
-- Supported: 3
-- Partial: 24
-- Missing: 92
+- Supported: 0
+- Partial: 0
+- Missing: 0
 - Total: 119
 
 1. Dependency matrix (CAM-DGT-036 to 058): Tracing allocation and satisfaction between structure and requirements is the main architecture review view; today only the requirements matrix exists.

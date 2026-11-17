@@ -97,7 +97,7 @@ Our editor against each requirement in `../cameo-ui-model/Diagramming.sysml`. Ra
 | CAM-DGM-091 | selectSameType | Missing | Not supported. |
 | CAM-DGM-092 | coverageModeProject | Missing | Not supported. |
 | CAM-DGM-093 | zoomOptions | Missing | No slider. |
-| CAM-DGM-094 | gridSettings | Missing | Fixed snap size. |
+| CAM-DGM-094 | gridSettings | Partial | Diagram canvas snaps to a fixed grid (src/webview/diagram/renderer.ts); no grid settings. |
 | CAM-DGM-095 | labelConsideration | Missing | No layout options. |
 | CAM-DGM-096 | labelOrientation | Missing | No label rotation. |
 | CAM-DGM-097 | saveImageScope | Partial | Only active diagram. |

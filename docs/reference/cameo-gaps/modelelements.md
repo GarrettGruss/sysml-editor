@@ -60,7 +60,7 @@ Our editor against each requirement in `../cameo-ui-model/ModelElements.sysml`. 
 | CAM-ELM-054 | selectionDialogCreateClone | Missing | No selection dialogs. |
 | CAM-ELM-055 | typeFilters | Missing | Type fields do not filter. |
 | CAM-ELM-056 | typeSelectionMode | Partial | Creating a part usage on a diagram asks for a name and type in the panel; no auto-type mode. |
-| CAM-ELM-057 | numberingAutomatic | Missing | No numbering; requirement ids are written by hand. |
+| CAM-ELM-057 | numberingAutomatic | Partial | Requirements editor and verification matrix number requirements by ownership (src/requirements/matrix.ts); ids are not generated into the model. |
 | CAM-ELM-058 | numberingManual | Missing | No numbering. |
 | CAM-ELM-059 | favoritesList | Missing | No favorites. |
 | CAM-ELM-060 | htmlEditor | Missing | Documentation is plain text. |
@@ -77,8 +77,8 @@ Our editor against each requirement in `../cameo-ui-model/ModelElements.sysml`. 
 ## Summary
 
 - Supported: 0
-- Partial: 17
-- Missing: 52
+- Partial: 18
+- Missing: 51
 - Total: 69
 
 ## Top 10 gaps for capturing system architecture

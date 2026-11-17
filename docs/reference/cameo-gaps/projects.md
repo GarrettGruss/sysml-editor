@@ -21,12 +21,12 @@ Our editor against each requirement in `../cameo-ui-model/Projects-2.sysml`. Rat
 | CAM-PRJ-015 | openLastProject | Partial | VS Code restores the last folder; not an extension feature. |
 | CAM-PRJ-016 | xmiStorage | Missing | Storage is SysML text; no XMI. |
 | CAM-PRJ-017 | openLegacyProject | Missing | Not applicable to .sysml; no legacy formats. |
-| CAM-PRJ-018 | exportFormats | Missing | No export command in package.json. |
+| CAM-PRJ-018 | exportFormats | Partial | Diagram image export (sysml.diagram.saveImage) and requirements Markdown/CSV export via sysml_read_verification_matrix; no project export formats. |
 | CAM-PRJ-019 | exportEclipseUml2 | Missing | No export. |
 | CAM-PRJ-020 | exportAsTemplate | Missing | No template concept. |
 | CAM-PRJ-021 | customTemplate | Missing | No template concept. |
 | CAM-PRJ-022 | newFromTemplate | Missing | No template concept. |
-| CAM-PRJ-023 | importAnotherProject | Missing | No cross-project import. |
+| CAM-PRJ-023 | importAnotherProject | Partial | SysML import statements across files and packages (text); no import command or wizard. |
 | CAM-PRJ-024 | attachFile | Missing | No attached-file element kind in src/model/kinds.ts. |
 | CAM-PRJ-025 | reattachFile | Missing | No attachments. |
 | CAM-PRJ-026 | detachFile | Missing | No attachments. |
@@ -65,17 +65,17 @@ Our editor against each requirement in `../cameo-ui-model/Projects-2.sysml`. Rat
 | CAM-PRJ-059 | exportPackages | Missing | No such command in package.json. |
 | CAM-PRJ-060 | shareData | Missing | No shared-package concept. |
 | CAM-PRJ-061 | indexUnloaded | Missing | No proxies. |
-| CAM-PRJ-062 | useProject | Missing | SysML import statements only; no wizard. |
+| CAM-PRJ-062 | useProject | Partial | SysML import statements bring in other packages (text); no wizard. |
 | CAM-PRJ-063 | usedAccessibility | Missing | No usage modes. |
 | CAM-PRJ-064 | importUsedProject | Missing | No such command. |
 | CAM-PRJ-065 | reloadUsedProject | Partial | sysml.tree.refresh rescans all files. |
 | CAM-PRJ-066 | loadModes | Missing | All files are always indexed; sysml.exclude hides files. |
 | CAM-PRJ-067 | usedProjectsDialog | Missing | No such dialog. |
-| CAM-PRJ-068 | integrityValidation | Missing | No project-level validation. |
+| CAM-PRJ-068 | integrityValidation | Partial | sysml_validate checks unresolved names and syntax across files; no project-level integrity command. |
 | CAM-PRJ-069 | automatedUsages | Missing | No usage tracking. |
 | CAM-PRJ-070 | resolveUnconfirmed | Missing | No usage tracking. |
 | CAM-PRJ-071 | recoveredElements | Partial | Unresolved references exist in the model index, not marked as recovered elements. |
-| CAM-PRJ-072 | integrityAnalysis | Missing | No such analysis. |
+| CAM-PRJ-072 | integrityAnalysis | Partial | sysml_validate lists unresolved references (src/agent-tools/unresolved.ts); no dedicated analysis view. |
 | CAM-PRJ-073 | replaceRecovered | Missing | No such command. |
 | CAM-PRJ-074 | removeUnresolved | Missing | No such command. |
 | CAM-PRJ-075 | removeRecoveredSymbol | Missing | No recovered symbols in src/diagram. |
@@ -97,8 +97,8 @@ Our editor against each requirement in `../cameo-ui-model/Projects-2.sysml`. Rat
 ## Summary
 
 - Supported: 1
-- Partial: 18
-- Missing: 70
+- Partial: 23
+- Missing: 65
 - Total: 89
 
 ## Top 10 gaps for capturing system architecture
