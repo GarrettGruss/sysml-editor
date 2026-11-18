@@ -43,6 +43,10 @@ export interface PasteResult {
 }
 
 export const PASTE_OFFSET = 40;
+const DEFAULT_W = 160, DEFAULT_H = 100;
+interface Rect { x: number; y: number; w: number; h: number }
+const rectOf = (n: { x?: number; y?: number; w?: number; h?: number }): Rect => ({ x: n.x ?? 0, y: n.y ?? 0, w: n.w ?? DEFAULT_W, h: n.h ?? DEFAULT_H });
+const overlaps = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
 /** Add nodes for the clip's elements (offset from where they were copied), skipping those drawn already, then the lines among them. */
 export function pasteNodes(doc: DiagramDocument, index: ModelIndex, clip: DiagramClip, opts: ResolveOptions = {}): PasteResult {
@@ -66,11 +70,17 @@ export function pasteNodes(doc: DiagramDocument, index: ModelIndex, clip: Diagra
     const n = next.nodes.find((x) => referenceKey(x) === referenceKey(f.clip.ref));
     if (n && r.added.includes(n.id)) placed.set(n.id, f.clip);
   }
+  // Pasted nodes go offset from their source and are pushed further until they are clear of every positioned top-level node.
+  const taken: Rect[] = next.nodes.filter((n) => !placed.has(n.id) && n.parent === undefined && n.x !== undefined && n.y !== undefined).map(rectOf);
   next = {
     ...next,
     nodes: next.nodes.map((n) => {
       const c = placed.get(n.id);
-      return c && c.x !== undefined && c.y !== undefined && n.parent === undefined ? { ...n, x: c.x + PASTE_OFFSET, y: c.y + PASTE_OFFSET } : n;
+      if (!(c && c.x !== undefined && c.y !== undefined && n.parent === undefined)) return n;
+      const moved = { ...n, x: c.x + PASTE_OFFSET, y: c.y + PASTE_OFFSET };
+      for (let i = 0; i < 100 && taken.some((t) => overlaps(rectOf(moved), t)); i++) { moved.x += PASTE_OFFSET; moved.y += PASTE_OFFSET; }
+      taken.push(rectOf(moved));
+      return moved;
     }),
   };
   for (const l of clip.lines) {

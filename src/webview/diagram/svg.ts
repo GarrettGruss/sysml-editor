@@ -250,7 +250,8 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const n = byId.get(id);
     const box = abs.get(id)!;
     const owner = n?.attachedTo !== undefined ? abs.get(n.attachedTo) : undefined;
-    return { box, ...(owner ? { owner } : {}) };
+    const headerH = n && !owner && n.compartments?.length ? describeBox(n, measure).headerH : undefined;
+    return { box, ...(owner ? { owner } : {}), ...(headerH !== undefined ? { headerH } : {}) };
   };
   // Route every edge first, in document order: a later edge keeps off the lines of the earlier ones.
   const drawn: { e: VmEdge; pts: Pt[]; ends: Box[] }[] = [];

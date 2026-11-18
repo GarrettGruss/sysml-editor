@@ -13,7 +13,7 @@ import { DOC_SHAPES, UNNAMED_KINDS, defaultStem, nextFreeName } from "../../diag
 import { DRAG_THRESHOLD, handleBoxes, Interaction, snap, type InteractionHost, type PointerInput, type Scene } from "./interaction.js";
 import type { LayoutResult } from "./layout.js";
 import { checkEdges } from "./metrics.js";
-import { showMenu, type MenuItem } from "./menu.js";
+import { compartmentLabel, showMenu, type MenuItem } from "./menu.js";
 import { labelHit, layoutAt, moveBox, resizeBox, toggleWrap, type LabelLayout } from "./labels.js";
 import { addBend, adjustRoute, dragBend, dragSegment, isHorizontal, routeHandleAt, segmentAt } from "./route-edit.js";
 import { clean, routeFits, type Side } from "./routing.js";
@@ -751,7 +751,7 @@ export class SvgRenderer implements DiagramRenderer {
       ...(editable && DOC_SHAPES.has(n.shape) ? [{ label: n.props?.documentation ? "Edit Description" : "Add Description", action: "description" as const }] : []),
       ...(n.resolved ? [{ label: "Go to Definition", action: "goto" as const }] : []),
       ...(n.resolved && FREE_DIAGRAMS.has(this.vm!.kind) ? [{ label: "Show/Hide Parts and Ports\u2026", action: "showHideMembers" as const }, { label: "Display Related Elements\u2026", action: "displayRelated" as const }] : []),
-      ...(n.resolved ? (n.compartmentTitles ?? []) : []).map((t) => ({ label: `Show ${t === "doc" ? "Description" : t.charAt(0).toUpperCase() + t.slice(1)}`, action: `compartment:${t}` as const, checked: !(n.hiddenCompartments ?? []).includes(t) })),
+      ...(n.resolved ? (n.compartmentTitles ?? []) : []).map((t) => ({ label: compartmentLabel(t, !(n.hiddenCompartments ?? []).includes(t)), action: `compartment:${t}` as const, checked: !(n.hiddenCompartments ?? []).includes(t) })),
       ...(several ? ALIGN_ITEMS.filter((a) => sel.length >= 3 || !a.action.startsWith("distribute")) : []),
       ...(n.resolved ? [{ label: "Copy", action: "copy" as const }] : []),
       { label: "Remove from Diagram", action: "remove" as const },
