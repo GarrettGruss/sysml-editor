@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { registerCommand } from "./command-events.js";
-import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, goToDefinition, registerCursorSync, keepSelectionAcrossRefresh } from "./tree/tree-provider.js";
 import { NewEntryFlow, type NewEntryTestApi } from "./tree/new-entry-flow.js";
 import { newEntryTarget } from "./tree/new-entry.js";
 import { SEARCH_VIEW_ID, SearchViewProvider } from "./tree/search-view.js";
@@ -97,6 +97,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     uiDriver,
     provider,
     view,
+    keepSelectionAcrossRefresh(model.index, view, provider, (m) => log.warn(m)),
     view.onDidChangeSelection((e) => provider.note(`selection [${e.selection.map((n) => n.id).join(",")}]`)),
     view.onDidChangeVisibility((e) => provider.note(`visible ${e.visible}`)),
     vscode.window.onDidChangeActiveTextEditor((e) => provider.note(`activeEditor ${e?.document.uri.path ?? "none"}`)),
@@ -176,3 +177,4 @@ export function activate(context: vscode.ExtensionContext): TestApi {
 }
 
 export function deactivate(): void {}
+

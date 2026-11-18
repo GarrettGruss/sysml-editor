@@ -871,3 +871,24 @@ export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<Mode
     vscode.window.onDidChangeActiveTextEditor((e) => follow(e, true)),
   );
 }
+
+/**
+ * A refresh replaces tree items, and VS Code then drops a selection on them although the elements still
+ * exist (a re-index of an unchanged file, #77). Select them again when a refresh, not the user, cleared it.
+ */
+export function keepSelectionAcrossRefresh(index: ModelIndex, view: vscode.TreeView<ModelNode>, provider: ModelTreeProvider, log: (m: string) => void): vscode.Disposable {
+  let last: readonly ModelNode[] = [];
+  let refreshedAt = 0;
+  return vscode.Disposable.from(
+    provider.onDidChangeTreeData(() => { refreshedAt = Date.now(); }),
+    view.onDidChangeSelection((e) => {
+      if (e.selection.length === 0 && last.length && Date.now() - refreshedAt < 1000) {
+        const again = last.filter((n) => isFolderNode(n) || isFileNode(n) || isDiagramNode(n) || resolveNode(index, n));
+        if (!again.length) { last = []; return; }
+        void (async () => { for (const n of again) await provider.revealNode(view, n, log, true); })();
+        return;
+      }
+      last = e.selection;
+    }),
+  );
+}

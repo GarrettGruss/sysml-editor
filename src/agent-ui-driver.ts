@@ -73,6 +73,7 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     deps.requirements.onUserEvent = (kind, id) => user({ kind, ...(id !== undefined ? { id } : {}) });
     this.subs.push(
       this.channel,
+      deps.tree.provider.onDidChangeTreeData(() => { this.treeChangedAt = Date.now(); }),
       deps.tree.view.onDidChangeSelection((e) => user({ kind: "selection", ...(e.selection[0] ? { id: e.selection[0].id } : {}) })),
       vscode.window.tabGroups.onDidChangeTabs((e) => { if (e.opened.length || e.changed.some((t) => t.isActive)) user({ kind: "editor" }); }),
       vscode.workspace.onDidChangeConfiguration((e) => {
@@ -387,6 +388,8 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   }
 
   private readonly treeNodes = new Map<string, ModelNode>();
+  /** When the tree last refreshed. */
+  private treeChangedAt = 0;
 
   private infoOf(node: ModelNode, depth: number): TreeNodeInfo {
     const item = this.deps.tree.provider.getTreeItem(node);
@@ -450,15 +453,24 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       errors.push(m);
       this.deps.log(m);
     };
-    for (const n of nodes) await this.deps.tree.provider.revealNode(this.deps.tree.view, n, say);
-    // The selection reaches the extension host after the renderer applies it: confirm it, or say why not.
+    // A re-index refreshes the tree, and VS Code drops a selection whose items a refresh replaces, even
+    // during the reveal itself (#77). So reveal once the tree is quiet, then confirm the selection held
+    // through another quiet period; a refresh in between means reveal again.
     const want = nodes[nodes.length - 1]!.id;
     const view = this.deps.tree.view;
-    for (let i = 0; i < 50 && view.selection[0]?.id !== want; i++) await new Promise((r) => setTimeout(r, 40));
-    if (view.selection[0]?.id !== want) {
-      return { ok: false, reason: `The tree did not select the node (view visible: ${view.visible}, selection: [${view.selection.map((s) => s.id).join(", ")}]${errors.length ? `, ${errors.join("; ")}` : ""}).` };
+    const quiet = async (ms: number, max: number) => {
+      const end = Date.now() + max;
+      while (Date.now() - this.treeChangedAt < ms && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    };
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await quiet(300, 3000);
+      const before = this.treeChangedAt;
+      for (const n of nodes) await this.deps.tree.provider.revealNode(view, n, say);
+      for (let i = 0; i < 50 && view.selection[0]?.id !== want; i++) await new Promise((r) => setTimeout(r, 40));
+      await quiet(300, 3000);
+      if (view.selection[0]?.id === want && (this.treeChangedAt === before || Date.now() - this.treeChangedAt >= 300)) return { ok: true };
     }
-    return { ok: true };
+    return { ok: false, reason: `The tree did not keep the node selected; it was refreshing (view visible: ${view.visible}, selection: [${view.selection.map((s) => s.id).join(", ")}]${errors.length ? `, ${errors.join("; ")}` : ""}).` };
   }
 
   /** A hidden view ignores reveal and selection, so open its container first, as a user would. */
