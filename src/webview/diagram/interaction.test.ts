@@ -142,6 +142,13 @@ describe("Interaction", () => {
     expect(t.edits).toEqual([]);
   });
 
+  it("a plain click on a node of a multi-selection selects only that node", () => {
+    const t = setup();
+    t.ia.setSelection(["free", "kid"], false);
+    t.ia.pointerDown(t.ptr(600, 120)); t.ia.pointerUp(t.ptr(600, 120));
+    expect(t.ia.selection).toEqual(["free"]);
+  });
+
   it("align and distribute post one layout edit with every moved box, so one undo step", () => {
     const t = setup();
     t.ia.setSelection(["box", "free", "kid"], false);

@@ -31,4 +31,19 @@ describe("pasting nodes", () => {
     expect(ok.missing).toBe(0);
     expect(ok.doc.edges).toHaveLength(1);
   });
+
+  it("places a pasted node clear of existing nodes", () => {
+    const ix = index(text);
+    const [a, b] = ["P::A", "P::B"].map((q) => ix.findByQualifiedName(q)[0]!);
+    const flat = { ...mk(ix), nodes: [], edges: [] };
+    const base = addElements(flat, ix, [b!], { sourceOf });
+    const doc = { ...base.doc, nodes: base.doc.nodes.map((n) => ({ ...n, x: 100, y: 100, w: 160, h: 100 })) };
+    const clip = { sources: [...doc.sources], nodes: [{ ref: { ref: "P::A" }, x: 60, y: 60 }], lines: [] };
+    void a;
+    const r = pasteNodes(doc, ix, clip, { sourceOf });
+    const pasted = r.doc.nodes.find((n) => n.ref === "P::A")!;
+    expect(pasted.parent).toBeUndefined();
+    const clear = pasted.x! >= 260 || pasted.y! >= 200 || pasted.x! + 160 <= 100 || pasted.y! + 100 <= 100;
+    expect(clear).toBe(true);
+  });
 });

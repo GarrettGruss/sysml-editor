@@ -157,7 +157,10 @@ export function architectureTests(c: Ctx): Test[] {
       await waitFor(() => has(b, "Fleet::Ship") && has(b, "Fleet::Frigate"), 10000, "both elements are pasted");
       assert.strictEqual(doc(b).nodes.length, 3);
       const ship = doc(b).nodes.find((n) => n.ref === "Fleet::Ship")!;
-      assert.strictEqual(ship.x, 80, "offset from the copied position");
+      // Offset from the copied position (40, 40) and clear of Engine (40, 40, 160 x 60).
+      assert.ok(ship.x! >= 80 && ship.y! >= 80, "offset from the copied position");
+      const eng = { x: 40, y: 40, w: 160, h: 60 };
+      assert.ok(!(ship.x! < eng.x + eng.w && eng.x < ship.x! + (ship.w ?? 160) && ship.y! < eng.y + eng.h && eng.y < ship.y! + (ship.h ?? 100)), "clear of the existing node");
       assert.strictEqual(dirty(b), true);
       assert.ok(!dirty(a), "the source diagram is untouched");
       await open(cc);

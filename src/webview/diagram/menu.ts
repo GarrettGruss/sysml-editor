@@ -39,3 +39,8 @@ export function showMenu<A extends string>(host: HTMLElement, x: number, y: numb
   document.addEventListener("pointerdown", outside, true);
   buttons[0]?.focus();
 }
+
+/** The menu item for a compartment: "Hide X" while it is shown, "Show X" while it is hidden. */
+export function compartmentLabel(t: string, shown: boolean): string {
+  return `${shown ? "Hide" : "Show"} ${t === "doc" ? "Description" : t.charAt(0).toUpperCase() + t.slice(1)}`;
+}

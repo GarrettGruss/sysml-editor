@@ -262,7 +262,7 @@ export interface InteractionHost {
 }
 
 type Gesture =
-  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; plan?: Plan; drop?: DropTarget; dropKey?: string; armed?: boolean; timer?: unknown }
+  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; collapseTo?: string; plan?: Plan; drop?: DropTarget; dropKey?: string; armed?: boolean; timer?: unknown }
   | { kind: "resize"; start: Pt; id: string; handle: Handle; plan?: Plan }
   | { kind: "band"; start: Pt; cur: Pt; add: boolean; base: string[] }
   | { kind: "pan"; sx: number; sy: number; moved: boolean; clear: boolean };
@@ -339,7 +339,9 @@ export class Interaction {
       this.setSelection(next);
       if (!next.has(hit)) return;
     } else if (!this.sel.has(hit)) this.setSelection([hit]);
-    this.g = { kind: "move", start: e, ids: [...this.sel], moved: false };
+    // A plain click on a node of a multi-selection selects only it, unless the press turns into a drag of the group.
+    const collapseTo = !e.shift && !e.mod && this.sel.size > 1 ? hit : undefined;
+    this.g = { kind: "move", start: e, ids: [...this.sel], moved: false, ...(collapseTo !== undefined ? { collapseTo } : {}) };
   }
 
   pointerMove(e: PointerInput): void {
@@ -393,6 +395,7 @@ export class Interaction {
       return;
     }
     if (g.kind === "move" && g.timer !== undefined) this.host.clearTimer(g.timer);
+    if (g.kind === "move" && !g.moved && g.collapseTo !== undefined) this.setSelection([g.collapseTo]);
     if (g.kind === "move" && g.drop && g.armed) {
       // Nesting is a model edit: the gesture ends in the host, which moves the declaration or refuses.
       this.host.onDropTarget?.(undefined);

@@ -396,8 +396,8 @@ export function uiAgentTests(c: Ctx): Test[] {
       const comp = "tmp-ui-comp.sysmld";
       const h0 = (await g(comp, { kind: "flush" })).nodes.find((n) => n.id === "n1")!.h;
       o = await g(comp, { kind: "contextmenu", id: "n1" });
-      assert.ok(o.menu.includes("Show Attributes"), `menu: ${o.menu.join(", ")}`);
-      await g(comp, { kind: "menuItem", label: "Show Attributes" });
+      assert.ok(o.menu.includes("Hide Attributes"), `menu: ${o.menu.join(", ")}`);
+      await g(comp, { kind: "menuItem", label: "Hide Attributes" });
       await waitFor(async () => (await g(comp, { kind: "flush" })).nodes.find((n) => n.id === "n1")!.h < h0, 10000, "the node shrinks");
       // DGM-045: Save as Image through the save prompt
       let img = "tmp-ui-img.svg";

@@ -41,6 +41,16 @@ describe("routeOrthogonal", () => {
   });
 });
 
+describe("attachment to the header", () => {
+  it("moves a side attachment on a compartment row up to the header", () => {
+    const a = { x: 0, y: 0, w: 200, h: 200 };
+    const r = edgeRoute({ box: a, headerH: 50 }, { box: { x: 400, y: 150, w: 100, h: 50 } });
+    expect(r[0]!.y).toBe(25);
+    expect(isOrthogonal(r)).toBe(true);
+    expect(r[r.length - 1]!.x).toBe(400);
+  });
+});
+
 describe("stored routes", () => {
   const a = box(0, 0), b = box(200, 100);
   it("is kept while both ends are where they were", () => {

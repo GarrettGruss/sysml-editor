@@ -288,7 +288,7 @@ const createRelationship: ToolDefinition = {
     "`kind: \"succession\"` adds `first <source> then <target>;` (with `guard`: `first <source> if <guard> then <target>;`) to `owner`, an action or action definition, after the two nodes; `source` and `target` are member names or qualified names of its actions or control nodes, or `start` and `done`; a succession that already exists is refused. " +
     "`kind: \"transition\"` adds `transition first <source> [accept <trigger>] [if <guard>] [do <effect>] then <target>;` to `owner`, a state or state definition; `source` and `target` are its states (`trigger`, `guard` and `effect` are source text, parsed before anything is changed and refused with the syntax error when invalid). " +
     "`kind: \"message\"` adds `message [name] [of <itemType>] from <from> to <to>;` to `owner`, an occurrence, part or interaction, written as `then message ...;` right after its last message so it comes last in time order; `from` and `to` are names of the parts taking part. " +
-    "With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
+    "With `diagram`, the new edge is also placed on that diagram when both ends are shown; a specialization is a derived edge, drawn automatically when both definitions are on the diagram (the result reports `placed: true, derivedEdge: true`). Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
   inputSchema: {
     type: "object",
     properties: {
@@ -358,7 +358,9 @@ const createRelationship: ToolDefinition = {
         const refusal = ed.service.refuseIfInherited(a, "specialized");
         if (refusal) throw refused(refusal);
         const r = ok(await ed.service.specialize(a.element, b.element, origin));
-        return summary(ctx, r, { created: { kind: "specialization", source: input.source, target: input.target }, ...placementNote(ctx, r, target) });
+        // A specialization is drawn as a derived edge whenever both definitions are on the diagram; nothing is stored in the layout.
+        const derived = target ? { diagram: { path: target.path, placed: true, derivedEdge: true, note: "The specialization is drawn automatically as a derived edge when both definitions are on this diagram; nothing is stored in the diagram file." } } : {};
+        return summary(ctx, r, { created: { kind: "specialization", source: input.source, target: input.target }, ...derived });
       }
       const ownerEl = typeof input.owner === "string" && input.owner !== "" ? locate(ctx, ed, input.owner, "owner element").element : undefined;
       const r = ok(await ed.service.dependency(a.element, b.element, ownerEl, origin));

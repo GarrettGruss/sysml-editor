@@ -19,4 +19,4 @@
 
 ## 4. Docs and acceptance
 - [x] 4.1 Document the tools and the safety setting in `docs/agents.md`
-- [ ] 4.2 Rerun the 10 diagramming acceptance scenarios via an agent using the new tools, record the results beside `diagramming-results-v0.3.0.md`, and confirm at least 9 are agent-verified
+- [x] 4.2 Rerun the 10 diagramming acceptance scenarios via an agent using the new tools, record the results beside `diagramming-results-v0.3.0.md`, and confirm at least 9 are agent-verified

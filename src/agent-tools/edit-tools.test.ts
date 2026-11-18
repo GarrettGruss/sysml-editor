@@ -78,6 +78,13 @@ describe("edit tools", () => {
     expect(r.json.diagramFilesChanged).toEqual(["d.sysmld"]);
   });
 
+  it("a specialization on a diagram is reported as a derived edge, not as not placed", async () => {
+    const { ctx } = setup();
+    const r = await call(ctx, "sysml_create_relationship", { kind: "specialization", source: "VehicleModel::Vehicle", target: "VehicleModel::Engine", diagram: "d.sysmld" });
+    expect(r.isError).toBeUndefined();
+    expect(r.json.diagram).toMatchObject({ path: "d.sysmld", placed: true, derivedEdge: true });
+  });
+
   it("Delete versus remove: delete-element removes the declaration; the result lists the files", async () => {
     const { host, ctx } = setup();
     const r = await call(ctx, "sysml_delete_element", { element: "VehicleModel::Car::engine" });
