@@ -7,6 +7,7 @@ import { isFolderNode, nodeForElement, type ModelNode } from "./tree/tree-model.
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { VsCodeDiagramService } from "./diagram/agent-service.js";
 import { AgentIntegration } from "./agent-integration.js";
+import { VsCodeUiDriver } from "./agent-ui-driver.js";
 import { DiagramEditorProvider, VIEW_TYPE as DIAGRAM_VIEW_TYPE, type DiagramTestApi } from "./diagram/diagram-editor.js";
 import { WorkspaceModel } from "./workspace/workspace-model.js";
 import { ModelService } from "./model-service/service.js";
@@ -15,6 +16,7 @@ import { ModelActions } from "./model-service/interactive.js";
 import { registerModelCommands } from "./model-service/commands.js";
 import { RequirementsEditor, type RequirementsTestApi } from "./requirements/editor.js";
 import { registerRequirementsCommands } from "./requirements/commands.js";
+import { showError } from "./ui-messages.js";
 
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
@@ -32,6 +34,8 @@ export interface TestApi {
   search: { post(message: unknown): void; query(): string };
   /** The input box of New File and New Folder. */
   newEntry: NewEntryTestApi;
+  /** The UI-control driver; tests read its audit lines. */
+  ui: VsCodeUiDriver;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -70,7 +74,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   model.ready
     .catch((e: unknown) => {
       log.error("loading the SysML model failed", e instanceof Error ? e : String(e));
-      void vscode.window.showErrorMessage("SysML: loading the model failed. See the SysML output channel for details.");
+      void showError("SysML: loading the model failed. See the SysML output channel for details.");
     })
     .finally(() => {
       view.message = undefined;
@@ -79,12 +83,15 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     provider.setQuery("");
     search.setText("");
   }, (uri) => model.indexFile(uri));
+  const uiDriver = new VsCodeUiDriver({ diagrams, requirements, newEntry: () => newEntry.testApi, tree: { provider, view }, log: (m) => log.info(m), ownCommands: ((context.extension.packageJSON as { contributes?: { commands?: { command: string }[] } }).contributes?.commands ?? []).map((c) => c.command) });
+  agent.ui = uiDriver;
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
   context.subscriptions.push(
     log,
     model,
     agent,
+    uiDriver,
     provider,
     view,
     view.onDidExpandElement((e) => provider.setExpanded(e.element, true)),
@@ -111,7 +118,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
           { label: "All", filter: "all" },
         ];
         for (const i of items) if (i.filter === provider.filter) i.description = "current";
-        filter = (await vscode.window.showQuickPick(items, { placeHolder: "Show in the SysML Model view" }))?.filter;
+        filter = (await diagrams.ui.pick(items, { placeHolder: "Show in the SysML Model view", title: "Show in the SysML Model view" }))?.filter;
       }
       if (filter) await provider.setFilter(filter);
     }),
@@ -159,7 +166,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     },
     setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
-  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi, ui: uiDriver };
 }
 
 export function deactivate(): void {}

@@ -68,6 +68,8 @@ export class RequirementsEditor implements vscode.Disposable {
   private readonly navLog: string[] = [];
   private uiOverride: Partial<RequirementsUi> = {};
   revealInTree?: (el: Element) => void;
+  /** The questions asked of the user, recorded when an agent drives the window (for the commands that ask before a scope is chosen). */
+  get questions(): DiagramUi { return this.diagramUi(); }
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -103,7 +105,7 @@ export class RequirementsEditor implements vscode.Disposable {
     },
     pickMany: async (items, title) => {
       if (this.uiOverride.pickMany) return this.uiOverride.pickMany(items, title);
-      const r = await vscode.window.showQuickPick(items.map((i) => ({ label: i.label, ...(i.description ? { description: i.description } : {}), id: i.id })), { title, canPickMany: true, matchOnDescription: true });
+      const r = await this.diagramUi().pickMany(items.map((i) => ({ label: i.label, ...(i.description ? { description: i.description } : {}), id: i.id })), { title, matchOnDescription: true });
       return r?.map((x) => x.id);
     },
     pickVerification: async (cases: PickItem[], title) => {
@@ -253,7 +255,7 @@ export class RequirementsEditor implements vscode.Disposable {
     let path = target;
     if (path === undefined) {
       const base = p.scope.kind === "package" ? p.scope.qualifiedName.replace(/[^A-Za-z0-9_.-]+/g, "-") : decodeURIComponent(p.scope.uri.split("/").pop() ?? "requirements").replace(/\.[^.]*$/, "");
-      const dest = await vscode.window.showSaveDialog({ saveLabel: "Export Matrix", defaultUri: vscode.workspace.workspaceFolders?.[0] ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, `${base}-matrix.${format === "csv" ? "csv" : "md"}`) : undefined, filters: format === "csv" ? { CSV: ["csv"] } : { Markdown: ["md"] } });
+      const dest = await this.diagramUi().saveFile(vscode.workspace.workspaceFolders?.[0] ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, `${base}-matrix.${format === "csv" ? "csv" : "md"}`) : undefined, "Export Matrix", format === "csv" ? { CSV: ["csv"] } : { Markdown: ["md"] });
       if (!dest) return { ok: true, message: "cancelled" };
       path = dest.fsPath;
     }
@@ -282,7 +284,9 @@ export class RequirementsEditor implements vscode.Disposable {
   }
 
   readonly testApi: RequirementsTestApi = {
-    open: async (scope, view = "document") => {
+    open: async (scope, wanted) => {
+      // Without a view, an open editor keeps the view it shows; a new one shows the document.
+      const view = wanted ?? this.panels.get(scopeKey(scope))?.view ?? "document";
       // A new webview can be slow to come up (or, the first time in a session, not at all while its group is not visible): ask again with a fresh panel.
       for (let attempt = 0; attempt < 4; attempt++) {
         await this.open(scope, view);

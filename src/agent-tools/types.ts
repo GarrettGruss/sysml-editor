@@ -2,6 +2,7 @@ import type { Element, ModelIndex } from "../model/index.js";
 import type { DiagramDocument, DiagramProblem } from "../diagram/format.js";
 import type { SourceMapper } from "../diagram/resolve.js";
 import type { ModelService } from "../model-service/service.js";
+import type { UiDriver } from "./ui-driver.js";
 
 /** What a tool handler can use. Transport-free: adapters build one of these. */
 export interface ToolContext {
@@ -14,6 +15,8 @@ export interface ToolContext {
   diagrams?: DiagramService;
   /** The model-changing operations; implemented by the VS Code layer. Absent when editing is not available. */
   edits?: EditContext;
+  /** The UI-control driver; implemented by the VS Code layer. Absent when UI control is not available. */
+  ui?: UiDriver;
 }
 
 /** What the edit tools need: the shared `ModelService`, the trust state and the mapping of diagram paths. */

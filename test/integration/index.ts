@@ -4,6 +4,7 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "no
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { uiAgentTests } from "./ui-agent.js";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { behaviorTests } from "./behavior.js";
 import { interactionTests } from "./diagram-interaction.js";
@@ -13,6 +14,8 @@ import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
 import { requirementsAuthoringTests } from "./requirements-authoring.js";
 import { elementRoots } from "./tree-util.js";
+import type { DiagramGesture as Gesture, RequirementsGesture as ReqGesture } from "../../src/ui-gestures.js";
+export type { Gesture, ReqGesture };
 
 // Structural copies of the extension's test API (importing src/ would pull the whole bundle into this compile).
 export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" | "diagram" | "message" | "placeholder" }
@@ -50,6 +53,7 @@ export interface TestApi {
     setTrusted(trusted: boolean | undefined): void;
   };
   view: vscode.TreeView<ModelNode>;
+  ui: { auditLines(): string[] };
   agent: {
     apply(): Promise<void>;
     currentPlan(): { lmTools: boolean; mcpServer: boolean; registerWithVsCode: boolean };
@@ -90,12 +94,6 @@ export interface TestApi {
   };
 }
 export type ReqScope = { kind: "package"; qualifiedName: string } | { kind: "file"; uri: string };
-export type ReqGesture =
-  | { kind: "click"; selector: string }
-  | { kind: "input"; selector: string; value: string; event?: "change" | "input" }
-  | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
-  | { kind: "key"; selector: string; key: string; alt?: boolean }
-  | { kind: "mouse"; type: "contextmenu" | "pointermove" | "pointerdown" | "pointerup" | "click"; selector: string; at?: "center" | "top" | "bottom" | "left"; dy?: number };
 export interface ReqMetrics {
   view: "table" | "matrix" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
   table: { rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[]; selected?: string; counts: { total: number; unsatisfied: number; unverified: number }; detail?: { qn: string; satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] } };
@@ -112,41 +110,6 @@ export interface DiagramDoc {
   style?: Record<string, unknown>;
   edges: { id: string; ref?: string; locator?: { kind: string }; source: string; target: string; points?: { x: number; y: number }[]; label?: { dx: number; dy: number; w?: number; h?: number; wrap?: boolean } }[];
 }
-export type Gesture =
-  | { kind: "select"; id: string; shift?: boolean }
-  | { kind: "drag"; id: string; dx: number; dy: number; steps?: number; hold?: number }
-  | { kind: "resize"; id: string; handle: string; dx: number; dy: number }
-  | { kind: "key"; key: string; shift?: boolean; ctrl?: boolean; meta?: boolean }
-  | { kind: "rubber"; x0: number; y0: number; x1: number; y1: number }
-  | { kind: "menu"; id: string; action: "remove" | "relink" | "deleteModel" | "rename" | "goto" | "description" | "showHideMembers" | "displayRelated" | "copy" | "paste" | `compartment:${string}` }
-  | { kind: "contextmenu"; id: string }
-  | { kind: "drop"; names: string[]; x?: number; y?: number }
-  | { kind: "palette"; item: string; id?: string; x?: number; y?: number; name?: string; hold?: boolean }
-  | { kind: "ghostMove"; x: number; y: number }
-  | { kind: "inline"; text?: string; end?: "enter" | "shiftEnter" | "escape" | "blur" }
-  | { kind: "dblclick"; id: string; area?: "name" | "doc" }
-  | { kind: "descriptions"; show: boolean }
-  | { kind: "connect"; source: string; target: string; relation?: "specialization" | "dependency" | "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow" }
-  | { kind: "connectDrag"; source: string; side?: "L" | "R" | "U" | "D"; relation?: "specialization" | "dependency" | "satisfy" | "verify" | "derivation" | "succession" | "transition" | "message" | "flow"; target?: string; x?: number; y?: number; hold?: boolean }
-  | { kind: "connectRelease" }
-  | { kind: "quickBar"; item?: string }
-  | { kind: "reconnectDrag"; id: string; end: "source" | "target"; target?: string; x?: number; y?: number; hold?: boolean }
-  | { kind: "hoverNode"; id: string }
-  | { kind: "selectEdge"; id: string }
-  | { kind: "dragEdge"; id: string; dy: number }
-  | { kind: "dragSegment"; id: string; index: number; d: number }
-  | { kind: "dragBend"; id: string; index: number; dx: number; dy: number }
-  | { kind: "dblclickEdge"; id: string }
-  | { kind: "labelDrag"; id: string; dx: number; dy: number }
-  | { kind: "labelResize"; id: string; dw: number; dh: number }
-  | { kind: "labelMenu"; id: string; action: "reset" | "wrap" }
-  | { kind: "inlineRename"; id: string; text: string; commit: boolean }
-  | { kind: "property"; field: "name" | "shortName" | "type" | "multiplicity" | "documentation" | "trigger" | "guard" | "effect"; value: string }
-  | { kind: "hover"; id?: string }
-  | { kind: "labelClick"; id: string }
-  | { kind: "wheel"; deltaY: number; ctrl?: boolean }
-  | { kind: "focusCanvas"; mouse: boolean }
-  | { kind: "flush" };
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean; tooltip?: string }
 export interface Metrics {
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean; labelBox?: { x: number; y: number; w: number; h: number }; labelLines?: string[]; labelLaidOut?: boolean }[];
@@ -395,7 +358,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 22; // four model read tools, nine diagram tools (one reads the editor context, one applies an aspect, one shows or hides parts and ports) (one reads the editor context), six model edit tools (one sets a transition) and three requirements tools (document, matrix, create)
+  const TOOL_COUNT = 29; // every sysml_ tool in the manifest, including the seven UI-control tools
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {
@@ -696,6 +659,8 @@ export async function run(): Promise<void> {
     ...requirementsAuthoringTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...foldersTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    // Last: it turns the user setting `sysml.agent.uiControl` on for each scenario and off again afterwards.
+    ...uiAgentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];

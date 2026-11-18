@@ -121,6 +121,30 @@ Limits: temporary render panels are used one at a time, and at most 8 requests m
 `image: { available: false, reason: "too many pending image requests" }`. An image larger than 1 MB is exported again at
 half the width (repeatedly, down to 400 px); if it still exceeds 1 MB the reason is `"image too large"`.
 
+## UI control: driving the editor like a tester
+
+Seven more tools let an agent use the editor's own UI: `sysml_ui_command`, `sysml_ui_answer`, `sysml_ui_state`,
+`sysml_ui_diagram`, `sysml_ui_requirements`, `sysml_ui_tree` and `sysml_ui_screenshot`. They are meant for testing and
+for tasks that need the real UI (menus, prompts, undo, the tree).
+
+**They are off by default.** Turn them on with the user setting `sysml.agent.uiControl` (user level only; a value in
+`.vscode/settings.json` is ignored, so a cloned repository cannot enable it). They also need a trusted workspace. When
+off, every UI tool refuses and says which setting to change, and `sysml_ui_state` answers `enabled: false`.
+
+| Tool | Purpose |
+| --- | --- |
+| `sysml_ui_command` | Run an allowlisted command: any `sysml.*` command, undo, redo, save, save all, back, forward. Returns when it finishes or opens a prompt. |
+| `sysml_ui_answer` | Answer an open prompt (pick, picks, text, confirm, save path, cancel). Unanswered prompts time out as cancelled. |
+| `sysml_ui_state` | Active editor and dirty flag, diagram selections, open menus, undo and redo labels, user messages (drained on read), open prompts, navigation history, clipboard kind. |
+| `sysml_ui_diagram` | Replay a gesture in a diagram (select, drag, keys, context menu and click by label, palette, legend, connect, inline edit, ...) and observe nodes, menu, legend, clipboard. |
+| `sysml_ui_requirements` | Open a view (table, matrix, document), click, type, drag a section in the contents, export the matrix, observe. |
+| `sysml_ui_tree` | List, select one node, collapse all, and run the tree commands a node offers. Selecting several nodes is refused (the tree API cannot). |
+| `sysml_ui_screenshot` | A PNG of a diagram or requirements webview (only that webview, never the screen). |
+
+Safety: commands outside the allowlist are refused; file arguments must lie inside the workspace; delete commands still
+ask their confirmation, which the agent must answer; the clipboard is reported by kind, never content. Every call writes
+one line (tool, target, arguments) to the "SysML Agent UI" output channel before it runs.
+
 ## Channels
 
 - **Language Model Tools**: registered with VS Code, so agents built into VS Code (Copilot agent mode and others) can call the tools directly.

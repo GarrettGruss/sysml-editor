@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { downloadAndUnzipVSCode, resolveCliArgsFromVSCodeExecutablePath, runTests } from "@vscode/test-electron";
@@ -53,15 +53,19 @@ async function run(): Promise<void> {
   const version = process.env.VSCODE_VERSION || undefined;
   const workspace = path.join(root, "test/fixtures/workspace-basic");
   const artifacts = process.env.SYSML_TEST_ARTIFACTS ? path.resolve(process.env.SYSML_TEST_ARTIFACTS) : path.join(root, "out/test-artifacts");
+  // Scratch files (tmp-*) a crashed run left behind would leak into the next run's model.
+  for (const f of readdirSync(workspace)) if (f.startsWith("tmp-")) rmSync(path.join(workspace, f), { recursive: true, force: true });
   const common = ["--disable-workspace-trust", "--no-sandbox", "--disable-gpu"];
   const vsix = process.env.SYSML_VSIX ? path.resolve(process.env.SYSML_VSIX) : undefined;
 
   if (!vsix) {
+    // A fresh user-data dir per run: the UI-control tests write a user setting that must not outlive the run.
+    const userData = mkdtempSync(path.join(os.tmpdir(), "sysml-user-data-"));
     await runTests({
       version,
       extensionDevelopmentPath: root,
       extensionTestsPath: path.resolve(__dirname, "index"),
-      launchArgs: [workspace, "--disable-extensions", ...common],
+      launchArgs: [workspace, "--disable-extensions", "--user-data-dir", userData, ...common],
       extensionTestsEnv: { SYSML_EXPECT_EXTENSION_PATH: root, SYSML_TEST_ARTIFACTS: artifacts },
     });
     return;

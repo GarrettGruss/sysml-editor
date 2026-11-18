@@ -1442,6 +1442,18 @@ export class SvgRenderer implements DiagramRenderer {
         if (t.checked !== g.show) t.click();
         break;
       }
+      case "legend": {
+        const t = this.tools.legendToggle;
+        if (t.checked !== g.show) t.click();
+        break;
+      }
+      case "menuItem": {
+        const items = [...document.querySelectorAll<HTMLButtonElement>(".ctx-menu button")];
+        const item = items.find((b) => b.textContent === g.label);
+        if (!item) throw new Error(`the open menu has no "${g.label}" (it shows: ${items.map((b) => b.textContent).join(", ") || "no menu"})`);
+        item.click();
+        break;
+      }
       case "connect": {
         const btn = this.tools.palette.querySelector<HTMLButtonElement>(`button[data-kind="${g.relation ?? "connection"}"]`);
         if (!btn) throw new Error(`the palette has no ${g.relation ?? "connection"} tool`);

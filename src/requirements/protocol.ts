@@ -1,6 +1,7 @@
 /** Messages between the extension host and the requirements editor webview, and the view models. No `vscode`, no DOM. */
 import type { TocEntry } from "./document-model.js";
 import type { MatrixVM } from "./matrix-shape.js";
+import type { RequirementsGesture } from "../ui-gestures.js";
 
 export type RequirementsScope = { kind: "package"; qualifiedName: string } | { kind: "file"; uri: string };
 /** "matrix" is the verification matrix, the tabular view; "table" is the older editing table, no longer offered as a tab. */
@@ -141,13 +142,7 @@ export type Intent =
   /** Write the matrix as CSV or Markdown to a file the user chooses. */
   | { type: "exportMatrix"; format: "csv" | "markdown" };
 
-export type Gesture =
-  | { kind: "click"; selector: string }
-  | { kind: "input"; selector: string; value: string; event?: "change" | "input" }
-  | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
-  | { kind: "key"; selector: string; key: string; alt?: boolean }
-  /** A mouse or pointer event at a point of an element (`at`: where in its box), for the palette, the ghost and dragging. */
-  | { kind: "mouse"; type: "contextmenu" | "pointermove" | "pointerdown" | "pointerup" | "click"; selector: string; at?: "center" | "top" | "bottom" | "left"; dy?: number };
+export type Gesture = RequirementsGesture;
 
 export type HostToWebview =
   | { type: "render"; state: RequirementsState; scope: RequirementsScope; view?: ViewMode; generation: number }

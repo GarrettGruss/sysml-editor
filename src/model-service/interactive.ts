@@ -6,6 +6,7 @@ import { ADD_KINDS, confirmationText, deleteImpact, kindLabel, nameProblem, need
 import { allowedChildKinds, kindProblem } from "./kinds.js";
 import { type AddSpec, type ModelService, type Origin, type OpResult, type Target } from "./service.js";
 import type { Placement } from "./diagram-changes.js";
+import { showInfo, showWarning } from "../ui-messages.js";
 
 export class ModelActions {
   constructor(
@@ -22,7 +23,7 @@ export class ModelActions {
     }
     if (r.skippedDiagrams?.length) {
       const n = r.skippedDiagrams.length;
-      void vscode.window.showWarningMessage(`${what}. ${n} diagram file${n === 1 ? "" : "s"} could not be read and ${n === 1 ? "was" : "were"} not updated; ${n === 1 ? "it" : "they"} may refer to the old name.`);
+      void showWarning(`${what}. ${n} diagram file${n === 1 ? "" : "s"} could not be read and ${n === 1 ? "was" : "were"} not updated; ${n === 1 ? "it" : "they"} may refer to the old name.`);
     }
     if (r.remainingReferences && (r.remainingReferences.count > 0 || (r.remainingReferences.unjudged ?? 0) > 0)) {
       const n = r.remainingReferences.count;
@@ -30,12 +31,12 @@ export class ModelActions {
       const parts: string[] = [];
       if (n) parts.push(`${n} reference${n === 1 ? "" : "s"} to it remain elsewhere (${r.remainingReferences.locations.slice(0, 3).map(spot).join(", ")}) and will no longer resolve`);
       if (u) parts.push(`${u} other mention${u === 1 ? "" : "s"} could not be checked`);
-      void vscode.window.showWarningMessage(`${what}. ${parts.join("; ")}.`);
+      void showWarning(`${what}. ${parts.join("; ")}.`);
     }
     if (r.unjudged && (r.unjudged.count > 0 || r.unjudged.skippedDocuments.length > 0)) {
       const n = r.unjudged.count;
       const skipped = r.unjudged.skippedDocuments.length;
-      void vscode.window.showWarningMessage(`${what}. ${n ? `${n} reference${n === 1 ? "" : "s"} could not be checked` : ""}${n && skipped ? " and " : ""}${skipped ? `${skipped} file${skipped === 1 ? "" : "s"} with syntax errors ${skipped === 1 ? "was" : "were"} not examined` : ""}; they may need a manual look.`);
+      void showWarning(`${what}. ${n ? `${n} reference${n === 1 ? "" : "s"} could not be checked` : ""}${n && skipped ? " and " : ""}${skipped ? `${skipped} file${skipped === 1 ? "" : "s"} with syntax errors ${skipped === 1 ? "was" : "were"} not examined` : ""}; they may need a manual look.`);
     }
     return r;
   }
@@ -46,7 +47,7 @@ export class ModelActions {
     if (!kind) {
       const allowed = new Set(allowedChildKinds(owner));
       if (!allowed.size) {
-        void vscode.window.showInformationMessage(`A ${owner.kind} cannot have members.`);
+        void showInfo(`A ${owner.kind} cannot have members.`);
         return undefined;
       }
       const pick = await this.ui().pick(ADD_KINDS.filter((k) => allowed.has(k.kind)).map((k) => ({ label: k.label, description: k.kind, declKind: k.kind })), { title: `Add Child to ${owner.name ?? owner.kind}`, placeHolder: "Choose the kind of element" });
@@ -56,7 +57,7 @@ export class ModelActions {
     // The kind is checked here (before asking for a name) and again by the service; a kind from a webview is never trusted.
     const wrong = kindProblem(owner, kind);
     if (wrong) {
-      void vscode.window.showWarningMessage(wrong);
+      void showWarning(wrong);
       return { ok: false, reason: wrong };
     }
     const name =
@@ -69,7 +70,7 @@ export class ModelActions {
     if (name === undefined) return undefined;
     const problem = nameProblem(name, owner, undefined, this.index);
     if (problem) {
-      void vscode.window.showWarningMessage(problem);
+      void showWarning(problem);
       return undefined;
     }
     const spec: AddSpec = { kind, name, ...(opts.type ? { type: opts.type } : {}) };
