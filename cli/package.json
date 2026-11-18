@@ -1,0 +1,23 @@
+{
+  "name": "sysml-editor",
+  "version": "0.3.0",
+  "description": "Command line tool for the SysML Editor: installs the agent skills",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GarrettGruss/sysml-editor.git"
+  },
+  "bin": {
+    "sysml": "dist/sysml.js"
+  },
+  "files": [
+    "dist/sysml.js",
+    "dist/skills",
+    "man/sysml.1",
+    "LICENSE"
+  ],
+  "man": "man/sysml.1",
+  "engines": {
+    "node": ">=22"
+  }
+}

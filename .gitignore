@@ -4,6 +4,7 @@ out
 .vscode-test
 *.vsix
 *.tgz
+cli/dist
 coverage
 *.tsbuildinfo
 .env
