@@ -177,6 +177,8 @@ diagrams), `sysml-ui-testing` (drive and test the UI, record acceptance results)
 repository they are linked from `.claude/skills/`. To use them in another Claude setup, copy the folders
 (`<extension path>/dist/skills/<name>`) into your own skills folder, for example `~/.claude/skills/` or a project's `.claude/skills/`.
 
+The `sysml` CLI does this for you: `sysml skills` installs them into `~/.claude/skills`, `sysml skills -p` into `./.claude/skills`, `-d DIR` into a folder of your choice, `-f` overwrites changed skills and `-n` previews. See `sysml skills -h` or `man sysml`.
+
 ## Channels
 
 - **Language Model Tools**: registered with VS Code, so agents built into VS Code (Copilot agent mode and others) can call the tools directly.

@@ -2,6 +2,34 @@
 
 A VS Code extension for SysML v2 (Node 22+, npm).
 
+## Install
+
+Requires Node 22 or newer and VS Code 1.106 or newer.
+
+```bash
+curl -fsSL https://github.com/GarrettGruss/sysml-editor/releases/latest/download/install.sh | sh
+```
+
+This installs the `sysml` CLI, the VS Code extension (if `code` is on your PATH) and the Claude agent skills. Set `VERSION=0.3.0` to pick a version, `SYSML_NO_EXTENSION=1` to skip the extension, `SYSML_NO_SKILLS=1` to skip the skills.
+
+Manually, from a [release](https://github.com/GarrettGruss/sysml-editor/releases):
+
+```bash
+npm install -g https://github.com/GarrettGruss/sysml-editor/releases/download/v0.3.0/sysml-editor-0.3.0.tgz   # the CLI
+code --install-extension sysml-editor-0.3.0.vsix                                                                # the extension
+```
+
+### CLI
+
+```bash
+sysml skills          # install the agent skills into ~/.claude/skills
+sysml skills -p       # ... or into ./.claude/skills
+sysml skills -pf      # overwrite skills that differ
+sysml -h              # help; also: sysml skills -h, man sysml
+```
+
+## Development
+
 ```bash
 npm install                 # install dependencies
 npm run typecheck           # tsc --noEmit

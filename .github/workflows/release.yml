@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check the tag matches the package versions
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [ "$(node -p "require('./package.json').version")" = "$v" ] || { echo "package.json version does not match $GITHUB_REF_NAME"; exit 1; }
+          [ "$(node -p "require('./cli/package.json').version")" = "$v" ] || { echo "cli/package.json version does not match $GITHUB_REF_NAME"; exit 1; }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run package
+      - run: npm run check:vsix
+      - name: Pack the CLI
+        run: cd cli && npm pack --pack-destination ../release-assets
+      - name: Collect assets and checksums
+        run: |
+          cp ./*.vsix release-assets/
+          cp scripts/install.sh release-assets/
+          cd release-assets
+          sha256sum ./*.tgz ./*.vsix | sed 's# \./# #' > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --title "$GITHUB_REF_NAME" --generate-notes
