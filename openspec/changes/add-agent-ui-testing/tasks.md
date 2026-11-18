@@ -13,8 +13,8 @@
 
 ## 3. Integration tests
 - [x] 3.1 Through MCP and LM, in a trusted workspace: tools refused with the setting off, allowlist refusals, audit log
-- [ ] 3.2 Diagram scenarios: menu list and click, multi-select and align, copy and paste across diagrams, legend screenshot, back and forward
-- [ ] 3.3 Tree, create-diagram naming, undo and dirty, requirements Document and Matrix, reorder
+- [x] 3.2 Diagram scenarios: menu list and click, multi-select and align, copy and paste across diagrams, legend screenshot, back and forward
+- [x] 3.3 Tree, create-diagram naming, undo and dirty, requirements Document and Matrix, reorder
 - [x] 3.4 Check the coverage table in design.md D61 against the tools as built and update it
 
 ## 4. Docs and acceptance

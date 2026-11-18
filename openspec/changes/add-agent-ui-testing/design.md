@@ -80,7 +80,21 @@ Items are the 10 diagramming scenarios of the v0.3.0 results plus the manual tes
 
 30 of 33 is 91%. The three exceptions are named in rows 31 to 33.
 
-**Check against the tools as built (task 3.4).** Every row marked yes has a tool and a call sequence in the tool descriptions (`sysml_ui_diagram` gestures and `menuItem`, `sysml_ui_tree`, `sysml_ui_requirements`, `sysml_ui_screenshot`, `sysml_ui_command`, `sysml_ui_answer`, `sysml_ui_state`). Corrections: row 14 can select and reveal one node only, because the tree API reveals nodes one at a time; `sysml_ui_tree select` with several nodes is refused explicitly, so a multi-node tree selection is not agent-testable (the diagram multi-select of row 8 uses shift-select and is unaffected). Rows 2, 6, 9, 22 and 45 rely on existing tools plus the UI tools. Verified so far by a passing integration test through MCP and LM: row 30 (refusals with the setting off and the allowlist, path and gesture refusals, the audit log; the untrusted-workspace refusal itself is covered by unit tests only). The scenario tests for rows 1, 5, 8, 11 to 16, 20, 21 and 25 to 28 are written in `test/integration/ui-agent.ts` but have not yet been seen to pass: until they do, only row 30 is proven (1 of 33, 3%), and the 91% is the design target, not a measured result. Rows 3, 4, 7, 9, 10, 17 to 19, 22 to 24 and 29 have no test yet.
+**Check against the tools as built (task 3.4).** Every row marked yes is driven by a passing integration test in `test/integration/ui-agent.ts` that calls only the tools, alternating MCP and LM, and reads the verdict from tool output:
+
+| Rows | Test |
+|---|---|
+| 1 | Back and Forward through sysml_ui_command |
+| 4, 5, 8 | Diagrams through the tools (multi-select, Align Left from the menu, copy and paste across diagrams, legend, screenshot) |
+| 2, 3, 7, 9, 10, 29 | Diagram content through the tools (Show/Hide Parts and Ports with the port on the border, Display Related and its "already drawn" message in sysml_ui_state, Show Attributes, Save as Image through the save prompt, apply an aspect) |
+| 6, 13, 19, 22, 23, 24 | Model edits through the tools (palette place and name, drop, sysml_create_relationship onto the diagram, Delete versus Delete from Model on a line, a rename seen in the open diagram, tree rename and delete with confirmation) |
+| 17, 18 | Lines through the tools (select, add a bend, drag a segment, move and reset the label; sysml_read_diagram now reports an edge's `label` layout) |
+| 11, 15 | Tree New File and New Folder (a name in use is refused with the reason and the box stays open) |
+| 12, 14, 15, 16, 20, 21 | Tree through the tools (refresh, collapse all, select one node, New Diagram from the tree with a unique default name, undo, redo, dirty and save) |
+| 25 to 28 | Requirements through the tools (document outline, add inline and edit text, reorder by dragging a section, matrix and CSV export) |
+| 30 | UI control off / on refusals, and turning it off after it was on |
+
+Corrections: row 14 can select and reveal one node only, because the tree API reveals nodes one at a time; `sysml_ui_tree select` with several nodes is refused explicitly (the diagram multi-select of row 8 is unaffected). Row 15: New Diagram asks for the kind only and names the file after the element, never reusing a name; the invalid-name check is on the tree's New File box. The untrusted-workspace refusal of row 30 is covered by unit tests only, since the test window is trusted. Measured: 30 of 33 rows (91%) proven by passing tests; rows 31 to 33 are not agent-testable.
 
 ## Risks / Trade-offs
 

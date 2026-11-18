@@ -11,8 +11,9 @@ const SETTING = "uiControl";
 
 const FLEET = `package UiFleet {
   part def Engine;
+  port def Radar;
   part def Ship;
-  part def Frigate :> Ship { part engine : Engine; }
+  part def Frigate :> Ship { part engine : Engine; port radar : Radar; attribute mass; }
   part def Destroyer :> Frigate;
 }
 `;
@@ -57,15 +58,21 @@ export function uiAgentTests(c: Ctx): Test[] {
     assert.ok(!r.isError && !/^(Refused|The .* failed)/.test(r.text), `${what}: ${r.text.slice(0, 300)}`);
     return r;
   };
+  /** Close every editor without saving (a scenario's unsaved layout must not reach the next one). */
+  const closeEditors = async () => {
+    for (let i = 0; i < 20 && vscode.window.tabGroups.all.some((gr) => gr.tabs.length > 0); i++) {
+      await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor").then(undefined, () => undefined);
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    }
+  };
   const withUi = (fn: () => Promise<void>) => async () => {
     await setUiControl(true);
     try {
       await fn();
     } finally {
       api.diagram.setUi(undefined);
-      await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
-      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
-      // The setting stays on for the rest of the run: switching it off again from on freezes the test window. Each run has its own user-data dir (runTest.ts).
+      await closeEditors();
+      await setUiControl(undefined);
     }
   };
   const waitFor = async (cond: () => boolean | Promise<boolean>, ms: number, what: string) => {
@@ -92,6 +99,7 @@ export function uiAgentTests(c: Ctx): Test[] {
       await fn();
       assert.deepStrictEqual(api.diagram.errors(), [], "no webview errors");
     } finally {
+      await closeEditors();
       for (const f of files) rmSync(abs(f), { force: true });
       rmSync(abs("UiFleet.sysmld"), { force: true });
       rmSync(abs("Frigate.sysmld"), { force: true });
@@ -100,10 +108,24 @@ export function uiAgentTests(c: Ctx): Test[] {
   const g = (path: string, gesture: object, channel?: "mcp" | "lm") => call("sysml_ui_diagram", { path, gesture }, channel).then((r) => ok(r, `gesture ${JSON.stringify(gesture)}`).json as {
     selected: string[]; menu: string[]; nodes: { id: string; x: number; y: number; w: number; h: number }[]; legend?: string[]; clipboard: string; edgeCount: number;
   });
-  const state = async () => ok(await call("sysml_ui_state", {}), "state").json as {
+  /** Messages read so far: sysml_ui_state drains them. */
+  const seen: { level: string; text: string }[] = [];
+  const state = async () => { const r = ok(await call("sysml_ui_state", {}), "state").json; seen.push(...(r.messages ?? [])); return r as {
     enabled: boolean; activeEditor?: { kind: string; path?: string; dirty: boolean }; selection: { path: string; ids: string[] }[]; undo: { path: string; undo?: string; redo?: string }[];
     messages: { level: string; text: string }[]; prompts: { id: number; kind: string; title?: string; items?: string[]; validation?: string }[]; navigation: string[]; clipboard: string;
+  }; };
+  /** Wait for an open prompt of `kind` (as sysml_ui_state lists it). */
+  const promptOf = async (kind: string) => {
+    let p: { id: number; kind: string; items?: string[] } | undefined;
+    await waitFor(async () => !!(p = (await state()).prompts.find((x) => x.kind === kind)), 15000, `a ${kind} prompt (messages: ${JSON.stringify(seen.slice(-5))}, webview errors: ${JSON.stringify(api.diagram.errors())})`);
+    return p!;
   };
+  const read = async (f: string) => ok(await call("sysml_read_diagram", { path: f }), `read ${f}`).json as {
+    unsaved: boolean; nodes: { id: string; h?: number; element?: { name?: string; qualifiedName?: string; kind: string } }[];
+    edges: { id: string; element?: { kind: string }; points?: { x: number; y: number }[]; label?: { dx?: number; dy?: number; w?: number } }[];
+  };
+  const element = async (qn: string) => call("sysml_get_element", { qualifiedName: qn });
+  const exists = async (qn: string) => { const r = await element(qn); return !r.isError && !/not found|No element/i.test(r.text); };
 
   const UI_TOOLS: [string, object][] = [
     ["sysml_ui_command", { command: "undo" }],
@@ -220,13 +242,14 @@ export function uiAgentTests(c: Ctx): Test[] {
       await waitFor(async () => (await state()).activeEditor?.path === rel("tmp-ui-b.sysmld"), 10000, "forward shows b");
     })],
 
-    ["Tree through the tools: list, select one node (several are refused), collapse all, refresh, create a diagram with naming prompts, then undo, dirty and save", withFleet({
+    ["Tree through the tools: list, select one node (several are refused), collapse all, refresh, create a diagram with its default name, then undo, dirty and save", withFleet({
       "tmp-ui-a.sysmld": { kind: "general", root: "UiFleet", nodes: nodes3 },
     }, async () => {
       const list = async (parent?: string, depth = 4) => ok(await call("sysml_ui_tree", { op: "list", ...(parent ? { parent } : {}), depth, limit: 500 }), "list").json.nodes as { id: string; label: string; contextValue: string; selected: boolean; depth: number }[];
       const roots = await list(undefined, 1);
       assert.ok(roots.length > 0, "the tree has roots");
-      let all = await list();
+      let all: Awaited<ReturnType<typeof list>> = [];
+      await waitFor(async () => (all = await list()).some((n) => n.label === "Frigate" || n.label.startsWith("Frigate ")), 30000, "the new file's elements reach the tree");
       const find = (label: string) => all.find((n) => n.label === label || n.label.startsWith(label + " "));
       const frigate = find("Frigate");
       assert.ok(frigate, `Frigate is listed: ${all.map((n) => n.label).join(", ")}`);
@@ -244,22 +267,23 @@ export function uiAgentTests(c: Ctx): Test[] {
       ok(await call("sysml_ui_tree", { op: "collapseAll" }), "collapse all");
       all = await list(undefined, 1);
       assert.ok(all.every((n) => n.depth === 1));
-      // create a diagram from a tree node: a pick, then a name; an invalid name keeps the box open
-      all = await list();
-      const node = all.find((n) => n.label === "Frigate" || n.label.startsWith("Frigate "))!;
-      let r = ok(await call("sysml_ui_tree", { op: "command", command: "sysml.newDiagram", node: node.id }), "new diagram");
-      let prompts = r.json.prompts as { id: number; kind: string; items?: string[]; validation?: string }[];
-      assert.strictEqual(prompts[0]?.kind, "pick", "the kind is asked first");
-      assert.ok(prompts[0]!.items!.includes("General View"));
-      ok(await call("sysml_ui_answer", { pick: "General View" }), "answer kind");
-      await waitFor(async () => (await state()).prompts.some((p) => p.kind === "input"), 10000, "the name is asked");
-      const bad = ok(await call("sysml_ui_answer", { text: "bad/name" }), "invalid name answer");
-      assert.match(bad.text, /name|character|invalid/i, `a validation message comes back: ${bad.text.slice(0, 200)}`);
-      assert.ok((await state()).prompts.some((p) => p.kind === "input"), "the box stays open");
-      ok(await call("sysml_ui_answer", { text: "FrigateView" }), "valid name");
-      await waitFor(async () => (await state()).activeEditor?.path === rel("FrigateView.sysmld"), 20000, "the new diagram opens");
-      rmSync(abs("FrigateView.sysmld"), { force: true });
-      await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+      // create a diagram from a tree node: the kind is picked, the file is named after the element and never takes a name in use
+      const created: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        all = await list();
+        const node = all.find((n) => n.label === "Frigate" || n.label.startsWith("Frigate "))!;
+        const r = ok(await call("sysml_ui_tree", { op: "command", command: "sysml.newDiagram", node: node.id }), "new diagram");
+        const prompts = r.json.prompts as { id: number; kind: string; items?: string[] }[];
+        assert.strictEqual(prompts[0]?.kind, "pick", "the kind is asked first");
+        assert.ok(prompts[0]!.items!.includes("General View"));
+        ok(await call("sysml_ui_answer", { prompt: prompts[0]!.id, pick: "General View" }), "answer kind");
+        let path = "";
+        await waitFor(async () => { const e = (await state()).activeEditor; path = e?.path ?? ""; return e?.kind === "diagram" && /Frigate.*\.sysmld$/.test(path) && !created.includes(path); }, 20000, "the new diagram opens");
+        created.push(path);
+      }
+      assert.ok(created[0] !== created[1], `a second diagram gets its own name: ${created.join(", ")}`);
+      await closeEditors();
+      for (const f of created) rmSync(abs(f), { force: true });
       // undo, dirty and save on a moved node
       const a = "tmp-ui-a.sysmld";
       const before = (await g(a, { kind: "flush" })).nodes.find((n) => n.id === "n1")!;
@@ -301,6 +325,15 @@ export function uiAgentTests(c: Ctx): Test[] {
         await req({ package: "UiReqD", action: "dragToc", fromQn: "UiReqD::One", ontoQn: "UiReqD::Two", position: "after" });
         await waitFor(() => text().indexOf("package Two") < text().indexOf("package One"), 90000, "One now follows Two in the text");
         await waitFor(async () => (await req({ package: "UiReqD", action: "observe" })).outline.map((x) => x.heading).join() === "Two,One,Three", 30000, "the outline follows");
+        // add a requirement inline, then edit its text in place
+        await req({ package: "UiReqD", action: "click", selector: "[data-testid=add-root-requirement]" });
+        await req({ package: "UiReqD", action: "input", selector: "[data-testid=new-id]", value: "UR9", event: "input" });
+        await req({ package: "UiReqD", action: "input", selector: "[data-testid=new-name]", value: "Added", event: "input" });
+        await req({ package: "UiReqD", action: "key", selector: "[data-testid=new-name]", key: "Enter" });
+        await waitFor(() => text().includes("<'UR9'> Added"), 90000, "the new requirement is written");
+        await waitFor(async () => (await req({ package: "UiReqD", action: "observe" })).items.some((i) => i.id === "UR9"), 30000, "the document lists it");
+        await req({ package: "UiReqD", action: "input", selector: '[data-key="UiReqD::Two::r|text"]', value: "Edited by the agent." });
+        await waitFor(() => text().includes("Edited by the agent."), 90000, "the text is rewritten");
         // matrix
         await req({ package: "UiReqM", action: "open", view: "matrix" });
         await waitFor(async () => (await req({ package: "UiReqM", action: "observe" })).matrixRows.length > 0, 60000, "matrix rows");
@@ -317,6 +350,187 @@ export function uiAgentTests(c: Ctx): Test[] {
       } finally {
         for (const f of files) rmSync(abs(f), { force: true });
       }
+    })],
+    ["Diagram content through the tools: Show/Hide Parts and Ports, Display Related with its message, hide a compartment, Save as Image and apply an aspect, answered with sysml_ui_answer", withFleet({
+      "tmp-ui-ic.sysmld": { kind: "interconnection", root: "UiFleet::Frigate", nodes: [{ id: "n1", ref: "UiFleet::Frigate", x: 40, y: 40, w: 300, h: 220 }] },
+      "tmp-ui-rel.sysmld": { kind: "general", root: "UiFleet", nodes: [{ id: "n1", ref: "UiFleet::Frigate", x: 200, y: 200, w: 200, h: 120 }] },
+      "tmp-ui-comp.sysmld": { kind: "general", root: "UiFleet", nodes: [{ id: "n1", ref: "UiFleet::Frigate", x: 40, y: 40, w: 300, h: 260 }] },
+      "tmp-ui-asp.sysmld": { kind: "general", root: "UiFleet", style: { aspects: { Hulls: ["n1", "n2"] } }, nodes: [
+        { id: "n1", ref: "UiFleet::Ship", x: 40, y: 40, w: 160, h: 60 }, { id: "n2", ref: "UiFleet::Frigate", x: 40, y: 200, w: 160, h: 60 }, { id: "n3", ref: "UiFleet::Engine", x: 400, y: 40, w: 160, h: 60 },
+      ] },
+    }, async () => {
+      // DGM-007: ports on the shape
+      const ic = "tmp-ui-ic.sysmld";
+      let o = await g(ic, { kind: "contextmenu", id: "n1" });
+      assert.ok(o.menu.includes("Show/Hide Parts and Ports…"), `menu: ${o.menu.join(", ")}`);
+      await g(ic, { kind: "menuItem", label: "Show/Hide Parts and Ports…" });
+      const mp = await promptOf("multiPick");
+      assert.ok(mp.items!.includes("radar") && mp.items!.includes("engine"), `offered: ${mp.items}`);
+      ok(await call("sysml_ui_answer", { prompt: mp.id, picks: ["engine", "radar"] }), "pick members");
+      await waitFor(async () => (await read(ic)).nodes.some((n) => n.element?.qualifiedName === "UiFleet::Frigate::radar"), 10000, "the port is drawn");
+      const radar = (await read(ic)).nodes.find((n) => n.element?.qualifiedName === "UiFleet::Frigate::radar")!;
+      const box = (await g(ic, { kind: "flush" })).nodes;
+      const frame = box.find((n) => n.id === "n1")!, port = box.find((n) => n.id === radar.id)!;
+      const cx = port.x + port.w / 2, cy = port.y + port.h / 2;
+      const onBorder = [Math.abs(cx - frame.x), Math.abs(cx - frame.x - frame.w), Math.abs(cy - frame.y), Math.abs(cy - frame.y - frame.h)].some((d) => d <= 2);
+      assert.ok(onBorder, `the port sits on the border: ${JSON.stringify({ frame, port })}`);
+      assert.strictEqual((await call("sysml_ui_screenshot", { path: ic })).images.length, 1);
+      // DGM-009: display related, then the message that everything is drawn
+      const rel = "tmp-ui-rel.sysmld";
+      await g(rel, { kind: "contextmenu", id: "n1" });
+      await g(rel, { kind: "menuItem", label: "Display Related Elements…" });
+      let p = await promptOf("multiPick");
+      assert.ok(p.items!.includes("Specialization"), `kinds: ${p.items}`);
+      ok(await call("sysml_ui_answer", { prompt: p.id, picks: ["Specialization"] }), "pick Specialization");
+      await waitFor(async () => (await g(rel, { kind: "flush" })).nodes.length === 3, 10000, "Ship and Destroyer are added");
+      // Ask again, taking every kind offered, until the editor says everything related is drawn.
+      for (let i = 0; i < 4 && !seen.some((m) => /already drawn/.test(m.text)); i++) {
+        await g(rel, { kind: "contextmenu", id: "n1" });
+        await g(rel, { kind: "menuItem", label: "Display Related Elements\u2026" });
+        let open: { id: number; items?: string[] } | undefined;
+        await waitFor(async () => { open = (await state()).prompts.find((x) => x.kind === "multiPick"); return !!open || seen.some((m) => /already drawn/.test(m.text)); }, 15000, `a prompt or the message (messages: ${JSON.stringify(seen.slice(-5))})`);
+        if (open) ok(await call("sysml_ui_answer", { prompt: open.id, picks: open.items }), "pick every kind");
+      }
+      assert.ok(seen.some((m) => m.level === "information" && /already drawn/.test(m.text)), `sysml_ui_state reports the message: ${JSON.stringify(seen)}`);
+      // DGM-034: hide the attributes compartment
+      const comp = "tmp-ui-comp.sysmld";
+      const h0 = (await g(comp, { kind: "flush" })).nodes.find((n) => n.id === "n1")!.h;
+      o = await g(comp, { kind: "contextmenu", id: "n1" });
+      assert.ok(o.menu.includes("Show Attributes"), `menu: ${o.menu.join(", ")}`);
+      await g(comp, { kind: "menuItem", label: "Show Attributes" });
+      await waitFor(async () => (await g(comp, { kind: "flush" })).nodes.find((n) => n.id === "n1")!.h < h0, 10000, "the node shrinks");
+      // DGM-045: Save as Image through the save prompt
+      const img = "tmp-ui-img.svg";
+      try {
+        const r = ok(await call("sysml_ui_command", { command: "sysml.diagram.saveImage" }), "save image");
+        const save = (r.json.prompts as { id: number; kind: string }[]).find((x) => x.kind === "save") ?? await promptOf("save");
+        ok(await call("sysml_ui_answer", { prompt: save.id, path: img }), "answer save");
+        await waitFor(() => existsSync(abs(img)), 10000, "the image is written");
+        assert.match(readFileSync(abs(img), "utf8"), /^<svg[\s>]/);
+      } finally {
+        rmSync(abs(img), { force: true });
+      }
+      // DGM-047: apply an aspect
+      const asp = "tmp-ui-asp.sysmld";
+      await g(asp, { kind: "flush" });
+      ok(await call("sysml_ui_command", { command: "sysml.diagram.applyAspect" }), "apply aspect");
+      p = await promptOf("pick");
+      ok(await call("sysml_ui_answer", { prompt: p.id, pick: "Hulls" }), "pick Hulls");
+      await waitFor(async () => (await g(asp, { kind: "flush" })).nodes.map((n) => n.id).sort().join() === "n1,n2", 10000, "only the aspect's nodes are drawn");
+    })],
+
+    ["Model edits through the tools: palette place and name, drop from the tree, draw a relationship, delete a line from the diagram versus from the model, text and diagram sync, tree rename and delete with confirmation", withFleet({
+      "tmp-ui-ed.sysmld": { kind: "general", root: "UiFleet", nodes: [{ id: "n1", ref: "UiFleet::Ship", x: 40, y: 40, w: 160, h: 60 }, { id: "n2", ref: "UiFleet::Frigate", x: 40, y: 260, w: 240, h: 140 }] },
+    }, async () => {
+      const f = "tmp-ui-ed.sysmld";
+      const text = () => readFileSync(abs("tmp-uifleet.sysml"), "utf8");
+      // palette: place a part in Frigate and name it in the inline input
+      await g(f, { kind: "flush" });
+      await g(f, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, name: "wheel" });
+      await waitFor(() => exists("UiFleet::Frigate::wheel"), 30000, "the part is in the model");
+      // drop from the tree
+      await g(f, { kind: "drop", names: ["UiFleet::Engine"] });
+      await waitFor(async () => (await read(f)).nodes.some((n) => n.element?.qualifiedName === "UiFleet::Engine"), 10000, "Engine dropped");
+      // draw a relationship with the relationship tool, onto the open diagram
+      ok(await call("sysml_create_relationship", { kind: "dependency", source: "UiFleet::Engine", target: "UiFleet::Ship", diagram: f }), "dependency");
+      let dep: { id: string } | undefined;
+      await waitFor(async () => !!(dep = (await read(f)).edges.find((e) => e.element?.kind === "dependency")), 15000, "the dependency line is drawn");
+      assert.match(text(), /dependency from Engine to Ship;/);
+      // Delete removes the line from the diagram only
+      await g(f, { kind: "selectEdge", id: dep!.id });
+      await g(f, { kind: "key", key: "Delete" });
+      await waitFor(async () => !(await read(f)).edges.some((e) => e.id === dep!.id), 10000, "the line leaves the diagram");
+      assert.match(text(), /dependency from Engine to Ship;/, "the model keeps it");
+      ok(await call("sysml_ui_command", { command: "undo" }), "undo");
+      await waitFor(async () => (await read(f)).edges.some((e) => e.id === dep!.id), 10000, "undo brings the line back");
+      // Delete from Model removes the statement
+      await g(f, { kind: "menu", id: dep!.id, action: "deleteModel" });
+      const c0 = (await state()).prompts.find((x) => x.kind === "confirm");
+      if (c0) ok(await call("sysml_ui_answer", { prompt: c0.id, confirm: true }), "confirm");
+      await waitFor(() => !/dependency from/.test(text()), 15000, "the statement leaves the model");
+      // text and diagram sync: a rename in the model shows in the open diagram
+      ok(await call("sysml_rename_element", { element: "UiFleet::Ship", newName: "Hull" }), "rename");
+      await waitFor(async () => (await read(f)).nodes.some((n) => n.element?.qualifiedName === "UiFleet::Hull"), 15000, "the diagram shows the new name");
+      // tree: rename and delete the new part, answering the prompts
+      const list = async (parent?: string) => ok(await call("sysml_ui_tree", { op: "list", depth: 4, limit: 500, ...(parent ? { parent } : {}) }), "list").json.nodes as { id: string; label: string }[];
+      const named = (label: string) => (x: { label: string }) => x.label === label || x.label.startsWith(label + " ");
+      const node = async (label: string) => {
+        let n: { id: string } | undefined;
+        await waitFor(async () => { const fr = (await list()).find(named("Frigate")); n = fr ? (await list(fr.id)).find(named(label)) : undefined; return !!n; }, 15000, `${label} in the tree`);
+        return n!;
+      };
+      ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.rename", node: (await node("wheel")).id }), "tree rename");
+      const inp = await promptOf("input");
+      ok(await call("sysml_ui_answer", { prompt: inp.id, text: "rotor" }), "new name");
+      await waitFor(() => exists("UiFleet::Frigate::rotor"), 15000, "renamed");
+      ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.delete", node: (await node("rotor")).id }), "tree delete");
+      const conf = await promptOf("confirm");
+      ok(await call("sysml_ui_answer", { prompt: conf.id, confirm: true }), "confirm delete");
+      await waitFor(async () => !(await exists("UiFleet::Frigate::rotor")), 15000, "deleted from the model");
+    })],
+
+    ["Lines through the tools: select a line, add a bend, drag a segment (reroute), move and reset its label, all as unsaved layout", withFleet({}, async () => {
+      const f = "tmp-ui-lamp.sysmld";
+      writeFileSync(abs(f), readFileSync(abs("lamp-state-transition.sysmld"), "utf8"));
+      try {
+        await g(f, { kind: "flush" });
+        const edge = async () => (await read(f)).edges.find((e) => e.id === "e2")!;
+        let o = await g(f, { kind: "selectEdge", id: "e2" });
+        assert.deepStrictEqual(o.selected, ["e2"], "the line is selected");
+        const n0 = (await edge()).points?.length ?? 0;
+        await g(f, { kind: "dblclickEdge", id: "e2" });
+        await waitFor(async () => ((await edge()).points?.length ?? 0) > Math.max(n0, 3), 10000, "a bend was added");
+        const before = JSON.stringify((await edge()).points);
+        await g(f, { kind: "dragSegment", id: "e2", index: 1, d: 24 });
+        await waitFor(async () => JSON.stringify((await edge()).points) !== before, 10000, "the route moved");
+        await g(f, { kind: "labelDrag", id: "e2", dx: 30, dy: 20 });
+        await waitFor(async () => (await edge()).label !== undefined, 10000, "the label offset is stored");
+        await g(f, { kind: "labelMenu", id: "e2", action: "reset" });
+        await waitFor(async () => { const l = (await edge()).label; return l === undefined || (!l.dx && !l.dy && l.w === undefined); }, 10000, "the label is reset");
+        const r = await read(f);
+        assert.strictEqual(r.unsaved, true, "layout only, unsaved");
+        assert.strictEqual((await state()).activeEditor?.dirty, true);
+      } finally {
+        await closeEditors();
+        rmSync(abs(f), { force: true });
+      }
+    })],
+
+    ["Tree New File and New Folder through sysml_ui_tree and sysml_ui_answer; a name in use is refused and the box stays open", withUi(async () => {
+      const file = "tmp-ui-newfile.sysml", dir = "tmp-ui-newdir";
+      try {
+        ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.newFile" }), "new file");
+        let p = await promptOf("input");
+        const bad = await call("sysml_ui_answer", { prompt: p.id, text: "vehicle.sysml" });
+        assert.match(bad.text, /already exists/, `a name in use is refused with the reason: ${bad.text.slice(0, 200)}`);
+        assert.ok((await state()).prompts.some((x) => x.id === p.id), "the box stays open");
+        ok(await call("sysml_ui_answer", { prompt: p.id, text: file }), "file name");
+        await waitFor(() => existsSync(abs(file)), 15000, "the file is created");
+        ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.newFolder" }), "new folder");
+        p = await promptOf("input");
+        ok(await call("sysml_ui_answer", { prompt: p.id, text: dir }), "folder name");
+        await waitFor(() => existsSync(abs(dir)), 15000, "the folder is created");
+      } finally {
+        await closeEditors();
+        rmSync(abs(file), { force: true });
+        rmSync(abs(dir), { recursive: true, force: true });
+      }
+    })],
+
+    ["Turning UI control off after it was on refuses the tools at once, cancels an open prompt, and leaves the window responsive; on again works", withFleet({
+      "tmp-ui-asp.sysmld": { kind: "general", root: "UiFleet", style: { aspects: { Hulls: ["n1"] } }, nodes: [{ id: "n1", ref: "UiFleet::Ship", x: 40, y: 40, w: 160, h: 60 }] },
+    }, async () => {
+      await g("tmp-ui-asp.sysmld", { kind: "flush" });
+      ok(await call("sysml_ui_command", { command: "sysml.diagram.applyAspect" }), "apply aspect");
+      await promptOf("pick");
+      await setUiControl(false);
+      for (const ch of ["mcp", "lm"] as const) assert.match((await call("sysml_ui_tree", { op: "list" }, ch)).text, /sysml\.agent\.uiControl/, `refused via ${ch}`);
+      const s = await call("sysml_ui_state", {}, "mcp");
+      assert.strictEqual(s.json.enabled, false);
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+      await setUiControl(true);
+      assert.deepStrictEqual((await state()).prompts, [], "the prompt was cancelled");
+      ok(await call("sysml_ui_tree", { op: "list" }), "on again");
     })],
   ];
 }

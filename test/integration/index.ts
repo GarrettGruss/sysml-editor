@@ -659,7 +659,7 @@ export async function run(): Promise<void> {
     ...requirementsAuthoringTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...foldersTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
-    // Last: it turns the user setting `sysml.agent.uiControl` on and leaves it on.
+    // Last: it turns the user setting `sysml.agent.uiControl` on for each scenario and off again afterwards.
     ...uiAgentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 

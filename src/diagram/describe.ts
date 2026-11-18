@@ -1,6 +1,6 @@
 /** A bounded plain-JSON description of a diagram for agents. No `vscode` import. */
 import { analyze, interactionOf, isSynthetic, type Element, type ModelIndex } from "../model/index.js";
-import type { DiagramDocument, ElementLocator, Point } from "./format.js";
+import type { DiagramDocument, ElementLocator, LabelLayout, Point } from "./format.js";
 import { referenceFor, resolveDiagram, statementFingerprint, type Resolution, type ResolveOptions } from "./resolve.js";
 
 export const MAX_DESCRIBED_NODES = 500;
@@ -53,7 +53,7 @@ export interface DiagramDescription {
   root: string;
   sources: string[];
   nodes: (DescribedItem & { parent?: string; x?: number; y?: number; w?: number; h?: number; collapsed?: boolean })[];
-  edges: (DescribedItem & { source: string; target: string; points?: Point[]; behavior?: DescribedBehavior })[];
+  edges: (DescribedItem & { source: string; target: string; points?: Point[]; label?: LabelLayout; behavior?: DescribedBehavior })[];
   /** Sequence views: the messages in time order, with the lifelines they run between. Vertical positions are computed, never stored. */
   messages?: { id?: string; name?: string; itemType?: string; from: string; to: string; order: number; unordered: boolean }[];
   unresolved: { id: string; ref?: string; locator?: ElementLocator }[];
@@ -111,6 +111,7 @@ export function describeDiagram(doc: DiagramDocument, index: ModelIndex, opts: R
   const edges = doc.edges.slice(0, MAX_DESCRIBED_EDGES).map((e) => {
     const out: DiagramDescription["edges"][number] = { ...describe(e.id), source: e.source, target: e.target };
     if (e.points?.length) out.points = e.points;
+    if (e.label) out.label = e.label;
     const el = res.get(e.id);
     const b = el ? behaviorOf(index, el) : undefined;
     if (b) out.behavior = b;

@@ -284,7 +284,9 @@ export class RequirementsEditor implements vscode.Disposable {
   }
 
   readonly testApi: RequirementsTestApi = {
-    open: async (scope, view = "document") => {
+    open: async (scope, wanted) => {
+      // Without a view, an open editor keeps the view it shows; a new one shows the document.
+      const view = wanted ?? this.panels.get(scopeKey(scope))?.view ?? "document";
       // A new webview can be slow to come up (or, the first time in a session, not at all while its group is not visible): ask again with a fresh panel.
       for (let attempt = 0; attempt < 4; attempt++) {
         await this.open(scope, view);
