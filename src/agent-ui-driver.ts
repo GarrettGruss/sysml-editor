@@ -49,6 +49,7 @@ function toEditorArgs(v: unknown): unknown {
 export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   private readonly channel = vscode.window.createOutputChannel(AGENT_UI_CHANNEL);
   private readonly recent: string[] = [];
+  private auditTotal = 0;
   private readonly messages = new MessageLog();
   private readonly broker: PromptBroker;
   private readonly subs: vscode.Disposable[] = [];
@@ -111,12 +112,23 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     const stamped = `${new Date().toISOString()} ${line}`;
     this.channel.appendLine(stamped);
     this.recent.push(stamped);
+    this.auditTotal++;
     if (this.recent.length > 200) this.recent.shift();
   }
 
   /** TEST ONLY: the last audit lines written to the channel, which a test cannot read back. */
   auditLines(): string[] {
     return [...this.recent];
+  }
+
+  /** TEST ONLY: how many audit lines were ever written (the buffer above is capped, so its length is not a stable mark). */
+  auditCount(): number {
+    return this.auditTotal;
+  }
+
+  /** TEST ONLY: the audit lines written after `mark` (a value of auditCount()), as far as the buffer still holds them. */
+  auditSince(mark: number): string[] {
+    return this.recent.slice(Math.max(0, this.recent.length - (this.auditTotal - mark)));
   }
 
   /** Called by the other UI tools (gestures, menus) so questions they cause are routed to the agent. */
