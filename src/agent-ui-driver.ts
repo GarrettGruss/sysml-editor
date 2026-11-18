@@ -414,8 +414,16 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       if (!n) return { ok: false, reason: `Unknown node "${id.slice(0, 80)}": list the tree first.` };
       nodes.push(n);
     }
+    await this.showTree();
     for (const n of nodes) await this.deps.tree.provider.revealNode(this.deps.tree.view, n, (m) => this.deps.log(m));
     return { ok: true };
+  }
+
+  /** A hidden view ignores reveal and selection, so open its container first, as a user would. */
+  private async showTree(): Promise<void> {
+    if (this.deps.tree.view.visible) return;
+    await vscode.commands.executeCommand("workbench.view.extension.sysml");
+    for (let i = 0; i < 50 && !this.deps.tree.view.visible; i++) await new Promise((r) => setTimeout(r, 40));
   }
 
   async treeCollapseAll(): Promise<void> {
@@ -432,6 +440,7 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     if (nodeId === undefined) return this.execute(command, []);
     const node = this.treeNodes.get(nodeId);
     if (!node) return { ok: false, reason: "Unknown node: list the tree first.", prompts: this.prompts() };
+    await this.showTree();
     await this.deps.tree.provider.revealNode(this.deps.tree.view, node, (m) => this.deps.log(m));
     return this.execute(command, [node]);
   }
