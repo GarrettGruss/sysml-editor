@@ -670,10 +670,10 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   lastExplicitReveal = 0;
 
   /** TEMP #77 diagnostics: reveals, selection changes and refreshes, with times. */
-  readonly trace: string[] = [];
+  readonly revealTrace: string[] = [];
   note(m: string): void {
-    this.trace.push(`${Date.now() % 100000} ${m}`);
-    if (this.trace.length > 300) this.trace.shift();
+    this.revealTrace.push(`${Date.now() % 100000} ${m}`);
+    if (this.revealTrace.length > 300) this.revealTrace.shift();
   }
 
   async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void, follow = false): Promise<void> {

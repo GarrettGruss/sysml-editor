@@ -172,7 +172,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     },
     setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
-  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi, ui: uiDriver, treeTrace: provider.trace };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi, ui: uiDriver, treeTrace: provider.revealTrace };
 }
 
 export function deactivate(): void {}
