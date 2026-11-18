@@ -412,8 +412,10 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       if (!start) throw new Error("Unknown parent node: list from the roots first and use an id from the result.");
     }
     const out: TreeNodeInfo[] = [];
+    // Not getChildren: that records the objects as handed to VS Code, and targeted refreshes would then name
+    // objects the view never saw and be ignored, leaving the view stale so reveal finds nothing to select (#77).
     const walk = async (n: ModelNode | undefined, level: number): Promise<void> => {
-      for (const c of await Promise.resolve(p.getChildren(n))) {
+      for (const c of await Promise.resolve(p.children(n, false))) {
         if (out.length >= limit) return;
         if (this.treeNodes.size > 5000) this.treeNodes.clear();
         this.treeNodes.set(c.id, c);
