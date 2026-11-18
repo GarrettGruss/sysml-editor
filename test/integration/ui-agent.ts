@@ -681,5 +681,89 @@ export function uiAgentTests(c: Ctx): Test[] {
       assert.deepStrictEqual((await state()).prompts, [], "the prompt was cancelled");
       ok(await call("sysml_ui_tree", { op: "list" }), "on again");
     })],
+
+    // Acceptance run (task 6.2 of add-agent-tutor): only when SYSML_TUTOR_SHOTS names the folder for the screenshots and the step log.
+    ["Tutor acceptance: an agent tutors creating a diagram and placing an element, verifying each highlight by screenshot", async () => {
+      const outDir = process.env.SYSML_TUTOR_SHOTS;
+      if (!outDir) return;
+      mkdirSync(outDir, { recursive: true });
+      const log: string[] = [];
+      const step = (s: string) => { log.push(s); console.log(`tutor-step: ${s}`); writeFileSync(path.join(outDir, "steps.log"), log.join("\n") + "\n"); };
+      const model = "tmp-tutor.sysml";
+      writeFileSync(abs(model), "package TutorDemo {\n  part def Vehicle;\n}\n");
+      await setTutor(true);
+      try {
+        await vscode.workspace.openTextDocument(uriOf(model));
+        await waitFor(() => api.model.index.findByQualifiedName("TutorDemo::Vehicle").length > 0, 60000, "indexed");
+        const wait = (s: number) => call("sysml_ui_wait_for_user", { timeoutSeconds: s }, "mcp").then((r) => ok(r, "wait").json as { event: { kind: string; id?: string } | null; timedOut?: boolean });
+        const nextUser = async (s: number) => { const end = Date.now() + s * 1000; for (;;) { const r = await wait(Math.max(1, Math.ceil((end - Date.now()) / 1000))); if (r.event === null || r.event.kind !== "editor" || Date.now() > end) return r; } };
+        for (let i = 0; i < 10 && (await wait(1)).event !== null; i++) { /* drain */ }
+        const shot = async (name: string, p: string) => {
+          const r = ok(await call("sysml_ui_screenshot", { path: p }, "mcp"), "screenshot");
+          assert.ok(r.images.length === 1 && isPng(r.images[0]!.data), "a PNG");
+          writeFileSync(path.join(outDir, name), r.images[0]!.data);
+        };
+        // 1. point at the Model view (VS Code chrome: described in words, cannot be drawn on or screenshotted)
+        const h1 = ok(await call("sysml_ui_highlight", { chrome: "modelTree", text: "This is the Model view." }, "mcp"), "chrome highlight").json;
+        assert.strictEqual(h1.highlighted, false);
+        step(`1 highlight chrome modelTree: ok, description "${h1.description}"`);
+        // 2. the user creates a diagram (simulated through the test API, not the agent tools)
+        api.diagram.setUi({ pick: async (items: any[]) => items.find((i) => i.label === "General View") ?? items.find((i) => i.description === "TutorDemo") ?? items[0], input: async (o) => o.value });
+        let pending = nextUser(30);
+        await sleep(2000); // the user needs more than the agent-action grace window (1.5 s)
+        let created: vscode.Uri | undefined;
+        void Promise.resolve(vscode.commands.executeCommand("sysml.newDiagram")).then((u) => { created = u as vscode.Uri; }, () => undefined);
+        const r1 = await pending; const e1 = r1.event;
+        step(`2 wait_for_user after the user ran New Diagram: ${JSON.stringify(e1)}`);
+        assert.ok(e1 && e1.kind === "command" && e1.id === "sysml.newDiagram", `the command is reported: ${JSON.stringify(e1)}`);
+        const state = async () => (await call("sysml_ui_state", {}, "mcp")).json as { activeEditor?: { kind: string; path: string } };
+        await waitFor(async () => created !== undefined && (await state()).activeEditor?.kind === "diagram", 30000, "the diagram opens");
+        const dpath = (await state()).activeEditor!.path;
+        step(`  diagram opened: ${dpath}`);
+        // 3. highlight the canvas and verify it by metrics and screenshot
+        const duri = uriOf(dpath);
+        const shown = async () => (await api.diagram.metrics(duri)).highlight;
+        ok(await call("sysml_ui_highlight", { path: dpath, selector: "svg", text: "Place an element: pick an item from the palette, then click here." }, "mcp"), "highlight canvas");
+        await waitFor(async () => (await shown())?.startsWith("Place an element") === true, 10000, "the callout is drawn");
+        await shot("1-canvas-highlight.png", dpath);
+        step("3 highlight canvas: callout drawn (metrics), screenshot 1-canvas-highlight.png");
+        // 4. the user places an element (the palette gesture) and then clicks it; only the click is a reportable event
+        await sleep(2000); // the user needs more than the agent-action grace window (1.5 s)
+        await api.diagram.gesture(duri, { kind: "key", key: "Escape" });
+        await waitFor(async () => (await shown()) === undefined, 10000, "Esc dismisses the callout");
+        step("  the user dismissed the callout with Esc");
+        pending = nextUser(8);
+        await api.diagram.gesture(duri, { kind: "palette", item: "part", x: 40, y: 150, name: "car" });
+        const placedEvent = (await pending).event;
+        step(`4a wait_for_user after the user placed a part by the palette: ${JSON.stringify(placedEvent)} (no event: placement alone is not reported, only selections are)`);
+        await waitFor(() => api.model.index.findByQualifiedName("TutorDemo::car").length > 0, 30000, "the part is in the model");
+        const nodes = (await api.diagram.metrics(duri)).nodes as { id: string }[];
+        step(`  model has TutorDemo::car; diagram nodes: ${JSON.stringify(nodes).slice(0, 600)}`);
+        const nid = nodes[nodes.length - 1]!.id;
+        await api.diagram.gesture(duri, { kind: "select", id: "n2" }); // the new node is already selected after placing, so a click on it alone sends no change
+        await sleep(2000);
+        for (let i = 0; i < 5 && (await wait(1)).event !== null; i++) { /* drain */ }
+        pending = nextUser(20);
+        await sleep(300);
+        await api.diagram.gesture(duri, { kind: "select", id: nid });
+        const e2 = (await pending).event;
+        step(`4b wait_for_user after the user clicked the new node: ${JSON.stringify(e2)}`);
+        assert.deepStrictEqual(e2, { kind: "selection", id: nid });
+        // 5. confirm: highlight the new node
+        ok(await call("sysml_ui_highlight", { path: dpath, node: nid, text: "Well done: this is your new part." }, "mcp"), "highlight node");
+        await waitFor(async () => (await shown()) === "Well done: this is your new part.", 10000, "node callout drawn");
+        await shot("2-new-node-highlight.png", dpath);
+        step(`5 highlight node ${nid}: callout drawn, screenshot 2-new-node-highlight.png`);
+        await api.diagram.gesture(duri, { kind: "key", key: "Escape" });
+        await waitFor(async () => (await shown()) === undefined, 10000, "Esc clears it");
+        step("6 user pressed Esc: highlight cleared");
+        rmSync(abs(path.basename(dpath)), { force: true });
+      } finally {
+        api.diagram.setUi(undefined);
+        await closeEditors();
+        rmSync(abs(model), { force: true });
+        await setTutor(undefined);
+      }
+    }],
   ];
 }
