@@ -1,5 +1,6 @@
 /** Commands of the requirements editor and the document annotations library. */
 import * as vscode from "vscode";
+import { registerCommand } from "../command-events.js";
 import { createFileExclusive } from "../diagram/write-file.js";
 import { isLibraryUri } from "../model/index.js";
 import { resolveNode, type ModelNode } from "../tree/tree-model.js";
@@ -42,11 +43,11 @@ export function registerRequirementsCommands(deps: { model: WorkspaceModel; edit
     return pickPackage();
   };
   return [
-    vscode.commands.registerCommand("sysml.openRequirementsEditor", async (arg?: unknown) => {
+    registerCommand("sysml.openRequirementsEditor", async (arg?: unknown) => {
       const scope = await scopeFrom(arg);
       if (scope) await deps.editor.open(scope);
     }),
-    vscode.commands.registerCommand("sysml.copyDocumentAnnotations", async () => {
+    registerCommand("sysml.copyDocumentAnnotations", async () => {
       const folders = vscode.workspace.workspaceFolders ?? [];
       if (folders.length === 0) {
         void showInfo("Open a folder first: the library is copied into the workspace.");

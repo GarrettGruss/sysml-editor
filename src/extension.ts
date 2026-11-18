@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { registerCommand } from "./command-events.js";
 import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
 import { NewEntryFlow, type NewEntryTestApi } from "./tree/new-entry-flow.js";
 import { newEntryTarget } from "./tree/new-entry.js";
@@ -108,8 +109,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: true,
     }),
-    vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
-    vscode.commands.registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
+    registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
+    registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
       let filter: TreeFilter | undefined = arg === "elements" || arg === "diagrams" || arg === "all" ? arg : undefined;
       if (filter === undefined) {
         const items: { label: string; description?: string; filter: TreeFilter }[] = [
@@ -122,14 +123,14 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       }
       if (filter) await provider.setFilter(filter);
     }),
-    vscode.commands.registerCommand("sysml.tree.clearSearch", () => {
+    registerCommand("sysml.tree.clearSearch", () => {
       provider.setQuery("");
       search.setText("");
     }),
     { dispose: () => newEntry.dispose() },
-    vscode.commands.registerCommand("sysml.tree.newFile", (node?: ModelNode) => newEntry.start("file", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
-    vscode.commands.registerCommand("sysml.tree.newFolder", (node?: ModelNode) => newEntry.start("folder", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
-    vscode.commands.registerCommand("sysml.tree.refresh", async () => {
+    registerCommand("sysml.tree.newFile", (node?: ModelNode) => newEntry.start("file", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
+    registerCommand("sysml.tree.newFolder", (node?: ModelNode) => newEntry.start("folder", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
+    registerCommand("sysml.tree.refresh", async () => {
       await model.rescan();
       await provider.refreshAll();
     }),

@@ -38,4 +38,4 @@ export async function callTool(name: string, input: unknown, ctx: ToolContext): 
 }
 export { uiToolDefinitions } from "./ui-tools.js";
 export * from "./ui-driver.js";
-export { PromptBroker, MessageLog, isAllowedCommand, validateCommandArgs, resolveInWorkspace, formatAuditLine } from "./ui-support.js";
+export { PromptBroker, MessageLog, UserEventQueue, gateFor, truncateCallout, waitMs, CHROME_TARGETS, isAllowedCommand, validateCommandArgs, resolveInWorkspace, formatAuditLine } from "./ui-support.js";

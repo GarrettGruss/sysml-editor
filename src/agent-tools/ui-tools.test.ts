@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pathToFileURL } from "node:url";
-import { callTool, toolDefinitions, type CommandOutcome, type DiagramGesture, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg, type ScreenshotTarget, type TreeNodeInfo, type ToolContext, type UiAnswer, type UiDriver, type UiGate, type UiState } from "./index.js";
+import { callTool, toolDefinitions, type CommandOutcome, type DiagramGesture, type HighlightOutcome, type HighlightTarget, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg, type ScreenshotTarget, type TreeNodeInfo, type ToolContext, type UiAnswer, type UiDriver, type UiGate, type UiState } from "./index.js";
 import { TREE_NODE_COMMANDS, TREE_TITLE_COMMANDS } from "./ui-support.js";
-import { MessageLog, PromptBroker, formatAuditLine, isAllowedCommand, runUntilPromptOrDone } from "./ui-support.js";
+import { gateFor, truncateCallout, waitMs } from "./ui-support.js";
+import { MessageLog, PromptBroker, UserEventQueue, formatAuditLine, isAllowedCommand, runUntilPromptOrDone } from "./ui-support.js";
 
 const ROOT = "/work/space";
 
 class FakeDriver implements UiDriver {
-  gateState: UiGate = { enabled: true, trusted: true };
+  gateState: UiGate = { enabled: true, tutor: false, trusted: true };
   lines: string[] = [];
   ran: { id: string; args: unknown[] }[] = [];
   broker = new PromptBroker(1000);
@@ -54,6 +55,12 @@ class FakeDriver implements UiDriver {
   shot = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2]).toString("base64");
   shots: ScreenshotTarget[] = [];
   async screenshot(t: ScreenshotTarget) { this.shots.push(t); return this.shot; }
+  highlights: { target: HighlightTarget; text: string }[] = [];
+  highlightResult: HighlightOutcome = { ok: true, drawn: true };
+  async highlight(target: HighlightTarget, text: string) { this.highlights.push({ target, text }); return this.highlightResult; }
+  events = new UserEventQueue();
+  waits: number[] = [];
+  async waitForUser(ms: number) { this.waits.push(ms); return this.events.wait(5); }
 }
 
 const ctxOf = (ui?: UiDriver): ToolContext => ({ index: undefined as never, uriToPath: () => undefined, pathToUri: () => undefined, ...(ui ? { ui } : {}) });
@@ -71,7 +78,7 @@ describe("UI-control gate", () => {
 
   it("refuses with the setting off, naming it, and runs nothing", async () => {
     const d = new FakeDriver();
-    d.gateState = { enabled: false, trusted: true };
+    d.gateState = { enabled: false, tutor: false, trusted: true };
     const r = await call(d, "sysml_ui_command", { command: "sysml.createDiagram" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("sysml.agent.uiControl");
@@ -81,7 +88,7 @@ describe("UI-control gate", () => {
 
   it("refuses everything in an untrusted workspace but the state tool answers enabled false", async () => {
     const d = new FakeDriver();
-    d.gateState = { enabled: true, trusted: false };
+    d.gateState = { enabled: true, tutor: false, trusted: false };
     const r = await call(d, "sysml_ui_command", { command: "undo" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("untrusted");
@@ -93,7 +100,7 @@ describe("UI-control gate", () => {
 
   it("answers enabled false for the state tool with the setting off and when no driver exists", async () => {
     const d = new FakeDriver();
-    d.gateState = { enabled: false, trusted: true };
+    d.gateState = { enabled: false, tutor: false, trusted: true };
     expect((await call(d, "sysml_ui_state", {})).json.enabled).toBe(false);
     expect(JSON.parse((await callTool("sysml_ui_state", {}, ctxOf())).text).enabled).toBe(false);
     expect((await callTool("sysml_ui_command", { command: "undo" }, ctxOf())).isError).toBe(true);
@@ -103,7 +110,7 @@ describe("UI-control gate", () => {
     const d = new FakeDriver();
     await call(d, "sysml_ui_command", { command: "undo" });
     await call(d, "sysml_ui_command", { command: "workbench.action.terminal.new" });
-    d.gateState = { enabled: false, trusted: true };
+    d.gateState = { enabled: false, tutor: false, trusted: true };
     await call(d, "sysml_ui_state", {});
     expect(d.lines).toHaveLength(3);
     expect(d.lines[0]).toMatch(/^sysml_ui_command target=undo args=/);
@@ -314,7 +321,7 @@ describe("sysml_ui_diagram", () => {
   });
   it("is gated", async () => {
     const d = new FakeDriver();
-    d.gateState = { enabled: false, trusted: true };
+    d.gateState = { enabled: false, tutor: false, trusted: true };
     const r = await call(d, "sysml_ui_diagram", { path: "a.sysmld", gesture: { kind: "flush" } });
     expect(r.isError).toBe(true);
     expect(d.gestures).toEqual([]);
@@ -386,5 +393,120 @@ describe("sysml_ui_screenshot", () => {
     expect((await call(d, "sysml_ui_screenshot", {})).isError).toBe(true);
     d.shot = Buffer.from("not a png at all").toString("base64");
     expect((await call(d, "sysml_ui_screenshot", { path: "a.sysmld" })).isError).toBe(true);
+  });
+});
+
+describe("tutor gate (D62, D69)", () => {
+  const controlTools: [string, Record<string, unknown>][] = [["sysml_ui_command", { command: "undo" }], ["sysml_ui_answer", { cancel: true }], ["sysml_ui_diagram", { path: "a.sysmld", gesture: { kind: "flush" } }], ["sysml_ui_tree", { op: "list" }]];
+  const tutorTools: [string, Record<string, unknown>][] = [["sysml_ui_highlight", { chrome: "modelTree", text: "Here" }], ["sysml_ui_wait_for_user", {}], ["sysml_ui_screenshot", { path: "a.sysmld" }]];
+
+  it("tutor on and control off: tutor tools run, control tools are refused naming uiControl", async () => {
+    const d = new FakeDriver();
+    d.gateState = { enabled: false, tutor: true, trusted: true };
+    for (const [n, i] of controlTools) {
+      const r = await call(d, n, i);
+      expect(r.isError, n).toBe(true);
+      expect(r.text).toMatch(/sysml\.agent\.uiControl/);
+    }
+    for (const [n, i] of tutorTools) expect((await call(d, n, i)).isError, n).toBeFalsy();
+    expect((await call(d, "sysml_ui_state", {})).json.enabled).toBe(true);
+  });
+
+  it("both off: tutor tools are refused naming the tutor setting", async () => {
+    const d = new FakeDriver();
+    d.gateState = { enabled: false, tutor: false, trusted: true };
+    for (const [n, i] of tutorTools) {
+      const r = await call(d, n, i);
+      expect(r.isError, n).toBe(true);
+      expect(r.text).toMatch(/sysml\.agent\.tutor/);
+    }
+    expect((await call(d, "sysml_ui_state", {})).json.enabled).toBe(false);
+    expect(d.highlights).toEqual([]);
+  });
+
+  it("untrusted refuses everything, and every call is audited before it runs", async () => {
+    const d = new FakeDriver();
+    d.gateState = { enabled: true, tutor: true, trusted: false };
+    for (const [n, i] of tutorTools) expect((await call(d, n, i)).isError, n).toBe(true);
+    expect(d.lines.some((l) => l.startsWith("sysml_ui_highlight "))).toBe(true);
+    expect(d.lines.some((l) => l.startsWith("sysml_ui_wait_for_user "))).toBe(true);
+  });
+
+  it("truncates long text in the audit line", async () => {
+    const d = new FakeDriver();
+    await call(d, "sysml_ui_highlight", { chrome: "modelTree", text: "x".repeat(1500) });
+    expect(d.lines[0]!.length).toBeLessThan(1500);
+  });
+});
+
+describe("sysml_ui_highlight", () => {
+  it("resolves a diagram node, truncates the callout to 280 characters", async () => {
+    const d = new FakeDriver();
+    const r = await call(d, "sysml_ui_highlight", { path: "a.sysmld", node: "n1", text: "y".repeat(900) });
+    expect(r.json.highlighted).toBe(true);
+    expect(d.highlights[0]!.target).toEqual({ kind: "diagram", path: `${ROOT}/a.sysmld`, node: "n1" });
+    expect(d.highlights[0]!.text).toHaveLength(280);
+  });
+
+  it("targets a requirements selector and refuses paths outside the workspace", async () => {
+    const d = new FakeDriver();
+    expect((await call(d, "sysml_ui_highlight", { package: "P", selector: "[data-testid=add-root-requirement]", text: "t" })).isError).toBeFalsy();
+    expect(d.highlights[0]!.target).toMatchObject({ kind: "requirements", scope: { kind: "package", qualifiedName: "P" } });
+    expect((await call(d, "sysml_ui_highlight", { path: "/etc/a.sysmld", node: "n", text: "t" })).isError).toBe(true);
+  });
+
+  it("describes chrome targets and says no overlay was drawn", async () => {
+    const d = new FakeDriver();
+    d.highlightResult = { ok: true, drawn: false };
+    const r = await call(d, "sysml_ui_highlight", { chrome: "treeNewFile", text: "Click here" });
+    expect(r.json.highlighted).toBe(false);
+    expect(r.json.description).toMatch(/New File.*No overlay was drawn/);
+    expect((await call(d, "sysml_ui_highlight", { chrome: "commandPalette", command: "evil.cmd", text: "t" })).isError).toBe(true);
+  });
+
+  it("needs exactly one target and passes a driver failure on", async () => {
+    const d = new FakeDriver();
+    await expect(call(d, "sysml_ui_highlight", { text: "t" })).resolves.toMatchObject({ isError: true });
+    d.highlightResult = { ok: false, reason: "The target was not found in the page." };
+    const r = await call(d, "sysml_ui_highlight", { path: "a.sysmld", node: "zz", text: "t" });
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/not found/);
+  });
+});
+
+describe("sysml_ui_wait_for_user", () => {
+  it("returns the user's event, or a timeout, with the default and capped waits", async () => {
+    const d = new FakeDriver();
+    d.events.push({ kind: "command", id: "sysml.newDiagram" });
+    expect((await call(d, "sysml_ui_wait_for_user", {})).json.event).toEqual({ kind: "command", id: "sysml.newDiagram" });
+    const t = await call(d, "sysml_ui_wait_for_user", { timeoutSeconds: 300 });
+    expect(t.json).toEqual({ event: null, timedOut: true });
+    expect(d.waits).toEqual([60_000, 300_000]);
+  });
+});
+
+describe("tutor support", () => {
+  it("gateFor, truncateCallout and waitMs", () => {
+    expect(gateFor({ enabled: false, tutor: true, trusted: true }, "tutor")).toBeUndefined();
+    expect(gateFor({ enabled: false, tutor: true, trusted: true }, "control")).toBeDefined();
+    expect(gateFor({ enabled: true, tutor: false, trusted: true }, "tutor")).toBeUndefined();
+    expect(truncateCallout("a".repeat(280))).toHaveLength(280);
+    expect(truncateCallout("a".repeat(281))).toHaveLength(280);
+    expect(waitMs(undefined)).toBe(60_000);
+    expect(waitMs(0)).toBe(1000);
+    expect(waitMs(1e6)).toBe(300_000);
+  });
+
+  it("UserEventQueue keeps early events, resolves a waiter, times out and is bounded", async () => {
+    const q = new UserEventQueue(2);
+    q.push({ kind: "editor" });
+    q.push({ kind: "selection", id: "a" });
+    q.push({ kind: "selection", id: "b" });
+    expect(await q.wait(5)).toEqual({ kind: "selection", id: "a" });
+    await q.wait(5);
+    const pending = q.wait(1000);
+    q.push({ kind: "command", id: "c" });
+    expect(await pending).toEqual({ kind: "command", id: "c" });
+    expect(await q.wait(5)).toBeUndefined();
   });
 });

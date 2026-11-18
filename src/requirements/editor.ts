@@ -215,6 +215,7 @@ export class RequirementsEditor implements vscode.Disposable {
         this.errorLog.push(m.message.slice(0, 400));
         break;
       case "intent":
+        this.onUserEvent?.("gesture", typeof (m as { intent?: { kind?: unknown } }).intent?.kind === "string" ? (m as { intent: { kind: string } }).intent.kind : undefined);
         await this.handleIntent(p, (m as { intent?: unknown }).intent);
         break;
       case "metricsResult":
@@ -261,6 +262,20 @@ export class RequirementsEditor implements vscode.Disposable {
     }
     await writeFile(path, text, "utf8");
     return { ok: true, text };
+  }
+
+  /** Called when the webview sends an edit intent (kind only); the UI driver uses it to tell user actions from agent ones. */
+  onUserEvent?: (kind: "gesture", id?: string) => void;
+
+  /** The tutor (D63): bring the editor to the front and spotlight the element a selector finds. Throws with the webview's reason. */
+  async highlight(scope: RequirementsScope, selector: string, text: string): Promise<void> {
+    await this.testApi.open(scope);
+    const r = await this.request<"gestureResult">(scope, (requestId) => ({ type: "highlight", requestId, selector, text }));
+    if (r.error) throw new Error(r.error);
+  }
+
+  clearHighlights(): void {
+    for (const p of this.panels.values()) if (p.ready) this.post(p, { type: "clearHighlights" });
   }
 
   // ---- test support --------------------------------------------------------------------------

@@ -150,6 +150,9 @@ export type HostToWebview =
   | { type: "getMetrics"; requestId: number }
   | { type: "exportPng"; requestId: number }
   | { type: "testGesture"; requestId: number; gesture: Gesture }
+  /** The tutor: spotlight the element a selector finds with a callout; answered with a `gestureResult`. `text` is plain text. */
+  | { type: "highlight"; requestId: number; selector: string; text: string }
+  | { type: "clearHighlights" }
   | { type: "setView"; view: ViewMode }
   /** Test only: force the width of the page (px; null restores the window width), re-run the layout; answered with a gestureResult. */
   | { type: "testWidth"; requestId: number; width: number | null }
@@ -161,6 +164,8 @@ export interface RequirementsMetrics {
   theme: "light" | "dark";
   generation: number;
   scopeName: string;
+  /** The tutor callout text while a highlight is shown. */
+  highlight?: string;
   table: {
     rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[];
     selected?: string;

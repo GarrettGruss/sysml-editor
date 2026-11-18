@@ -10,6 +10,8 @@ export type { DiagramGesture, RequirementsGesture };
 export interface UiGate {
   /** `sysml.agent.uiControl`, read from the user's settings only. */
   enabled: boolean;
+  /** `sysml.agent.tutor`, read from the user's settings only (D62): allows the tutor tools without control. */
+  tutor: boolean;
   /** The workspace is trusted. */
   trusted: boolean;
 }
@@ -128,6 +130,23 @@ export type TreeOutcome = { ok: true } | { ok: false; reason: string };
 
 export type ScreenshotTarget = { kind: "diagram"; path: string } | { kind: "requirements"; scope: RequirementsScopeArg };
 
+/** VS Code chrome the tutor can only describe, never draw over (D64). */
+export type ChromeTargetName = "modelTree" | "treeNewFile" | "treeNewFolder" | "commandPalette";
+
+/** Where a highlight goes. Webview targets resolve inside the webview (D63). */
+export type HighlightTarget =
+  | { kind: "diagram"; path: string; node?: string; selector?: string }
+  | { kind: "requirements"; scope: RequirementsScopeArg; selector: string }
+  | { kind: "chrome"; name: ChromeTargetName; command?: string };
+
+export type HighlightOutcome = { ok: true; drawn: boolean } | { ok: false; reason: string };
+
+/** What the user did; kinds and ids only, never text values (D67). */
+export interface UserEvent {
+  kind: "command" | "selection" | "editor" | "gesture";
+  id?: string;
+}
+
 export interface UiDriver {
   gate(): UiGate;
   /** Absolute paths of the workspace folders. */
@@ -155,4 +174,8 @@ export interface UiDriver {
   treeCommand(command: string, nodeId: string | undefined): Promise<CommandOutcome>;
   /** A PNG of what the webview of the diagram or requirements editor shows, as base64. Throws when it is not open. */
   screenshot(target: ScreenshotTarget): Promise<string>;
+  /** Spotlight a target with a callout (text already truncated). A webview that is not in front is brought to the front first. */
+  highlight(target: HighlightTarget, text: string): Promise<HighlightOutcome>;
+  /** Resolves with the first user action (never an agent action) or undefined at the timeout. */
+  waitForUser(timeoutMs: number): Promise<UserEvent | undefined>;
 }

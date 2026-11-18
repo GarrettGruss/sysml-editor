@@ -69,3 +69,32 @@ describe("save answers and bare file names", () => {
     expect(validateCommandArgs(["../out.png"], [root]).ok).toBe(false);
   });
 });
+
+describe("ActionGrace and diagram paths", () => {
+  it("suppresses events during an action and for the grace window after it", async () => {
+    const { ActionGrace } = await import("./ui-support.js");
+    let t = 1000;
+    const g = new ActionGrace(1500, () => t);
+    expect(g.suppressing()).toBe(false);
+    g.enter();
+    expect(g.suppressing()).toBe(true);
+    g.leave();
+    t += 1000;
+    expect(g.suppressing()).toBe(true);
+    t += 600;
+    expect(g.suppressing()).toBe(false);
+  });
+  it("drops queued events on clear so a later wait does not see them", async () => {
+    const { UserEventQueue } = await import("./ui-support.js");
+    const q = new UserEventQueue();
+    q.push({ kind: "selection" });
+    q.clear();
+    expect(await q.wait(10)).toBeUndefined();
+  });
+  it("accepts only .sysmld paths", async () => {
+    const { isDiagramPath } = await import("./ui-support.js");
+    expect(isDiagramPath("/w/a.sysmld")).toBe(true);
+    expect(isDiagramPath("/w/a.sysml")).toBe(false);
+    expect(isDiagramPath("/w/a.png")).toBe(false);
+  });
+});

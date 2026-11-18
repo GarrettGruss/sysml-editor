@@ -1,5 +1,6 @@
 /** Entry point of the requirements editor webview (`dist/webview/requirements.js`): the Table and the Document view. */
 import type { BlockVM, Gesture, HostToWebview, Intent, ItemVM, RelationVM, RequirementRowVM, RequirementsMetrics, RequirementsScope, RequirementsState, SectionVM, ViewMode, WebviewToHost } from "../../requirements/protocol.js";
+import { Highlighter, bindHighlighter, domEnv } from "../shared/highlight.js";
 import { layoutFor, parseTestWidth } from "../../requirements/layout.js";
 import { allowedForMove, allowedForNew, gapsOf, subtreeOf, type Gap, type GhostMode } from "../../requirements/gaps.js";
 import { matrixMetrics, matrixView } from "./matrix-view.js";
@@ -22,6 +23,8 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 const post = (m: WebviewToHost) => vscode.postMessage(m);
+const highlighter = new Highlighter(domEnv((t) => (t.selector !== undefined ? document.querySelector(t.selector) : null)));
+bindHighlighter(highlighter, document.body);
 const errors: string[] = [];
 const fail = (e: unknown) => {
   const message = e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e);
@@ -829,6 +832,7 @@ function metrics(): RequirementsMetrics {
     theme: lightTheme() ? "light" : "dark",
     generation,
     scopeName: state?.scopeName ?? "",
+    ...(highlighter.shownText !== undefined ? { highlight: highlighter.shownText } : {}),
     table: {
       rows,
       ...(selected ? { selected } : {}),
@@ -990,6 +994,14 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         setTimeout(once, 250);
         break;
       }
+      case "highlight": {
+        const err = highlighter.show({ selector: m.selector }, m.text);
+        post({ type: "gestureResult", requestId: m.requestId, ...(err ? { error: err } : {}) });
+        break;
+      }
+      case "clearHighlights":
+        highlighter.clear();
+        break;
       case "testGesture":
         gesture(m.gesture).then(() => post({ type: "gestureResult", requestId: m.requestId }), (e: unknown) => post({ type: "gestureResult", requestId: m.requestId, error: e instanceof Error ? e.message : String(e) }));
         break;
