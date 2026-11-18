@@ -19,7 +19,7 @@ See proposal.md - Why. The MCP server (`src/mcp/`) and the language-model tools 
 Tools work only when `sysml.agent.uiControl` is on and the workspace is trusted. The setting is user-level only (scope `application`), so a cloned repo cannot enable it through its own `.vscode/settings.json`; default off. Otherwise the tools otherwise they refuse with the reason. Agent inputs are hostile, and these tools can change files. Alternative: always on in trusted workspaces; rejected, because turning it on should be a deliberate act.
 
 ### D54: Command allowlist, not command ids
-`sysml_ui_command` accepts only `sysml.*` ids plus undo, redo, save, save all, back and forward. The allowlist is a constant in `src/agent-tools/`, checked before any call. Delete commands are allowlisted; their confirmations are answered through `sysml_ui_answer` and recorded in the audit log. Alternative: a denylist; rejected, since new core commands would be allowed by default.
+`sysml_ui_command` accepts only the command ids this extension contributes (`contributes.commands`, so another extension's `sysml.*` ids are refused) plus undo, redo, save, save all, back and forward. The allowlist is a constant in `src/agent-tools/`, checked before any call. Delete commands are allowlisted; their confirmations are answered through `sysml_ui_answer` and recorded in the audit log. Alternative: a denylist; rejected, since new core commands would be allowed by default.
 
 ### D55: A `UiDriver` interface keeps handlers free of `vscode`
 Handlers call `UiDriver` (run command, gesture, menus, prompts, state, screenshot). The extension supplies the implementation; unit tests use a fake. File arguments are resolved against workspace roots in the handler, so the check is unit tested.
@@ -28,7 +28,7 @@ Handlers call `UiDriver` (run command, gesture, menus, prompts, state, screensho
 The gesture types (`Gesture`, `ReqGesture`) and webview hooks the tests use move to a shared module that both the test API and the driver import. Alternative: a new agent-only message channel; rejected, because two paths would drift and the tests would stop proving the agent path.
 
 ### D57: Prompts are observed and answered, not auto-answered
-The driver installs the same `setUi` seam the tests use, but in a mode that records an open prompt (pick, multi-pick, input, confirm, choice, save dialog) and waits for `sysml_ui_answer`. A prompt left open times out as cancelled. Commands return as soon as a prompt opens, so the agent never deadlocks.
+The driver installs the same `setUi` seam the tests use, but in a mode that records an open prompt (pick, multi-pick, input, confirm, choice, save dialog) and waits for `sysml_ui_answer`. A prompt left open times out as cancelled. Commands return as soon as a prompt opens, so the agent never deadlocks. A prompt goes to the agent only while an agent command or gesture is in flight (a counter, not a time window), so a prompt the person triggers is shown as the normal VS Code dialog. A save-dialog answer must lie in the workspace by its real path, contain no segment starting with ".", and keep the extension the prompt suggested. Any string command argument that looks like a path or a file name (`out.png`) is resolved inside the workspace.
 
 ### D58: Observation is pull-based with a message log
 `sysml_ui_state` reads selection, menus, dirty flags, undo labels, nav history and clipboard kind. User messages go into a bounded queue drained on read. Clipboard reports kind only (text, image, elements), not content, to avoid leaking data.

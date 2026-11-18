@@ -83,7 +83,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     provider.setQuery("");
     search.setText("");
   }, (uri) => model.indexFile(uri));
-  const uiDriver = new VsCodeUiDriver({ diagrams, requirements, newEntry: () => newEntry.testApi, tree: { provider, view }, log: (m) => log.info(m) });
+  const uiDriver = new VsCodeUiDriver({ diagrams, requirements, newEntry: () => newEntry.testApi, tree: { provider, view }, log: (m) => log.info(m), ownCommands: ((context.extension.packageJSON as { contributes?: { commands?: { command: string }[] } }).contributes?.commands ?? []).map((c) => c.command) });
   agent.ui = uiDriver;
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 

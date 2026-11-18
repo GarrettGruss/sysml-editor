@@ -19,10 +19,16 @@ export const CORE_COMMANDS: readonly string[] = [
   "workbench.action.navigateForward",
 ];
 
-const SYSML_COMMAND = /^sysml\.[A-Za-z0-9_.]{1,120}$/;
+/** `own` is the list of command ids this extension contributes (`contributes.commands`); other extensions' `sysml.*` ids are refused. */
+export function isAllowedCommand(id: string, own: readonly string[]): boolean {
+  return own.includes(id) || CORE_COMMANDS.includes(id);
+}
 
-export function isAllowedCommand(id: string): boolean {
-  return SYSML_COMMAND.test(id) || CORE_COMMANDS.includes(id);
+/** True when a save-dialog answer may be used: no hidden segment (.git, .vscode), and the suggested extension when there is one. */
+export function saveAnswerAllowed(abs: string, suggested: string | undefined): boolean {
+  if (abs.split(/[\\/]/).some((s) => s.startsWith(".") && s !== "." && s !== "..")) return false;
+  const want = suggested ? path.extname(suggested).toLowerCase() : "";
+  return want === "" || path.extname(abs).toLowerCase() === want;
 }
 
 // ---- arguments and paths ---------------------------------------------------------------------------
@@ -56,7 +62,7 @@ export function resolveInWorkspace(p: string, roots: readonly string[]): string 
   const real = realPathOf(abs);
   for (const r of roots) {
     const rel = path.relative(realPathOf(path.resolve(r)), real);
-    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return abs;
+    if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) return real;
   }
   return undefined;
 }
@@ -111,7 +117,7 @@ function cleanValue(v: unknown, roots: readonly string[], depth: number, where: 
   if (typeof v === "string") {
     if (v.length > MAX_STRING) return refuse(`longer than ${MAX_STRING} characters`);
     if (v.includes("\0")) return refuse("contains a NUL character");
-    if (!looksLikePath(v)) return v;
+    if (!looksLikePath(v) && !/\.[A-Za-z0-9]{1,6}$/.test(v)) return v; // a bare file name such as out.png is a path too
     const abs = resolveInWorkspace(v, roots);
     return abs === undefined ? refuse(`"${v.length > 80 ? v.slice(0, 80) + "..." : v}" is outside the workspace`) : pathToFileURL(abs).toString();
   }
@@ -250,7 +256,7 @@ export class PromptBroker {
   }
 
   /** Answer the prompt with `id`, or the oldest open one. A wrong kind of answer or an invalid value leaves it open. */
-  answer(id: number | undefined, a: UiAnswer, resolveSavePath: (p: string) => string | undefined): AnswerOutcome {
+  answer(id: number | undefined, a: UiAnswer, resolveSavePath: (p: string, suggested?: string) => string | undefined): AnswerOutcome {
     const o = id === undefined ? this.open[0] : this.open.find((x) => x.prompt.id === id);
     const rest = () => this.list();
     if (!o) return { ok: false, reason: id === undefined ? "No prompt is open." : `No open prompt with id ${id}.`, remaining: rest() };
@@ -293,8 +299,8 @@ export class PromptBroker {
         return a.kind === "confirm" ? done({ confirmed: true }) : refuse('This confirmation takes a "confirm" or "cancel" answer.');
       case "save": {
         if (a.kind !== "path") return refuse('This save dialog takes a "path" answer.');
-        const abs = resolveSavePath(a.path);
-        return abs === undefined ? refuse("The path is outside the workspace.") : done({ path: abs });
+        const abs = resolveSavePath(a.path, s.value);
+        return abs === undefined ? refuse("The path is outside the workspace, hidden, or lacks the suggested file extension.") : done({ path: abs });
       }
     }
   }

@@ -55,7 +55,7 @@ const sysmlUiCommand: ToolDefinition = {
     const id = input.command as string;
     const d = enter(ctx, "sysml_ui_command", id, input.args);
     if (!isDriver(d)) return d;
-    if (!isAllowedCommand(id)) return refused(`The command "${id}" is not on the allowlist. Allowed: sysml.* commands, undo, redo, workbench.action.files.save, workbench.action.files.saveAll, workbench.action.navigateBack, workbench.action.navigateForward.`);
+    if (!isAllowedCommand(id, d.ownCommands())) return refused(`The command "${id}" is not on the allowlist. Allowed: sysml.* commands, undo, redo, workbench.action.files.save, workbench.action.files.saveAll, workbench.action.navigateBack, workbench.action.navigateForward.`);
     const a = validateCommandArgs(input.args, d.workspaceRoots());
     if (!a.ok) return refused(`Refused: ${a.reason}.`);
     const r = await d.runCommand(id, a.args);
@@ -412,7 +412,7 @@ const sysmlUiTree: ToolDefinition = {
             if (!n) return refused("Unknown node: list the tree first and use an id from the result.");
             contextValue = n.contextValue;
           }
-          if (!isAllowedCommand(command)) return refused(`The command "${command.slice(0, 60)}" is not on the allowlist.`);
+          if (!isAllowedCommand(command, d.ownCommands())) return refused(`The command "${command.slice(0, 60)}" is not on the allowlist.`);
           if (!treeCommandOffered(command, contextValue)) return refused(`The command "${command}" is not offered ${nodeId === undefined ? "in the tree's title bar" : `for a node with context value ${String(contextValue)}`}.`);
           const r = await d.treeCommand(command, nodeId);
           return r.ok ? json({ command, completed: r.completed, ...(r.result !== undefined ? { result: r.result } : {}), prompts: r.prompts }) : { isError: true, text: JSON.stringify({ command, error: r.reason, prompts: r.prompts }, null, 2) };

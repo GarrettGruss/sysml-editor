@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeF
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { TREE_NODE_COMMANDS, TREE_TITLE_COMMANDS, resolveInWorkspace, treeCommandOffered } from "./ui-support.js";
+import { TREE_NODE_COMMANDS, TREE_TITLE_COMMANDS, resolveInWorkspace, saveAnswerAllowed, treeCommandOffered, validateCommandArgs } from "./ui-support.js";
 
 describe("resolveInWorkspace and symlinks", () => {
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "sysml-ui-")));
@@ -25,13 +25,13 @@ describe("resolveInWorkspace and symlinks", () => {
     expect(resolveInWorkspace("dangling", [root])).toBeUndefined();
   });
   it("allows a symlink that stays inside, and new files below real folders", () => {
-    expect(resolveInWorkspace("inside/a.sysml", [root])).toBe(path.join(root, "inside", "a.sysml"));
+    expect(resolveInWorkspace("inside/a.sysml", [root])).toBe(path.join(root, "real", "a.sysml")) // the realpath, not the link;
     expect(resolveInWorkspace("real/new.sysml", [root])).toBe(path.join(root, "real", "new.sysml"));
   });
   it("accepts a root that is itself reached through a symlink", () => {
     const link = path.join(base, "wslink");
     symlinkSync(root, link);
-    expect(resolveInWorkspace("real/x.sysml", [link])).toBe(path.join(link, "real", "x.sysml"));
+    expect(resolveInWorkspace("real/x.sysml", [link])).toBe(path.join(root, "real", "x.sysml"));
     expect(resolveInWorkspace("escape/secret.txt", [link])).toBeUndefined();
   });
 });
@@ -50,5 +50,22 @@ describe("tree command table", () => {
     expect(treeCommandOffered("sysml.tree.deleteFile", "sysmlElement")).toBe(false);
     expect(treeCommandOffered("sysml.tree.refresh", undefined)).toBe(true);
     expect(treeCommandOffered("sysml.tree.rename", undefined)).toBe(false);
+  });
+});
+
+describe("save answers and bare file names", () => {
+  it("refuses hidden segments and a different extension", () => {
+    expect(saveAnswerAllowed("/w/.git/hooks/pre-commit", undefined)).toBe(false);
+    expect(saveAnswerAllowed("/w/.vscode/settings.json", "/w/a.json")).toBe(false);
+    expect(saveAnswerAllowed("/w/out.sh", "/w/out.png")).toBe(false);
+    expect(saveAnswerAllowed("/w/out.PNG", "/w/out.png")).toBe(true);
+    expect(saveAnswerAllowed("/w/sub/out.txt", undefined)).toBe(true);
+  });
+  it("treats a bare file name argument as a path", () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "sysml-ui-")));
+    const r = validateCommandArgs(["out.png", "Vehicle"], [root]);
+    expect(r).toEqual({ ok: true, args: [expect.stringMatching(/^file:.*out\.png$/), "Vehicle"] });
+    expect(validateCommandArgs([".git/hooks/x"], [root]).ok).toBe(true);
+    expect(validateCommandArgs(["../out.png"], [root]).ok).toBe(false);
   });
 });

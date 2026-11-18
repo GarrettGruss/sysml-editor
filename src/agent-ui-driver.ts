@@ -8,7 +8,7 @@ import {
   type AnswerOutcome, type CommandOutcome, type DiagramGesture, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg,
   type ScreenshotTarget, type TreeNodeInfo, type TreeOutcome, type UiAnswer, type UiDriver, type UiGate, type UiPrompt, type UiState,
 } from "./agent-tools/ui-driver.js";
-import { MessageLog, PromptBroker, resolveInWorkspace, runUntilPromptOrDone, type PromptResult } from "./agent-tools/ui-support.js";
+import { MessageLog, PromptBroker, resolveInWorkspace, saveAnswerAllowed, runUntilPromptOrDone, type PromptResult } from "./agent-tools/ui-support.js";
 import type { DiagramEditorProvider, DiagramUi } from "./diagram/diagram-editor.js";
 import { VIEW_TYPE as DIAGRAM_VIEW_TYPE } from "./diagram/diagram-editor.js";
 import type { RequirementsEditor } from "./requirements/editor.js";
@@ -23,8 +23,6 @@ export const AGENT_UI_CHANNEL = "SysML Agent UI";
 /** Id of the New File / New Folder input box in the prompt list (it is not recorded by the broker). */
 export const NEW_ENTRY_PROMPT_ID = 999_999;
 
-/** How long after an agent call the editor's questions are routed to the agent rather than shown to the person at the window. */
-const AGENT_WINDOW_MS = 60_000;
 /** A command still running after this long is reported as not completed. */
 const COMMAND_WAIT_MS = 15_000;
 
@@ -34,6 +32,8 @@ export interface UiDriverDeps {
   newEntry(): NewEntryTestApi | undefined;
   tree: { provider: ModelTreeProvider; view: vscode.TreeView<ModelNode> };
   log(message: string): void;
+  /** Command ids from this extension's `contributes.commands`. */
+  ownCommands: string[];
 }
 
 /** Turn `file:` URI strings back into editor URIs, recursively (they were validated against the workspace). */
@@ -51,6 +51,8 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   private readonly broker: PromptBroker;
   private readonly subs: vscode.Disposable[] = [];
   private lastCall = 0;
+  /** Agent commands and gestures running now; only their questions are routed to the agent. */
+  private inFlight = 0;
 
   constructor(private readonly deps: UiDriverDeps, timeoutMs?: number) {
     this.broker = new PromptBroker(timeoutMs, (p) => this.channel.appendLine(`prompt ${p.id} (${p.kind}) timed out and was cancelled`));
@@ -68,6 +70,20 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     // User settings only: a workspace value cannot turn this on (the setting is application-scoped as well).
     const enabled = vscode.workspace.getConfiguration().inspect<boolean>(UI_CONTROL_SETTING)?.globalValue === true;
     return { enabled, trusted: vscode.workspace.isTrusted };
+  }
+
+  ownCommands(): string[] {
+    return this.deps.ownCommands;
+  }
+
+  /** Run `f` as an agent action: prompts it causes go to the agent, and only while it runs. */
+  private async agentAction<T>(f: () => Promise<T>): Promise<T> {
+    this.inFlight++;
+    try {
+      return await f();
+    } finally {
+      this.inFlight--;
+    }
   }
 
   workspaceRoots(): string[] {
@@ -94,7 +110,7 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
 
   private routing(): boolean {
     const g = this.gate();
-    return g.enabled && g.trusted && (Date.now() - this.lastCall < AGENT_WINDOW_MS || this.broker.list().length > 0);
+    return g.enabled && g.trusted && (this.inFlight > 0 || this.broker.list().length > 0);
   }
 
   // ---- the questions the diagram and requirements editors ask --------------------------------------
@@ -181,7 +197,11 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   }
 
   /** Run a command with arguments that are already editor values. */
-  private async execute(id: string, args: unknown[]): Promise<CommandOutcome> {
+  private execute(id: string, args: unknown[]): Promise<CommandOutcome> {
+    return this.agentAction(() => this.executeInner(id, args));
+  }
+
+  private async executeInner(id: string, args: unknown[]): Promise<CommandOutcome> {
     this.touch();
     let run: Promise<unknown>;
     try {
@@ -189,6 +209,10 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     } catch (e) {
       return { ok: false, reason: e instanceof Error ? e.message : String(e), prompts: this.prompts() };
     }
+    // Questions the command asks after it returned (a second prompt) still belong to the agent until it settles.
+    this.inFlight++;
+    const leave = () => void this.inFlight--;
+    run.then(leave, leave);
     // A command left waiting on a prompt may fail later; that is logged, not lost.
     run.catch((e: unknown) => this.channel.appendLine(`command ${id} failed after it returned: ${e instanceof Error ? e.message : String(e)}`));
     try {
@@ -205,7 +229,10 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     this.touch();
     const entry = this.deps.newEntry();
     const useEntry = promptId === NEW_ENTRY_PROMPT_ID || (promptId === undefined && this.broker.list().length === 0 && entry?.active() !== undefined);
-    if (!useEntry) return this.broker.answer(promptId, a, (p) => resolveInWorkspace(p, this.workspaceRoots()));
+    if (!useEntry) return this.broker.answer(promptId, a, (p, suggested) => {
+      const abs = resolveInWorkspace(p, this.workspaceRoots());
+      return abs !== undefined && saveAnswerAllowed(abs, suggested) ? abs : undefined;
+    });
     const refuse = (reason: string, validation?: string): AnswerOutcome => ({ ok: false, reason, ...(validation !== undefined ? { validation } : {}), remaining: this.prompts() });
     if (!entry?.active()) return refuse("No prompt is open.");
     if (a.kind === "cancel") {
@@ -262,7 +289,11 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
 
   // ---- webviews and the tree -------------------------------------------------------------------------
 
-  async diagramGesture(path: string, gesture: DiagramGesture): Promise<DiagramObservation> {
+  diagramGesture(path: string, gesture: DiagramGesture): Promise<DiagramObservation> {
+    return this.agentAction(() => this.diagramGestureInner(path, gesture));
+  }
+
+  private async diagramGestureInner(path: string, gesture: DiagramGesture): Promise<DiagramObservation> {
     this.touch();
     const uri = vscode.Uri.file(path);
     const api = this.deps.diagrams.testApi;
@@ -298,7 +329,11 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     return s.kind === "package" ? { kind: "package", qualifiedName: s.qualifiedName } : { kind: "file", uri: vscode.Uri.file(s.path).toString() };
   }
 
-  async requirements(scopeArg: RequirementsScopeArg, action: RequirementsAction): Promise<RequirementsObservation> {
+  requirements(scopeArg: RequirementsScopeArg, action: RequirementsAction): Promise<RequirementsObservation> {
+    return this.agentAction(() => this.requirementsInner(scopeArg, action));
+  }
+
+  private async requirementsInner(scopeArg: RequirementsScopeArg, action: RequirementsAction): Promise<RequirementsObservation> {
     this.touch();
     const scope = this.scopeOf(scopeArg);
     const api = this.deps.requirements.testApi;
@@ -367,7 +402,11 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     return n ? this.infoOf(n, 0) : undefined;
   }
 
-  async treeSelect(ids: string[]): Promise<TreeOutcome> {
+  treeSelect(ids: string[]): Promise<TreeOutcome> {
+    return this.agentAction(() => this.treeSelectInner(ids));
+  }
+
+  private async treeSelectInner(ids: string[]): Promise<TreeOutcome> {
     this.touch();
     const nodes: ModelNode[] = [];
     for (const id of ids) {
@@ -384,7 +423,11 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     await vscode.commands.executeCommand("workbench.actions.treeView.sysmlModel.collapseAll");
   }
 
-  async treeCommand(command: string, nodeId: string | undefined): Promise<CommandOutcome> {
+  treeCommand(command: string, nodeId: string | undefined): Promise<CommandOutcome> {
+    return this.agentAction(() => this.treeCommandInner(command, nodeId));
+  }
+
+  private async treeCommandInner(command: string, nodeId: string | undefined): Promise<CommandOutcome> {
     this.touch();
     if (nodeId === undefined) return this.execute(command, []);
     const node = this.treeNodes.get(nodeId);

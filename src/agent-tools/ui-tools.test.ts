@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pathToFileURL } from "node:url";
 import { callTool, toolDefinitions, type CommandOutcome, type DiagramGesture, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg, type ScreenshotTarget, type TreeNodeInfo, type ToolContext, type UiAnswer, type UiDriver, type UiGate, type UiState } from "./index.js";
+import { TREE_NODE_COMMANDS, TREE_TITLE_COMMANDS } from "./ui-support.js";
 import { MessageLog, PromptBroker, formatAuditLine, isAllowedCommand, runUntilPromptOrDone } from "./ui-support.js";
 
 const ROOT = "/work/space";
@@ -13,6 +14,7 @@ class FakeDriver implements UiDriver {
   messages = new MessageLog(3);
   gate() { return this.gateState; }
   workspaceRoots() { return [ROOT]; }
+  ownCommands() { return ["sysml.createDiagram", "sysml.deleteElement", ...TREE_TITLE_COMMANDS, ...TREE_NODE_COMMANDS.map((c) => c.command)]; }
   audit(line: string) { this.lines.push(line); }
   async runCommand(id: string, args: unknown[]): Promise<CommandOutcome> {
     this.ran.push({ id, args });
@@ -120,8 +122,9 @@ describe("audit line", () => {
 
 describe("sysml_ui_command", () => {
   it("allows sysml.* and the core commands only", () => {
-    for (const id of ["sysml.createDiagram", "sysml.deleteElement", "undo", "redo", "workbench.action.files.save", "workbench.action.files.saveAll", "workbench.action.navigateBack", "workbench.action.navigateForward"]) expect(isAllowedCommand(id)).toBe(true);
-    for (const id of ["workbench.action.terminal.new", "sysml", "sysml.", "xsysml.a", "sysml.a b", "vscode.open", "workbench.action.files.saveAs", "sysml.x;rm"]) expect(isAllowedCommand(id)).toBe(false);
+    for (const id of ["sysml.createDiagram", "sysml.deleteElement", "undo", "redo", "workbench.action.files.save", "workbench.action.files.saveAll", "workbench.action.navigateBack", "workbench.action.navigateForward"]) expect(isAllowedCommand(id, ["sysml.createDiagram", "sysml.deleteElement"])).toBe(true);
+    for (const id of ["workbench.action.terminal.new", "sysml", "sysml.", "xsysml.a", "sysml.a b", "vscode.open", "workbench.action.files.saveAs", "sysml.x;rm"]) expect(isAllowedCommand(id, ["sysml.createDiagram", "sysml.deleteElement"])).toBe(false);
+    expect(isAllowedCommand("sysml.otherExtension", ["sysml.createDiagram"])).toBe(false);
   });
 
   it("refuses an unlisted command and runs nothing", async () => {

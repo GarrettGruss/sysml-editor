@@ -31,6 +31,7 @@ const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 
 const uiDriver: UiDriver = {
   gate: () => ({ enabled: true, trusted: true }),
   workspaceRoots: () => ["/w"],
+  ownCommands: () => [],
   audit: () => {},
   runCommand: async () => ({ ok: true, completed: true, prompts: [] }),
   prompts: () => [],

@@ -132,6 +132,8 @@ export interface UiDriver {
   gate(): UiGate;
   /** Absolute paths of the workspace folders. */
   workspaceRoots(): string[];
+  /** Command ids this extension contributes (`contributes.commands`). */
+  ownCommands(): string[];
   /** Write one line to the "SysML Agent UI" output channel. */
   audit(line: string): void;
   /** Run an editor command; returns when it settles, opens a prompt, or the wait limit passes. Arguments were validated. */

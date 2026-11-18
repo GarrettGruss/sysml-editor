@@ -400,13 +400,16 @@ export function uiAgentTests(c: Ctx): Test[] {
       await g(comp, { kind: "menuItem", label: "Show Attributes" });
       await waitFor(async () => (await g(comp, { kind: "flush" })).nodes.find((n) => n.id === "n1")!.h < h0, 10000, "the node shrinks");
       // DGM-045: Save as Image through the save prompt
-      const img = "tmp-ui-img.svg";
+      let img = "tmp-ui-img.svg";
       try {
         const r = ok(await call("sysml_ui_command", { command: "sysml.diagram.saveImage" }), "save image");
         const save = (r.json.prompts as { id: number; kind: string }[]).find((x) => x.kind === "save") ?? await promptOf("save");
+        // The answer must keep the extension the prompt suggested (security review).
+        const ext = /\.(\w+)$/.exec((save as { value?: string }).value ?? "")?.[1] ?? "svg";
+        img = `tmp-ui-img.${ext}`;
         ok(await call("sysml_ui_answer", { prompt: save.id, path: img }), "answer save");
         await waitFor(() => existsSync(abs(img)), 10000, "the image is written");
-        assert.match(readFileSync(abs(img), "utf8"), /^<svg[\s>]/);
+        if (img.endsWith(".svg")) assert.match(readFileSync(abs(img), "utf8"), /^<svg[\s>]/);
       } finally {
         rmSync(abs(img), { force: true });
       }
