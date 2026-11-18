@@ -57,11 +57,13 @@ async function run(): Promise<void> {
   const vsix = process.env.SYSML_VSIX ? path.resolve(process.env.SYSML_VSIX) : undefined;
 
   if (!vsix) {
+    // A fresh user-data dir per run: the UI-control tests write a user setting that must not outlive the run.
+    const userData = mkdtempSync(path.join(os.tmpdir(), "sysml-user-data-"));
     await runTests({
       version,
       extensionDevelopmentPath: root,
       extensionTestsPath: path.resolve(__dirname, "index"),
-      launchArgs: [workspace, "--disable-extensions", ...common],
+      launchArgs: [workspace, "--disable-extensions", "--user-data-dir", userData, ...common],
       extensionTestsEnv: { SYSML_EXPECT_EXTENSION_PATH: root, SYSML_TEST_ARTIFACTS: artifacts },
     });
     return;

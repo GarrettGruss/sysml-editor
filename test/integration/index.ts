@@ -4,6 +4,7 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "no
 import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
+import { uiAgentTests } from "./ui-agent.js";
 import { agentTests, isPng, viaLm, viaMcp } from "./diagram-agent.js";
 import { behaviorTests } from "./behavior.js";
 import { interactionTests } from "./diagram-interaction.js";
@@ -52,6 +53,7 @@ export interface TestApi {
     setTrusted(trusted: boolean | undefined): void;
   };
   view: vscode.TreeView<ModelNode>;
+  ui: { auditLines(): string[] };
   agent: {
     apply(): Promise<void>;
     currentPlan(): { lmTools: boolean; mcpServer: boolean; registerWithVsCode: boolean };
@@ -356,7 +358,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 25; // four model read tools, nine diagram tools (one reads the editor context, one applies an aspect, one shows or hides parts and ports) (one reads the editor context), six model edit tools (one sets a transition) three requirements tools (document, matrix, create) and three UI-control tools (command, answer, state)
+  const TOOL_COUNT = 29; // every sysml_ tool in the manifest, including the seven UI-control tools
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {
@@ -657,6 +659,8 @@ export async function run(): Promise<void> {
     ...requirementsAuthoringTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...foldersTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    // Last: it turns the user setting `sysml.agent.uiControl` on and leaves it on.
+    ...uiAgentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];
 
   const failures: string[] = [];
