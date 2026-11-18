@@ -434,8 +434,11 @@ export function uiAgentTests(c: Ctx): Test[] {
       const text = () => readFileSync(abs("tmp-uifleet.sysml"), "utf8");
       // palette: place a part in Frigate and name it in the inline input
       await g(f, { kind: "flush" });
-      await g(f, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, name: "wheel" });
-      await waitFor(() => exists("UiFleet::Frigate::wheel"), 30000, "the part is in the model");
+      // A webview edit made on a render that a re-index replaced meanwhile is dropped on purpose ("Try it again"), so the test tries again once.
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        await g(f, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, name: "wheel" });
+        try { await waitFor(() => exists("UiFleet::Frigate::wheel"), attempt === 1 ? 10000 : 30000, "the part is in the model"); break; } catch (e) { if (attempt === 2) throw e; }
+      }
       // drop from the tree
       await g(f, { kind: "drop", names: ["UiFleet::Engine"] });
       await waitFor(async () => (await read(f)).nodes.some((n) => n.element?.qualifiedName === "UiFleet::Engine"), 10000, "Engine dropped");
