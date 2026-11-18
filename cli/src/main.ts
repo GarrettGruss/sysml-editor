@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, lstatSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { helpFor, MAIN_HELP, SKILLS_HELP, VERSION } from "./help.js";
@@ -18,17 +18,27 @@ function listFiles(dir: string, base = ""): string[] {
   const out: string[] = [];
   for (const e of readdirSync(join(dir, base), { withFileTypes: true })) {
     const rel = join(base, e.name);
-    if (e.isDirectory()) out.push(...listFiles(dir, rel));
+    if (e.isSymbolicLink()) out.push(rel + "\0symlink");
+    else if (e.isDirectory()) out.push(...listFiles(dir, rel));
     else out.push(rel);
   }
   return out.sort();
+}
+
+function lstatOrNull(p: string) {
+  try {
+    return lstatSync(p);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw e;
+  }
 }
 
 function identical(a: string, b: string): boolean {
   const fa = listFiles(a);
   const fb = listFiles(b);
   if (fa.length !== fb.length || fa.some((f, i) => f !== fb[i])) return false;
-  return fa.every((f) => readFileSync(join(a, f)).equals(readFileSync(join(b, f))));
+  return fa.every((f) => !f.endsWith("\0symlink") && readFileSync(join(a, f)).equals(readFileSync(join(b, f))));
 }
 
 function skills(args: string[], io: Io): void {
@@ -69,8 +79,9 @@ function skills(args: string[], io: Io): void {
   const plan: { name: string; action: "install" | "skip" | "overwrite" | "refuse" }[] = [];
   for (const name of names) {
     const dest = join(target, name);
-    if (!existsSync(dest)) plan.push({ name, action: "install" });
-    else if (!statSync(dest).isDirectory()) plan.push({ name, action: "refuse" });
+    const st = lstatOrNull(dest);
+    if (!st) plan.push({ name, action: "install" });
+    else if (st.isSymbolicLink() || !st.isDirectory()) plan.push({ name, action: v.force ? "overwrite" : "refuse" });
     else if (identical(join(io.skillsSource, name), dest)) plan.push({ name, action: "skip" });
     else plan.push({ name, action: v.force ? "overwrite" : "refuse" });
   }
@@ -120,7 +131,12 @@ export function run(argv: string[], io: Io): number {
     }
     if (first === "skills") {
       help = SKILLS_HELP;
-      skills(argv.slice(1), io);
+      try {
+        skills(argv.slice(1), io);
+      } catch (e) {
+        if (e instanceof UsageError || e instanceof Failure) throw e;
+        throw new Failure((e as Error).message);
+      }
       return 0;
     }
     if (first.startsWith("-")) throw new UsageError(`unknown option '${first}'`);

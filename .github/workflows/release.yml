@@ -29,7 +29,7 @@ jobs:
       - run: npm run package
       - run: npm run check:vsix
       - name: Pack the CLI
-        run: cd cli && npm pack --pack-destination ../release-assets
+        run: mkdir -p release-assets && cd cli && npm pack --pack-destination ../release-assets
       - name: Collect assets and checksums
         run: |
           cp ./*.vsix release-assets/

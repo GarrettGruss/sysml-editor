@@ -10,7 +10,7 @@ Requires Node 22 or newer and VS Code 1.106 or newer.
 curl -fsSL https://github.com/GarrettGruss/sysml-editor/releases/latest/download/install.sh | sh
 ```
 
-This installs the `sysml` CLI, the VS Code extension (if `code` is on your PATH) and the Claude agent skills. Set `VERSION=0.3.0` to pick a version, `SYSML_NO_EXTENSION=1` to skip the extension, `SYSML_NO_SKILLS=1` to skip the skills.
+This installs the `sysml` CLI, the VS Code extension (if `code` is on your PATH) and the Claude agent skills. Set `SYSML_VERSION=0.3.0` to pick a version, `SYSML_NO_EXTENSION=1` to skip the extension, `SYSML_NO_SKILLS=1` to skip the skills.
 
 Manually, from a [release](https://github.com/GarrettGruss/sysml-editor/releases):
 

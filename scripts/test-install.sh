@@ -4,7 +4,8 @@ set -eu
 cd "$(dirname "$0")/.."
 root=$(pwd)
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT INT TERM
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 130' INT TERM
 rm -f ./*.vsix cli/*.tgz
 
 npm run package
@@ -13,6 +14,9 @@ mkdir -p "$tmp/release"
 (cd cli && npm pack --pack-destination "$tmp/release" >/dev/null)
 cp ./*.vsix "$tmp/release/"
 (cd "$tmp/release" && sha256sum ./*.tgz ./*.vsix | sed 's# \./# #' > SHA256SUMS)
+
+if SYSML_VERSION=bogus SYSML_RELEASE_DIR="$tmp/release" sh scripts/install.sh 2>"$tmp/bad.err"; then echo "bad SYSML_VERSION accepted" >&2; exit 1; fi
+grep -q "invalid version" "$tmp/bad.err" || { echo "missing version error" >&2; exit 1; }
 
 mkdir -p "$tmp/home" "$tmp/prefix"
 HOME="$tmp/home" NPM_CONFIG_PREFIX="$tmp/prefix" PATH="$tmp/prefix/bin:$PATH" \

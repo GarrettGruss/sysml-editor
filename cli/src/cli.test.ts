@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, symlinkSync, lstatSync, rmSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -89,6 +89,35 @@ describe("sysml cli", () => {
     expect(readFileSync(join(user(), "sysml-tutor", "SKILL.md"), "utf8")).toBe("edited\n");
     expect(run(["skills", "-f"], io)).toBe(0);
     expect(readFileSync(join(user(), "sysml-tutor", "SKILL.md"), "utf8")).toBe("skill sysml-tutor\n");
+  });
+
+  it("does not follow a symlinked skill dir; -f replaces only the link", () => {
+    const target = join(root, "elsewhere");
+    mkdirSync(target);
+    writeFileSync(join(target, "SKILL.md"), "keep\n");
+    mkdirSync(user(), { recursive: true });
+    symlinkSync(target, join(user(), "sysml-tutor"));
+    expect(run(["skills"], io)).toBe(1);
+    expect(err).toContain("sysml-tutor");
+    expect(run(["skills", "-f"], io)).toBe(0);
+    expect(lstatSync(join(user(), "sysml-tutor")).isSymbolicLink()).toBe(false);
+    expect(readFileSync(join(target, "SKILL.md"), "utf8")).toBe("keep\n");
+  });
+
+  it("treats a symlink inside an installed skill as differing", () => {
+    run(["skills"], io);
+    const f = join(user(), "sysml-tutor", "SKILL.md");
+    rmSync(f);
+    symlinkSync(join(root, "src", "sysml-tutor", "SKILL.md"), f);
+    expect(run(["skills"], io)).toBe(1);
+  });
+
+  it("reports filesystem errors without a stack trace", () => {
+    mkdirSync(join(root, "home", ".claude"), { recursive: true });
+    writeFileSync(join(root, "home", ".claude", "skills"), "file");
+    expect(run(["skills"], io)).toBe(1);
+    expect(err).toMatch(/^sysml: .*[\s\S]*USAGE/);
+    expect(err).not.toContain("    at ");
   });
 
   it("-pf groups short flags", () => {
