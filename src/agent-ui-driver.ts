@@ -415,7 +415,19 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       nodes.push(n);
     }
     await this.showTree();
-    for (const n of nodes) await this.deps.tree.provider.revealNode(this.deps.tree.view, n, (m) => this.deps.log(m));
+    const errors: string[] = [];
+    const say = (m: string) => {
+      errors.push(m);
+      this.deps.log(m);
+    };
+    for (const n of nodes) await this.deps.tree.provider.revealNode(this.deps.tree.view, n, say);
+    // The selection reaches the extension host after the renderer applies it: confirm it, or say why not.
+    const want = nodes[nodes.length - 1]!.id;
+    const view = this.deps.tree.view;
+    for (let i = 0; i < 50 && view.selection[0]?.id !== want; i++) await new Promise((r) => setTimeout(r, 40));
+    if (view.selection[0]?.id !== want) {
+      return { ok: false, reason: `The tree did not select the node (view visible: ${view.visible}, selection: [${view.selection.map((s) => s.id).join(", ")}]${errors.length ? `, ${errors.join("; ")}` : ""}).` };
+    }
     return { ok: true };
   }
 

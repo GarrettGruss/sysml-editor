@@ -669,7 +669,10 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void, follow = false): Promise<void> {
     if (!follow) this.lastExplicitReveal = Date.now();
     const say = log ?? ((m: string) => console.warn(m));
-    if (!this.isShown(node)) return;
+    if (!this.isShown(node)) {
+      say(`SysML tree: ${node.id} is hidden by the filter "${this.queryValue}"`);
+      return;
+    }
     try {
       await view.reveal(node, { select: true, focus: false, expand: false });
     } catch (e) {
