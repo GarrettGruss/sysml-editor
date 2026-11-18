@@ -35,6 +35,11 @@ export function uiAgentTests(c: Ctx): Test[] {
     for (let i = 0; i < 500 && vscode.workspace.getConfiguration().inspect<boolean>("sysml.agent.uiControl")?.globalValue !== on; i++) await sleep(20);
     assert.strictEqual(vscode.workspace.getConfiguration().inspect<boolean>("sysml.agent.uiControl")?.globalValue, on, "the user setting took effect");
   };
+  const setTutor = async (on: boolean | undefined) => {
+    void cfg().update("tutor", on, vscode.ConfigurationTarget.Global).then(undefined, () => undefined);
+    for (let i = 0; i < 500 && vscode.workspace.getConfiguration().inspect<boolean>("sysml.agent.tutor")?.globalValue !== on; i++) await sleep(20);
+    assert.strictEqual(vscode.workspace.getConfiguration().inspect<boolean>("sysml.agent.tutor")?.globalValue, on, "the tutor setting took effect");
+  };
   let turn = 0;
   /** One call, alternating channels so each tool is exercised through both over the run. */
   const call = async (name: string, input: object, channel?: "mcp" | "lm"): Promise<ToolOutput & { json: any }> => {
@@ -518,6 +523,147 @@ export function uiAgentTests(c: Ctx): Test[] {
         rmSync(abs(file), { force: true });
         rmSync(abs(dir), { recursive: true, force: true });
       }
+    })],
+
+    ["Tutor only (uiControl off): control tools are refused on both channels, highlight on chrome, wait_for_user and state work, and every call is in the audit log", async () => {
+      await setUiControl(false);
+      await setTutor(true);
+      try {
+        const mark = ui().auditLines().length;
+        for (const [name, input] of UI_TOOLS.filter(([n]) => n !== "sysml_ui_screenshot")) {
+          for (const ch of ["mcp", "lm"] as const) assert.match((await call(name, input, ch)).text, /sysml\.agent\.uiControl/, `${name} via ${ch} is refused`);
+        }
+        for (const ch of ["mcp", "lm"] as const) {
+          const h = ok(await call("sysml_ui_highlight", { text: "Open the Model view.", chrome: "modelTree" }, ch), `chrome highlight via ${ch}`).json;
+          assert.strictEqual(h.highlighted, false);
+          assert.match(h.description, /Model view/);
+          const w = ok(await call("sysml_ui_wait_for_user", { timeoutSeconds: 1 }, ch), `wait via ${ch}`).json;
+          assert.ok(w.event === null || typeof w.event.kind === "string", "an event or a timeout");
+          ok(await call("sysml_ui_state", {}, ch), `state via ${ch}`);
+        }
+        const lines = ui().auditLines().slice(mark);
+        for (const t of ["sysml_ui_highlight", "sysml_ui_wait_for_user", "sysml_ui_command"]) assert.ok(lines.some((l) => l.includes(t)), `the audit log has ${t}`);
+        // both settings off: the tutor tools are refused too, naming the tutor setting
+        await setTutor(false);
+        for (const ch of ["mcp", "lm"] as const) {
+          assert.match((await call("sysml_ui_highlight", { text: "x", chrome: "modelTree" }, ch)).text, /sysml\.agent\.tutor/, `highlight off via ${ch}`);
+          assert.match((await call("sysml_ui_wait_for_user", { timeoutSeconds: 1 }, ch)).text, /sysml\.agent\.tutor/, `wait off via ${ch}`);
+        }
+        // a workspace-level value does not turn it on
+        await cfg().update("tutor", true, vscode.ConfigurationTarget.Workspace).then(undefined, () => undefined);
+        try {
+          assert.match((await call("sysml_ui_highlight", { text: "x", chrome: "modelTree" }, "mcp")).text, /sysml\.agent\.tutor/);
+        } finally {
+          await cfg().update("tutor", undefined, vscode.ConfigurationTarget.Workspace).then(undefined, () => undefined);
+        }
+      } finally {
+        await setTutor(undefined);
+        await setUiControl(undefined);
+      }
+    }],
+
+    ["Tutor highlight in a diagram: a node is spotlighted, Esc and a lost target clear it, a new highlight replaces the last, a missing target is refused", withFleet({
+      "tmp-ui-a.sysmld": { kind: "general", root: "UiFleet", nodes: nodes3 },
+    }, async () => {
+      const a = "tmp-ui-a.sysmld", uri = uriOf(a);
+      const shown = async () => (await api.diagram.metrics(uri)).highlight;
+      ok(await call("sysml_ui_highlight", { path: a, node: "n1", text: "This is the Ship." }), "highlight n1");
+      await waitFor(async () => (await shown()) === "This is the Ship.", 10000, "the callout is drawn");
+      const long = "x".repeat(400);
+      ok(await call("sysml_ui_highlight", { path: a, node: "n2", text: long }), "highlight n2");
+      await waitFor(async () => (await shown())?.length === 280, 10000, "a new highlight replaces the last, cut to 280 characters");
+      await api.diagram.gesture(uri, { kind: "key", key: "Escape" });
+      await waitFor(async () => (await shown()) === undefined, 10000, "Esc clears it");
+      ok(await call("sysml_ui_highlight", { path: a, node: "n2", text: "Frigate." }), "highlight again");
+      await waitFor(async () => (await shown()) === "Frigate.", 10000, "drawn again");
+      ok(await call("sysml_ui_diagram", { path: a, gesture: { kind: "menu", id: "n2", action: "remove" } }), "remove n2 from the diagram");
+      await waitFor(async () => (await shown()) === undefined, 10000, "losing the target clears it");
+      const miss = await call("sysml_ui_highlight", { path: a, node: "nope", text: "x" });
+      assert.match(miss.text, /not found|Refused|failed/i, "a missing node is refused");
+      assert.strictEqual(await shown(), undefined);
+      // markup in the text is shown as text
+      ok(await call("sysml_ui_highlight", { path: a, node: "n1", text: "<b>bold</b>" }), "markup text");
+      await waitFor(async () => (await shown()) === "<b>bold</b>", 10000, "plain text");
+    })],
+
+    ["Tutor highlight in the requirements editor: a selector is spotlighted, the close button clears it, and the chrome targets are described", withUi(async () => {
+      const f = "tmp-uireqd.sysml";
+      writeFileSync(abs(f), REQ_DOC);
+      try {
+        await vscode.workspace.openTextDocument(uriOf(f));
+        await waitFor(() => api.model.index.findByQualifiedName("UiReqD::Three").length > 0, 120000, "the package is indexed");
+        const scope = { kind: "package" as const, qualifiedName: "UiReqD" };
+        const shown = async () => (await api.requirements.metrics(scope)).highlight;
+        ok(await call("sysml_ui_requirements", { package: "UiReqD", action: "open", view: "document" }), "open the document view");
+        await waitFor(async () => (await call("sysml_ui_requirements", { package: "UiReqD", action: "observe" })).json.view === "document", 60000, "document view");
+        const sel = "[data-testid=add-root-requirement]";
+        ok(await call("sysml_ui_highlight", { package: "UiReqD", selector: sel, text: "Add a requirement here." }), "highlight");
+        await waitFor(async () => (await shown()) === "Add a requirement here.", 10000, "the callout is drawn");
+        await api.requirements.gesture(scope, { kind: "click", selector: "[data-testid=tutor-close]" });
+        await waitFor(async () => (await shown()) === undefined, 10000, "the close button clears it");
+        ok(await call("sysml_ui_highlight", { package: "UiReqD", selector: sel, text: "Again." }), "highlight again");
+        await waitFor(async () => (await shown()) === "Again.", 10000, "drawn again");
+        await api.requirements.gesture(scope, { kind: "key", selector: sel, key: "Escape" });
+        await waitFor(async () => (await shown()) === undefined, 10000, "Esc clears it");
+        assert.match((await call("sysml_ui_highlight", { package: "UiReqD", selector: "[data-testid=nope]", text: "x" })).text, /not found|Refused|failed/i);
+        for (const [chrome, re] of [["modelTree", /Model view/], ["treeNewFile", /New File/], ["treeNewFolder", /New Folder/], ["commandPalette", /Command Palette/]] as const) {
+          const r = ok(await call("sysml_ui_highlight", { chrome, text: "Look here.", ...(chrome === "commandPalette" ? { command: "sysml.tree.newFile" } : {}) }), chrome).json;
+          assert.strictEqual(r.highlighted, false);
+          assert.match(r.description, re, chrome);
+        }
+        await vscode.commands.executeCommand("workbench.action.closeQuickOpen");
+      } finally {
+        await closeEditors();
+        rmSync(abs(f), { force: true });
+      }
+    })],
+
+    ["wait_for_user returns a simulated user gesture, a command and a timeout, and ignores the agent's own actions", withFleet({
+      "tmp-ui-a.sysmld": { kind: "general", root: "UiFleet", nodes: nodes3 },
+    }, async () => {
+      const a = "tmp-ui-a.sysmld", uri = uriOf(a);
+      await g(a, { kind: "flush" });
+      const wait = (s: number, ch?: "mcp" | "lm") => call("sysml_ui_wait_for_user", { timeoutSeconds: s }, ch).then((r) => ok(r, "wait").json as { event: { kind: string; id?: string } | null; timedOut?: boolean });
+      /** Throw away events that queued up before (opening editors and the like). */
+      const drain = async () => { for (let i = 0; i < 20; i++) if ((await wait(1)).event === null) return; };
+      /** The next event that is not a tab change (those can arrive late from earlier steps). */
+      const next = async (s: number, ch: "mcp" | "lm") => {
+        const end = Date.now() + s * 1000;
+        for (;;) {
+          const r = await wait(Math.max(1, Math.ceil((end - Date.now()) / 1000)), ch);
+          if (r.event === null || r.event.kind !== "editor" || Date.now() > end) return r;
+        }
+      };
+      await drain();
+      await drain();
+      assert.deepStrictEqual(await next(1, "mcp"), { event: null, timedOut: true }, "a timeout");
+      // the user selects a node (the test API is not an agent action)
+      let pending = next(20, "mcp");
+      await sleep(200);
+      await api.diagram.gesture(uri, { kind: "select", id: "n3" });
+      let e = (await pending).event;
+      assert.deepStrictEqual(e, { kind: "selection", id: "n3" }, "the selection is reported");
+      await drain();
+      // the user runs a sysml.* command
+      pending = next(20, "lm");
+      await sleep(200);
+      await vscode.commands.executeCommand("sysml.tree.clearSearch");
+      e = (await pending).event;
+      assert.deepStrictEqual(e, { kind: "command", id: "sysml.tree.clearSearch" }, "the command is reported");
+      await drain();
+      // the agent's own actions are not reported
+      pending = next(4, "mcp");
+      await sleep(200);
+      await g(a, { kind: "select", id: "n1" }, "lm");
+      await g(a, { kind: "select", id: "n2" }, "lm");
+      ok(await call("sysml_ui_command", { command: "sysml.tree.clearSearch" }, "lm"), "agent command");
+      const r = await pending;
+      assert.strictEqual(r.event, null, `the agent's actions were not reported: ${JSON.stringify(r)}`);
+      assert.strictEqual(r.timedOut, true);
+      // an event that happened before the call is delivered at once
+      await api.diagram.gesture(uri, { kind: "select", id: "n3" });
+      await sleep(300);
+      assert.strictEqual((await next(5, "lm")).event?.kind, "selection", "a queued event is returned at once");
     })],
 
     ["Turning UI control off after it was on refuses the tools at once, cancels an open prompt, and leaves the window responsive; on again works", withFleet({

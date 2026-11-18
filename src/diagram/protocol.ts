@@ -173,6 +173,8 @@ export interface DiagramMetrics {
   userLabelsOverNodes: number;
   userLabelsOffCanvas: number;
   selected: string[];
+  /** The tutor callout text while a highlight is shown. */
+  highlight?: string;
   /** Labels of the open context menu's items (empty when none is open). */
   menu: string[];
   /** Selected nodes that carry an accessible name (aria-label). */

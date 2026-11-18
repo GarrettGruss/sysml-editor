@@ -95,6 +95,7 @@ export interface TestApi {
 }
 export type ReqScope = { kind: "package"; qualifiedName: string } | { kind: "file"; uri: string };
 export interface ReqMetrics {
+  highlight?: string;
   view: "table" | "matrix" | "document"; theme: "light" | "dark"; generation: number; scopeName: string;
   table: { rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[]; selected?: string; counts: { total: number; unsatisfied: number; unverified: number }; detail?: { qn: string; satisfiedBy: string[]; verifiedBy: string[]; derivedFrom: string[]; derives: string[] } };
   document: { title: string; version?: string; outline: { number: string; heading: string; level: number; appendix: boolean; paragraphs: number; items: number; elements: number }[]; toc: { number: string; heading: string; level: number; kind: string; qn: string }[]; appendixLetters: string[]; paragraphs: { section: string; text: string; lists: number; links: number }[]; items: { section: string; id: string; name: string; text: string; number: string; owner: string; collapsed: boolean; visible: boolean; trace: string; status: string }[]; rootBlocks: number; heading: string; gapCount: number; authoring: { mode: string; what?: string; ghost: boolean; activeGap?: { owner: string; before?: string; level: number; target: string }; visibleGaps: number; inputs: boolean; nestTarget?: string } };
@@ -112,6 +113,7 @@ export interface DiagramDoc {
 }
 export interface MNode { id: string; x: number; y: number; w: number; h: number; parent?: string; attachedTo?: string; shape?: string; text?: string; inherited?: boolean; tooltip?: string }
 export interface Metrics {
+  highlight?: string;
   nodes: MNode[]; edges: { id: string; source: string; target: string; points: { x: number; y: number }[]; style?: string; label?: string; order?: number; unordered?: boolean; labelBox?: { x: number; y: number; w: number; h: number }; labelLines?: string[]; labelLaidOut?: boolean }[];
   overlaps: number; overflows: number; outsideParent: number; nodesOverCompartments: number; diagonalSegments: number; edgesThroughEndNodes: number; labelsOverEndNodes: number; labelsOnOwnEdge: number; portsOffBorder: number; labelsOverNodes: number; labelsOverLabels: number; edgeOverlaps: number; userLabelsOverNodes: number; userLabelsOffCanvas: number;
   selected: string[]; menu: string[]; selectedNamed: number; handles: number; routeHandles: number; labelHandles: number; focusable: boolean; zoom: number;
@@ -358,7 +360,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 29; // every sysml_ tool in the manifest, including the seven UI-control tools
+  const TOOL_COUNT = 31; // every sysml_ tool in the manifest, including the seven UI-control tools and the two tutor tools
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {

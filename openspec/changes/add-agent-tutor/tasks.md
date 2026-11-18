@@ -18,11 +18,11 @@
 
 ## 5. Integration tests
 
-- [ ] 5.1 Through MCP and LM: tutor-only refusals of control tools, untrusted refusal, audit log
-- [ ] 5.2 Highlight in diagram and requirements webviews, Esc and close button dismissal, target-loss clearing, chrome target description
-- [ ] 5.3 `wait_for_user` returns a simulated user gesture, a command and a timeout, and ignores agent actions
+- [x] 5.1 Through MCP and LM: tutor-only refusals of control tools, untrusted refusal, audit log
+- [x] 5.2 Highlight in diagram and requirements webviews, Esc and close button dismissal, target-loss clearing, chrome target description
+- [x] 5.3 `wait_for_user` returns a simulated user gesture, a command and a timeout, and ignores agent actions
 
 ## 6. Docs and acceptance
 
-- [ ] 6.1 Document the tools, setting and walkthroughs in `docs/agents.md`
+- [x] 6.1 Document the tools, setting and walkthroughs in `docs/agents.md`
 - [ ] 6.2 Final agent-run tutoring check: an agent tutors one scenario (create a diagram and place an element), verifying each highlight by `sysml_ui_screenshot`; record the result beside the earlier acceptance results

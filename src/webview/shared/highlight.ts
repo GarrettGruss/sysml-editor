@@ -46,6 +46,9 @@ export class Highlighter {
 
   get active(): boolean { return this.spec !== undefined; }
 
+  /** The callout text while a highlight is shown (tests read it through the metrics). */
+  get shownText(): string | undefined { return this.spec ? this.text : undefined; }
+
   /** Draw the overlay for a target; returns an error text when the target is not in the page. */
   show(spec: HighlightSpec, text: string): string | undefined {
     this.clear();

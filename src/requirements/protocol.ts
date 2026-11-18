@@ -164,6 +164,8 @@ export interface RequirementsMetrics {
   theme: "light" | "dark";
   generation: number;
   scopeName: string;
+  /** The tutor callout text while a highlight is shown. */
+  highlight?: string;
   table: {
     rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[];
     selected?: string;

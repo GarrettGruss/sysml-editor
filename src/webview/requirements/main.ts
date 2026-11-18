@@ -832,6 +832,7 @@ function metrics(): RequirementsMetrics {
     theme: lightTheme() ? "light" : "dark",
     generation,
     scopeName: state?.scopeName ?? "",
+    ...(highlighter.shownText !== undefined ? { highlight: highlighter.shownText } : {}),
     table: {
       rows,
       ...(selected ? { selected } : {}),

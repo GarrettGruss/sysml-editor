@@ -253,7 +253,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       queue = queue.then(() => render(m.viewModel, m.generation)).catch(fail);
       break;
     case "getMetrics":
-      queue = queue.then(() => post({ type: "metricsResult", requestId: m.requestId, ...renderer.getMetrics() })).catch(fail);
+      queue = queue.then(() => post({ type: "metricsResult", requestId: m.requestId, ...renderer.getMetrics(), ...(highlighter.shownText !== undefined ? { highlight: highlighter.shownText } : {}) })).catch(fail);
       break;
     case "copyImage":
       queue = queue

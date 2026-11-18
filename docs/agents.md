@@ -123,7 +123,7 @@ half the width (repeatedly, down to 400 px); if it still exceeds 1 MB the reason
 
 ## UI control: driving the editor like a tester
 
-Seven more tools let an agent use the editor's own UI: `sysml_ui_command`, `sysml_ui_answer`, `sysml_ui_state`,
+Seven tools let an agent use the editor's own UI: `sysml_ui_command`, `sysml_ui_answer`, `sysml_ui_state`,
 `sysml_ui_diagram`, `sysml_ui_requirements`, `sysml_ui_tree` and `sysml_ui_screenshot`. They are meant for testing and
 for tasks that need the real UI (menus, prompts, undo, the tree).
 
@@ -144,6 +144,31 @@ off, every UI tool refuses and says which setting to change, and `sysml_ui_state
 Safety: commands outside the allowlist are refused; file arguments must lie inside the workspace; delete commands still
 ask their confirmation, which the agent must answer; the clipboard is reported by kind, never content. Every call writes
 one line (tool, target, arguments) to the "SysML Agent UI" output channel before it runs.
+
+## Tutor: teaching the user in the editor
+
+Two more tools let an agent teach: `sysml_ui_highlight` and `sysml_ui_wait_for_user`. They only display and observe; they
+never change the model. They are off by default and have their own user setting, `sysml.agent.tutor` (user level only; a
+value in `.vscode/settings.json` is ignored). Either `sysml.agent.tutor` or `sysml.agent.uiControl` turns them on, and they
+need a trusted workspace. With only the tutor setting on, `sysml_ui_state` and `sysml_ui_screenshot` also work (so the agent
+can check what it showed), but the control tools above stay refused. When both settings are off, the tutor tools refuse and
+name `sysml.agent.tutor`. Every call is written to the "SysML Agent UI" output channel.
+
+| Tool | Purpose |
+| --- | --- |
+| `sysml_ui_highlight` | Spotlight a target with a callout. In a diagram: `path` with `node` (a node id) or `selector` (a CSS selector such as `[data-testid=...]`). In a requirements editor: `package` or `file` with `selector`. The editor is brought to the front first. The callout is plain text, cut to 280 characters. A new highlight replaces the last. |
+| `sysml_ui_wait_for_user` | Wait up to `timeoutSeconds` (default 60, at most 300) for the user to do something, and report `{ event: { kind, id? } }` (`kind`: `command`, `selection`, `editor` or `gesture`; kinds and ids only, never text the user typed), or `{ event: null, timedOut: true }`. The agent's own actions are never reported. |
+
+The user dismisses a highlight with Esc or the close button of the callout; it also clears when its target disappears.
+
+VS Code's own screen (the Model view, its New File and New Folder buttons, the Command Palette) cannot be drawn on. For these,
+`sysml_ui_highlight` takes `chrome` instead of a target (`modelTree`, `treeNewFile`, `treeNewFolder`, `commandPalette`; the
+last takes an optional `command` to type in). The view is revealed, or the Command Palette opened, and the result carries a
+fixed description of where the target is (`highlighted: false`, `description`), which the agent passes on in words.
+
+Two walkthroughs, opened from the Welcome page (Get Started), cover the same ground without an agent: **SysML: First Steps**
+(the Model view, creating a file, the requirements editor) and **SysML: Diagram Basics** (creating a diagram, placing an
+element, connecting, saving). Their steps complete when the user runs the matching command.
 
 ## Channels
 
