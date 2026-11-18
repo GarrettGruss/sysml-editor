@@ -172,10 +172,10 @@ element, connecting, saving). Their steps complete when the user runs the matchi
 
 ## Skills
 
-Three Claude agent skills ship with the extension in `src/skills/` (and in the VSIX): `sysml-modeling` (read and edit the model and
+Three Claude agent skills are kept in `src/skills/` and ship in the VSIX under `dist/skills/`: `sysml-modeling` (read and edit the model and
 diagrams), `sysml-ui-testing` (drive and test the UI, record acceptance results) and `sysml-tutor` (teach with highlights). In this
 repository they are linked from `.claude/skills/`. To use them in another Claude setup, copy the folders
-(`<extension path>/src/skills/<name>`) into your own skills folder, for example `~/.claude/skills/` or a project's `.claude/skills/`.
+(`<extension path>/dist/skills/<name>`) into your own skills folder, for example `~/.claude/skills/` or a project's `.claude/skills/`.
 
 ## Channels
 
