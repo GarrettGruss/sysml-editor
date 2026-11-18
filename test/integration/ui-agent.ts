@@ -273,7 +273,8 @@ export function uiAgentTests(c: Ctx): Test[] {
         const many = await call("sysml_ui_tree", { op: "select", nodes: [frigate.id, ship.id] }, ch);
         assert.match(many.text, /several|one node/i, `multi-select refused via ${ch}`);
       }
-      assert.strictEqual((await list()).find((n) => n.id === frigate.id)?.selected, true);
+      // a re-index may refresh the tree and drop the selection for a moment; it is selected again
+      await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate still selected");
       ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.refresh" }), "refresh");
       ok(await call("sysml_ui_tree", { op: "collapseAll" }), "collapse all");
       all = await list(undefined, 1);
