@@ -1588,6 +1588,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
 
   /** The tutor (D63): bring the diagram to the front and spotlight a node or selector. Throws with the webview's reason. */
   async highlight(uri: vscode.Uri, spec: { node?: string; selector?: string }, text: string): Promise<void> {
+    if (!uri.path.endsWith(".sysmld")) throw new Error("The path must name a .sysmld diagram file.");
     await this.testApi.open(uri);
     const r = await this.request<"gestureResult">(uri, (requestId) => ({ type: "highlight", requestId, ...spec, text }));
     if (r.error) throw new Error(r.error);

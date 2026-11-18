@@ -40,11 +40,20 @@ export function calloutPosition(box: Box, view: { width: number; height: number 
 
 export class Highlighter {
   private els: OverlayEl[] = [];
+  /** Every element ever drawn, so the removal of an old overlay is still recognised as ours. */
+  private readonly mine = new WeakSet<object>();
   private spec: HighlightSpec | undefined;
   private text = "";
   constructor(private readonly env: OverlayEnv) {}
 
   get active(): boolean { return this.spec !== undefined; }
+
+  /** Whether a DOM node is one of this overlay's own elements (or inside one). */
+  owns(n: unknown): boolean {
+    if (typeof n !== "object" || n === null) return false;
+    if (this.mine.has(n)) return true;
+    return this.els.some((e) => typeof (e as { contains?: unknown }).contains === "function" && (e as unknown as Node).contains(n as Node));
+  }
 
   /** The callout text while a highlight is shown (tests read it through the metrics). */
   get shownText(): string | undefined { return this.spec ? this.text : undefined; }
@@ -89,6 +98,7 @@ export class Highlighter {
     attach(spot);
     attach(callout);
     this.els = [spot, callout];
+    for (const e of [spot, callout, body, close]) this.mine.add(e);
   }
 
   /** Re-measure after a resize or a DOM change; a missing target clears the highlight (D65). */
@@ -137,13 +147,23 @@ export function domEnv(resolve: (spec: HighlightSpec) => Element | null): Overla
   };
 }
 
+/** True when some record concerns something other than the overlay's own elements. */
+export function hasForeignMutation(records: readonly { target: unknown; addedNodes: ArrayLike<unknown>; removedNodes: ArrayLike<unknown> }[], h: Pick<Highlighter, "owns">): boolean {
+  return records.some((r) => {
+    if (h.owns(r.target)) return false;
+    const nodes = [...Array.from(r.addedNodes), ...Array.from(r.removedNodes)];
+    return nodes.length === 0 || nodes.some((n) => !h.owns(n));
+  });
+}
+
 /** Wire Esc, resize and DOM changes to a highlighter; the page calls `refresh` from its own state refresh too. */
 export function bindHighlighter(h: Highlighter, root: Node): void {
   window.addEventListener("keydown", (e) => { if (h.key(e.key)) e.preventDefault(); });
   window.addEventListener("resize", () => h.refresh());
   let queued = false;
-  new MutationObserver(() => {
+  new MutationObserver((records) => {
     if (!h.active || queued) return;
+    if (!hasForeignMutation(records, h)) return; // the overlay's own append/remove must not redraw it
     queued = true;
     requestAnimationFrame(() => { queued = false; h.refresh(); });
   }).observe(root, { childList: true, subtree: true, attributes: true });

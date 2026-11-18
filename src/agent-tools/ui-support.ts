@@ -428,3 +428,23 @@ export class UserEventQueue {
     this.queue = [];
   }
 }
+
+/** Tells agent-caused UI events from user ones: none count while an action runs or for a short grace window after (D67). */
+export class ActionGrace {
+  private inFlight = 0;
+  private until = 0;
+  constructor(private readonly graceMs = 1500, private readonly now: () => number = Date.now) {}
+  enter(): void { this.inFlight++; }
+  leave(): void {
+    this.inFlight = Math.max(0, this.inFlight - 1);
+    if (this.inFlight === 0) this.until = this.now() + this.graceMs;
+  }
+  get busy(): boolean { return this.inFlight > 0; }
+  /** Whether an event arriving now may have been caused by the agent. */
+  suppressing(): boolean { return this.inFlight > 0 || this.now() < this.until; }
+}
+
+/** Whether a path names a `.sysmld` diagram file. */
+export function isDiagramPath(p: string): boolean {
+  return p.toLowerCase().endsWith(".sysmld");
+}

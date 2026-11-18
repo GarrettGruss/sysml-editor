@@ -8,7 +8,7 @@ import {
   type AnswerOutcome, type CommandOutcome, type DiagramGesture, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg,
   type HighlightOutcome, type HighlightTarget, type ScreenshotTarget, type UserEvent, type TreeNodeInfo, type TreeOutcome, type UiAnswer, type UiDriver, type UiGate, type UiPrompt, type UiState,
 } from "./agent-tools/ui-driver.js";
-import { MessageLog, PromptBroker, UserEventQueue, resolveInWorkspace, saveAnswerAllowed, runUntilPromptOrDone, type PromptResult } from "./agent-tools/ui-support.js";
+import { MessageLog, PromptBroker, UserEventQueue, ActionGrace, isDiagramPath, resolveInWorkspace, saveAnswerAllowed, runUntilPromptOrDone, type PromptResult } from "./agent-tools/ui-support.js";
 import type { DiagramEditorProvider, DiagramUi } from "./diagram/diagram-editor.js";
 import { VIEW_TYPE as DIAGRAM_VIEW_TYPE } from "./diagram/diagram-editor.js";
 import type { RequirementsEditor } from "./requirements/editor.js";
@@ -55,7 +55,8 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   private lastCall = 0;
   private readonly userEvents = new UserEventQueue();
   /** Agent commands and gestures running now; only their questions are routed to the agent. */
-  private inFlight = 0;
+  private readonly action = new ActionGrace();
+  private get inFlight(): number { return this.action.busy ? 1 : 0; }
 
   constructor(private readonly deps: UiDriverDeps, timeoutMs?: number) {
     this.broker = new PromptBroker(timeoutMs, (p) => this.channel.appendLine(`prompt ${p.id} (${p.kind}) timed out and was cancelled`));
@@ -64,7 +65,7 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     // What the user does, for sysml_ui_wait_for_user (D67): kinds and ids only; agent actions are skipped.
     const user = (e: UserEvent) => {
       const g = this.gate();
-      if (this.inFlight === 0 && g.trusted && (g.enabled || g.tutor)) this.userEvents.push(e);
+      if (!this.action.suppressing() && g.trusted && (g.enabled || g.tutor)) this.userEvents.push(e);
     };
     setCommandSink((id) => { if (id.startsWith("sysml.")) user({ kind: "command", id }); });
     deps.diagrams.onUserEvent = (kind, id) => user({ kind, ...(id !== undefined ? { id } : {}) });
@@ -93,11 +94,11 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
 
   /** Run `f` as an agent action: prompts it causes go to the agent, and only while it runs. */
   private async agentAction<T>(f: () => Promise<T>): Promise<T> {
-    this.inFlight++;
+    this.action.enter();
     try {
       return await f();
     } finally {
-      this.inFlight--;
+      this.action.leave();
     }
   }
 
@@ -225,8 +226,8 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       return { ok: false, reason: e instanceof Error ? e.message : String(e), prompts: this.prompts() };
     }
     // Questions the command asks after it returned (a second prompt) still belong to the agent until it settles.
-    this.inFlight++;
-    const leave = () => void this.inFlight--;
+    this.action.enter();
+    const leave = () => this.action.leave();
     run.then(leave, leave);
     // A command left waiting on a prompt may fail later; that is logged, not lost.
     run.catch((e: unknown) => this.channel.appendLine(`command ${id} failed after it returned: ${e instanceof Error ? e.message : String(e)}`));
@@ -479,11 +480,13 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   private async highlightInner(target: HighlightTarget, text: string): Promise<HighlightOutcome> {
     this.touch();
     try {
+      this.userEvents.clear(); // earlier events do not count for a new highlight
       // One highlight at a time, across both editors.
       this.deps.diagrams.clearHighlights();
       this.deps.requirements.clearHighlights();
       switch (target.kind) {
         case "diagram":
+          if (!isDiagramPath(target.path)) return { ok: false, reason: "The path must name a .sysmld diagram file." };
           await this.deps.diagrams.highlight(vscode.Uri.file(target.path), { ...(target.node !== undefined ? { node: target.node } : {}), ...(target.selector !== undefined ? { selector: target.selector } : {}) }, text);
           return { ok: true, drawn: true };
         case "requirements":

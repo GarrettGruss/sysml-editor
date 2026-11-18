@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CALLOUT_MAX, Highlighter, calloutPosition, type Box, type OverlayEl, type OverlayEnv } from "./highlight.js";
+import { CALLOUT_MAX, hasForeignMutation, Highlighter, calloutPosition, type Box, type OverlayEl, type OverlayEnv } from "./highlight.js";
 
 class El implements OverlayEl {
   textContent: string | null = null;
@@ -72,5 +72,20 @@ describe("Highlighter", () => {
     const p = calloutPosition({ left: 790, top: 580, width: 10, height: 10 }, { width: 800, height: 600 });
     expect(p.left).toBeLessThanOrEqual(800 - 280 - 4);
     expect(p.top).toBeLessThan(580);
+  });
+});
+
+describe("overlay mutations", () => {
+  it("ignores the overlay's own append and remove but not page changes", () => {
+    const { h, attached } = setup();
+    h.show({ node: "n" }, "hi");
+    const first = [...attached];
+    h.show({ node: "n" }, "again"); // removes the first overlay, appends a new one
+    const own = [
+      { target: {}, addedNodes: [attached[attached.length - 1]], removedNodes: [] },
+      { target: {}, addedNodes: [], removedNodes: first },
+    ];
+    expect(hasForeignMutation(own, h)).toBe(false);
+    expect(hasForeignMutation([...own, { target: {}, addedNodes: [{}], removedNodes: [] }], h)).toBe(true);
   });
 });
