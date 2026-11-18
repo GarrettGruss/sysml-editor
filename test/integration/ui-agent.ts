@@ -266,7 +266,7 @@ export function uiAgentTests(c: Ctx): Test[] {
       try {
         await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate selected");
       } catch (e) {
-        throw new Error(`${e instanceof Error ? e.message : String(e)}\nTREE TRACE (#77):\n${api.treeTrace.join("\n")}\nview.selection=[${api.view.selection.map((n) => n.id).join(",")}] visible=${api.view.visible} frigate=${frigate.id} t0=${t0}`);
+        throw new Error(`${e instanceof Error ? e.message : String(e)}\nTREE TRACE (#77):\n${api.treeTrace.slice(-40).join("\n")}\nview.selection=[${api.view.selection.map((n) => n.id).join(",")}] visible=${api.view.visible} frigate=${frigate.id} t0=${t0}`);
       }
       // several nodes: refused explicitly, the single selection is unchanged
       for (const ch of ["mcp", "lm"] as const) {
@@ -274,7 +274,11 @@ export function uiAgentTests(c: Ctx): Test[] {
         assert.match(many.text, /several|one node/i, `multi-select refused via ${ch}`);
       }
       // a re-index may refresh the tree and drop the selection for a moment; it is selected again
-      await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate still selected");
+      try {
+        await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate still selected");
+      } catch (e) {
+        throw new Error(`${e instanceof Error ? e.message : String(e)}\nTREE TRACE (#77):\n${api.treeTrace.slice(-40).join("\n")}`);
+      }
       ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.refresh" }), "refresh");
       ok(await call("sysml_ui_tree", { op: "collapseAll" }), "collapse all");
       all = await list(undefined, 1);

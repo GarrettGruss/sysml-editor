@@ -878,17 +878,38 @@ export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<Mode
  */
 export function keepSelectionAcrossRefresh(index: ModelIndex, view: vscode.TreeView<ModelNode>, provider: ModelTreeProvider, log: (m: string) => void): vscode.Disposable {
   let last: readonly ModelNode[] = [];
+  let lost: readonly ModelNode[] = [];
   let refreshedAt = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Reveal once refreshes stop (a reveal during one is dropped too); check again after it.
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      const again = lost.filter((n) => isFolderNode(n) || isFileNode(n) || isDiagramNode(n) || resolveNode(index, n));
+      if (!again.length || view.selection.length) { lost = []; return; }
+      provider.note(`restore [${again.map((n) => n.id).join(",")}]`);
+      void (async () => {
+        for (const n of again) await provider.revealNode(view, n, log, true);
+        if (!view.selection.length && Date.now() - refreshedAt < 1000) schedule();
+        else lost = [];
+      })();
+    }, 300);
+  };
   return vscode.Disposable.from(
-    provider.onDidChangeTreeData(() => { refreshedAt = Date.now(); }),
+    provider.onDidChangeTreeData(() => {
+      refreshedAt = Date.now();
+      if (lost.length) schedule();
+    }),
     view.onDidChangeSelection((e) => {
       if (e.selection.length === 0 && last.length && Date.now() - refreshedAt < 1000) {
-        const again = last.filter((n) => isFolderNode(n) || isFileNode(n) || isDiagramNode(n) || resolveNode(index, n));
-        if (!again.length) { last = []; return; }
-        void (async () => { for (const n of again) await provider.revealNode(view, n, log, true); })();
+        lost = last;
+        schedule();
         return;
       }
+      lost = [];
       last = e.selection;
     }),
+    { dispose: () => { if (timer) clearTimeout(timer); } },
   );
 }
