@@ -1,0 +1,10 @@
+1 highlight chrome modelTree: ok, description "The SysML Model view in the Activity Bar (left side): the tree of files, packages and elements. No overlay was drawn; the view was revealed."
+2 wait_for_user after the user ran New Diagram: {"kind":"command","id":"sysml.newDiagram"}
+  diagram opened: TutorDemo.sysmld
+3 highlight canvas: callout drawn (metrics), screenshot 1-canvas-highlight.png
+  the user dismissed the callout with Esc
+4a wait_for_user after the user placed a part by the palette: null (no event: placement alone is not reported, only selections are)
+  model has TutorDemo::car; diagram nodes: [{"id":"n1","x":20,"y":20,"w":150,"h":108,"shape":"package","text":"TutorDemo"},{"id":"n2","x":50,"y":72,"w":90,"h":46,"shape":"definition","text":"«part def» | Vehicle","parent":"n1"},{"id":"n3","x":40,"y":150,"w":90,"h":46,"shape":"usage","text":"«part» | car"}]
+4b wait_for_user after the user clicked the new node: {"kind":"selection","id":"n3"}
+5 highlight node n3: callout drawn, screenshot 2-new-node-highlight.png
+6 user pressed Esc: highlight cleared

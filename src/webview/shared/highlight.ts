@@ -46,6 +46,8 @@ export class Highlighter {
   private text = "";
   constructor(private readonly env: OverlayEnv) {}
 
+  get target(): HighlightSpec | undefined { return this.spec; }
+
   get active(): boolean { return this.spec !== undefined; }
 
   /** Whether a DOM node is one of this overlay's own elements (or inside one). */

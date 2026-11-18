@@ -25,4 +25,4 @@
 ## 6. Docs and acceptance
 
 - [x] 6.1 Document the tools, setting and walkthroughs in `docs/agents.md`
-- [ ] 6.2 Final agent-run tutoring check: an agent tutors one scenario (create a diagram and place an element), verifying each highlight by `sysml_ui_screenshot`; record the result beside the earlier acceptance results
+- [x] 6.2 Final agent-run tutoring check: an agent tutors one scenario (create a diagram and place an element), verifying each highlight by `sysml_ui_screenshot`; record the result beside the earlier acceptance results

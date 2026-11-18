@@ -1,4 +1,5 @@
 /** Entry point of the diagram webview bundle (`dist/webview/diagram.js`). */
+import { exportBox, exportHighlight } from "./export-map.js";
 import { Highlighter, bindHighlighter, domEnv } from "../shared/highlight.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { DiagramEdit, HostToWebview, NodeBox, PngTheme, WebviewToHost } from "../../diagram/protocol.js";
@@ -189,7 +190,7 @@ function windowSvg(theme: PngTheme): { svg: string; width: number; height: numbe
   const k = Math.min(1, (W - left - right - 20) / dw, (H - top - 10) / dh);
   const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="${top}" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
   let panels = "";
-  for (const sel of [".toolbar", ".palette", ".props", ".quick-bar", ".inline-wrap", ".ctx-menu"]) {
+  for (const sel of [".toolbar", ".palette", ".props", ".quick-bar", ".inline-wrap", ".ctx-menu", "[data-testid=tutor-spotlight]", "[data-testid=tutor-callout]"]) {
     const e = document.querySelector(sel);
     if (!e) continue;
     const r = e.getBoundingClientRect();
@@ -200,10 +201,18 @@ function windowSvg(theme: PngTheme): { svg: string; width: number; height: numbe
       px = left + 10 + (Number(e.dataset.ax) - Number(vb[1])) * k;
       py = top + (Number(e.dataset.ay) - Number(vb[2])) * k;
     }
+    let w = Math.ceil(r.width), h = Math.ceil(r.height);
+    const tid = e instanceof HTMLElement ? e.dataset.testid : undefined;
+    const nb = highlighter.target?.node !== undefined ? renderer.nodeBox(highlighter.target.node) : undefined;
+    if (nb && vb && (tid === "tutor-spotlight" || tid === "tutor-callout")) {
+      const hl = exportHighlight(exportBox(nb, { x: Number(vb[1]), y: Number(vb[2]) }, left + 10, top, k), { width: W, height: H });
+      if (tid === "tutor-spotlight") { px = hl.frame.x; py = hl.frame.y; w = Math.ceil(hl.frame.w); h = Math.ceil(hl.frame.h); }
+      else { px = hl.callout.left; py = hl.callout.top; }
+    }
     const copy = styledCopy(e);
     copy.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
     copy.setAttribute("style", (copy.getAttribute("style") ?? "") + ";position:static;margin:0;top:auto;left:auto;right:auto;");
-    panels += `<foreignObject x="${px}" y="${py}" width="${Math.ceil(r.width)}" height="${Math.ceil(r.height)}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
+    panels += `<foreignObject x="${px}" y="${py}" width="${w}" height="${h}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
   }
   const bg = exportBackground(theme);
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${bg}"/>${nested}${panels}</svg>`, width: W, height: H };
