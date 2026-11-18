@@ -20,7 +20,8 @@ On a timeout, ask if they need help or re-highlight with a simpler hint.
 ## Rules
 
 - VS Code's own screen cannot be drawn on. For the Model view, its New File and New Folder buttons and the Command Palette use `chrome` (`modelTree`, `treeNewFile`, `treeNewFolder`, `commandPalette` with an optional `command`). The result has `highlighted: false` and a `description` of where the target is; pass it on to the user in words.
-- Your own actions are never reported as user events, and for about 1.5 s after one of your actions the UI may still be settling; wait before the next highlight or read.
+- To check a highlight landed where you meant, take `sysml_ui_screenshot` of the diagram: the frame and callout are drawn in it around the target.
+- Your own actions are never reported as user events. User events in the 1.5 s after one of your actions are also dropped, so a very quick user action can be missed; on a timeout, verify the model before re-prompting.
 - The user dismisses a highlight with Esc or the close button; it also clears when its target disappears. If it vanished, do not assume the step was done; verify.
 - Do the step yourself only when asked. Teaching means the user acts.
 - Keep callouts short and concrete; put longer explanations in your chat message.
