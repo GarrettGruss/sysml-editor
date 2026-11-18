@@ -466,6 +466,11 @@ export class SvgRenderer implements DiagramRenderer {
     return { w: r.width || this.svg.clientWidth || 800, h: r.height || this.svg.clientHeight || 600 };
   }
 
+  /** A node's box in diagram coordinates. */
+  nodeBox(id: string): Box | undefined {
+    return this.vm ? absoluteBoxes(this.vm, this.currentRel()).get(id) : undefined;
+  }
+
   fit(): void {
     if (!this.vm) return;
     const abs = [...absoluteBoxes(this.vm, this.rel).values(), ...this.drawn.labels.values()];

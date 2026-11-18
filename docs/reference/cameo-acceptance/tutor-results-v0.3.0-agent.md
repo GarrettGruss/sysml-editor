@@ -23,10 +23,9 @@ Counts: Pass 6, Fail 0.
 - **D1 (fixed): the screenshot did not show the highlight.** The PNG is the export window (drawing plus toolbar, palette, properties
   re-drawn from the live DOM) and left out the tutor overlay, so an agent could not verify a highlight by screenshot. The overlay
   (`tutor-spotlight`, `tutor-callout`) is now copied into the window export (`src/webview/diagram/main.ts`, `windowSvg`).
-- **D2 (open, minor): the overlay is at its live-window position, not the export's.** The export re-lays out the drawing, so for a
-  node highlight the spotlight frame and callout land below the node (`2-new-node-highlight.png`: frame at the lower middle, node at the
-  upper left). The callout text and its presence are verifiable; its position relative to the target is not. A fix needs the node's
-  position mapped into the export layout.
+- **D2 (fixed): the overlay was at its live-window position, not the export's.** For a node highlight the frame and callout are now
+  placed from the node's diagram bounds through the export transform (`export-map.ts`); `2-new-node-highlight.png` shows the frame
+  around the node and the callout beside it.
 - **O1: placing an element is not itself a `wait_for_user` event.** After a palette placement the wait timed out (8 s); only the
   following click on the node was reported as a selection. In the test the placement came through the test API, so a real mouse
   placement may differ; the tutor should confirm placement by reading the model rather than waiting on an event.
