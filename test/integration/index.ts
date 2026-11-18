@@ -667,7 +667,8 @@ export async function run(): Promise<void> {
 
   const failures: string[] = [];
   const only = process.env.SYSML_TEST_FILTER ? new RegExp(process.env.SYSML_TEST_FILTER) : undefined;
-  for (const [name, fn] of tests) {
+  const repeat = Number(process.env.SYSML_TEST_REPEAT ?? 1); // TEMP #77
+  for (const [name, fn] of tests.flatMap((t) => Array.from({ length: repeat }, () => t))) {
     if (only && !only.test(name)) continue;
     try {
       await fn();

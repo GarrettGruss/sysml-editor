@@ -37,6 +37,8 @@ export interface TestApi {
   newEntry: NewEntryTestApi;
   /** The UI-control driver; tests read its audit lines. */
   ui: VsCodeUiDriver;
+  /** TEMP #77 diagnostics. */
+  treeTrace: string[];
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -95,6 +97,9 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     uiDriver,
     provider,
     view,
+    view.onDidChangeSelection((e) => provider.note(`selection [${e.selection.map((n) => n.id).join(",")}]`)),
+    view.onDidChangeVisibility((e) => provider.note(`visible ${e.visible}`)),
+    vscode.window.onDidChangeActiveTextEditor((e) => provider.note(`activeEditor ${e?.document.uri.path ?? "none"}`)),
     view.onDidExpandElement((e) => provider.setExpanded(e.element, true)),
     view.onDidCollapseElement((e) => provider.setExpanded(e.element, false)),
     vscode.window.registerWebviewViewProvider(SEARCH_VIEW_ID, search, { webviewOptions: { retainContextWhenHidden: true } }),
@@ -167,7 +172,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     },
     setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
-  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi, ui: uiDriver };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi, ui: uiDriver, treeTrace: provider.trace };
 }
 
 export function deactivate(): void {}

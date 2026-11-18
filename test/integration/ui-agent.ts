@@ -260,8 +260,14 @@ export function uiAgentTests(c: Ctx): Test[] {
       assert.ok(frigate, `Frigate is listed: ${all.map((n) => n.label).join(", ")}`);
       const ship = find("Ship")!;
       // select one node, observe the selection
-      ok(await call("sysml_ui_tree", { op: "select", nodes: [frigate.id] }), "select");
-      await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate selected");
+      const t0 = api.treeTrace.length;
+      const sel = await call("sysml_ui_tree", { op: "select", nodes: [frigate.id] });
+      api.treeTrace.push(`select result ${JSON.stringify(sel.json ?? sel)}`);
+      try {
+        await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate selected");
+      } catch (e) {
+        throw new Error(`${e instanceof Error ? e.message : String(e)}\nTREE TRACE (#77):\n${api.treeTrace.join("\n")}\nview.selection=[${api.view.selection.map((n) => n.id).join(",")}] visible=${api.view.visible} frigate=${frigate.id} t0=${t0}`);
+      }
       // several nodes: refused explicitly, the single selection is unchanged
       for (const ch of ["mcp", "lm"] as const) {
         const many = await call("sysml_ui_tree", { op: "select", nodes: [frigate.id, ship.id] }, ch);
