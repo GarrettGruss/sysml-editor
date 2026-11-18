@@ -27,7 +27,7 @@ export function uiAgentTests(c: Ctx): Test[] {
   const abs = (name: string) => uriOf(name).fsPath;
   /** Paths in sysml_ui_state are workspace-relative. */
   const rel = (name: string) => name;
-  const ui = () => (api as unknown as { ui: { auditLines(): string[] } }).ui;
+  const ui = () => (api as unknown as { ui: { auditCount(): number; auditSince(mark: number): string[] } }).ui;
   const cfg = () => vscode.workspace.getConfiguration("sysml.agent");
   const setUiControl = async (on: boolean | undefined) => {
     // The write to user settings can take a long time to resolve in a test window: poll for the value instead of waiting for it.
@@ -167,7 +167,7 @@ export function uiAgentTests(c: Ctx): Test[] {
     }],
 
     ["UI control on: unlisted commands, outside paths, bad gestures and unknown tree commands are refused on both channels, and every call is in the audit log", withUi(async () => {
-      const mark = ui().auditLines().length;
+      const mark = ui().auditCount();
       for (const ch of ["mcp", "lm"] as const) {
         for (const id of ["workbench.action.terminal.new", "vscode.open", "workbench.action.files.openFile", "editor.action.clipboardCopyAction"]) {
           const r = await call("sysml_ui_command", { command: id }, ch);
@@ -184,7 +184,7 @@ export function uiAgentTests(c: Ctx): Test[] {
         const req = await call("sysml_ui_requirements", { file: "/etc/passwd", action: "observe" }, ch);
         assert.match(req.text, /outside the workspace/);
       }
-      const lines = ui().auditLines().slice(mark);
+      const lines = ui().auditSince(mark);
       for (const t of ["sysml_ui_command", "sysml_ui_diagram", "sysml_ui_tree", "sysml_ui_requirements"]) assert.ok(lines.some((l) => l.includes(`${t} target=`)), `the audit log has ${t}`);
       assert.ok(lines.some((l) => l.includes("workbench.action.terminal.new")), "refused calls are logged too");
       assert.ok(lines.every((l) => /^\d{4}-\d\d-\d\dT/.test(l)), "each line is timestamped");
@@ -267,7 +267,8 @@ export function uiAgentTests(c: Ctx): Test[] {
         const many = await call("sysml_ui_tree", { op: "select", nodes: [frigate.id, ship.id] }, ch);
         assert.match(many.text, /several|one node/i, `multi-select refused via ${ch}`);
       }
-      assert.strictEqual((await list()).find((n) => n.id === frigate.id)?.selected, true);
+      // a re-index may refresh the tree and drop the selection for a moment; it is selected again
+      await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate still selected");
       ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.refresh" }), "refresh");
       ok(await call("sysml_ui_tree", { op: "collapseAll" }), "collapse all");
       all = await list(undefined, 1);
@@ -434,8 +435,11 @@ export function uiAgentTests(c: Ctx): Test[] {
       const text = () => readFileSync(abs("tmp-uifleet.sysml"), "utf8");
       // palette: place a part in Frigate and name it in the inline input
       await g(f, { kind: "flush" });
-      await g(f, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, name: "wheel" });
-      await waitFor(() => exists("UiFleet::Frigate::wheel"), 30000, "the part is in the model");
+      // A webview edit made on a render that a re-index replaced meanwhile is dropped on purpose ("Try it again"), so the test tries again once.
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        await g(f, { kind: "palette", item: "part", id: "n2", x: 10, y: 10, name: "wheel" });
+        try { await waitFor(() => exists("UiFleet::Frigate::wheel"), attempt === 1 ? 10000 : 30000, "the part is in the model"); break; } catch (e) { if (attempt === 2) throw e; }
+      }
       // drop from the tree
       await g(f, { kind: "drop", names: ["UiFleet::Engine"] });
       await waitFor(async () => (await read(f)).nodes.some((n) => n.element?.qualifiedName === "UiFleet::Engine"), 10000, "Engine dropped");
@@ -529,7 +533,7 @@ export function uiAgentTests(c: Ctx): Test[] {
       await setUiControl(false);
       await setTutor(true);
       try {
-        const mark = ui().auditLines().length;
+        const mark = ui().auditCount();
         for (const [name, input] of UI_TOOLS.filter(([n]) => n !== "sysml_ui_screenshot")) {
           for (const ch of ["mcp", "lm"] as const) assert.match((await call(name, input, ch)).text, /sysml\.agent\.uiControl/, `${name} via ${ch} is refused`);
         }
@@ -541,7 +545,7 @@ export function uiAgentTests(c: Ctx): Test[] {
           assert.ok(w.event === null || typeof w.event.kind === "string", "an event or a timeout");
           ok(await call("sysml_ui_state", {}, ch), `state via ${ch}`);
         }
-        const lines = ui().auditLines().slice(mark);
+        const lines = ui().auditSince(mark);
         for (const t of ["sysml_ui_highlight", "sysml_ui_wait_for_user", "sysml_ui_command"]) assert.ok(lines.some((l) => l.includes(t)), `the audit log has ${t}`);
         // both settings off: the tutor tools are refused too, naming the tutor setting
         await setTutor(false);

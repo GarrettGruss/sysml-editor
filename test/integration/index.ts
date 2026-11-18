@@ -53,7 +53,7 @@ export interface TestApi {
     setTrusted(trusted: boolean | undefined): void;
   };
   view: vscode.TreeView<ModelNode>;
-  ui: { auditLines(): string[] };
+  ui: { auditCount(): number; auditSince(mark: number): string[] };
   agent: {
     apply(): Promise<void>;
     currentPlan(): { lmTools: boolean; mcpServer: boolean; registerWithVsCode: boolean };

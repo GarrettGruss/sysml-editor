@@ -49,6 +49,7 @@ function toEditorArgs(v: unknown): unknown {
 export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   private readonly channel = vscode.window.createOutputChannel(AGENT_UI_CHANNEL);
   private readonly recent: string[] = [];
+  private auditTotal = 0;
   private readonly messages = new MessageLog();
   private readonly broker: PromptBroker;
   private readonly subs: vscode.Disposable[] = [];
@@ -72,6 +73,7 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     deps.requirements.onUserEvent = (kind, id) => user({ kind, ...(id !== undefined ? { id } : {}) });
     this.subs.push(
       this.channel,
+      deps.tree.provider.onDidChangeTreeData(() => { this.treeChangedAt = Date.now(); }),
       deps.tree.view.onDidChangeSelection((e) => user({ kind: "selection", ...(e.selection[0] ? { id: e.selection[0].id } : {}) })),
       vscode.window.tabGroups.onDidChangeTabs((e) => { if (e.opened.length || e.changed.some((t) => t.isActive)) user({ kind: "editor" }); }),
       vscode.workspace.onDidChangeConfiguration((e) => {
@@ -111,12 +113,23 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     const stamped = `${new Date().toISOString()} ${line}`;
     this.channel.appendLine(stamped);
     this.recent.push(stamped);
+    this.auditTotal++;
     if (this.recent.length > 200) this.recent.shift();
   }
 
   /** TEST ONLY: the last audit lines written to the channel, which a test cannot read back. */
   auditLines(): string[] {
     return [...this.recent];
+  }
+
+  /** TEST ONLY: how many audit lines were ever written (the buffer above is capped, so its length is not a stable mark). */
+  auditCount(): number {
+    return this.auditTotal;
+  }
+
+  /** TEST ONLY: the audit lines written after `mark` (a value of auditCount()), as far as the buffer still holds them. */
+  auditSince(mark: number): string[] {
+    return this.recent.slice(Math.max(0, this.recent.length - (this.auditTotal - mark)));
   }
 
   /** Called by the other UI tools (gestures, menus) so questions they cause are routed to the agent. */
@@ -375,6 +388,8 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   }
 
   private readonly treeNodes = new Map<string, ModelNode>();
+  /** When the tree last refreshed. */
+  private treeChangedAt = 0;
 
   private infoOf(node: ModelNode, depth: number): TreeNodeInfo {
     const item = this.deps.tree.provider.getTreeItem(node);
@@ -400,8 +415,10 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       if (!start) throw new Error("Unknown parent node: list from the roots first and use an id from the result.");
     }
     const out: TreeNodeInfo[] = [];
+    // Not getChildren: that records the objects as handed to VS Code, and targeted refreshes would then name
+    // objects the view never saw and be ignored, leaving the view stale so reveal finds nothing to select (#77).
     const walk = async (n: ModelNode | undefined, level: number): Promise<void> => {
-      for (const c of await Promise.resolve(p.getChildren(n))) {
+      for (const c of await Promise.resolve(p.children(n, false))) {
         if (out.length >= limit) return;
         if (this.treeNodes.size > 5000) this.treeNodes.clear();
         this.treeNodes.set(c.id, c);
@@ -436,15 +453,24 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
       errors.push(m);
       this.deps.log(m);
     };
-    for (const n of nodes) await this.deps.tree.provider.revealNode(this.deps.tree.view, n, say);
-    // The selection reaches the extension host after the renderer applies it: confirm it, or say why not.
+    // A re-index refreshes the tree, and VS Code drops a selection whose items a refresh replaces, even
+    // during the reveal itself (#77). So reveal once the tree is quiet, then confirm the selection held
+    // through another quiet period; a refresh in between means reveal again.
     const want = nodes[nodes.length - 1]!.id;
     const view = this.deps.tree.view;
-    for (let i = 0; i < 50 && view.selection[0]?.id !== want; i++) await new Promise((r) => setTimeout(r, 40));
-    if (view.selection[0]?.id !== want) {
-      return { ok: false, reason: `The tree did not select the node (view visible: ${view.visible}, selection: [${view.selection.map((s) => s.id).join(", ")}]${errors.length ? `, ${errors.join("; ")}` : ""}).` };
+    const quiet = async (ms: number, max: number) => {
+      const end = Date.now() + max;
+      while (Date.now() - this.treeChangedAt < ms && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    };
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await quiet(300, 3000);
+      const before = this.treeChangedAt;
+      for (const n of nodes) await this.deps.tree.provider.revealNode(view, n, say);
+      for (let i = 0; i < 50 && view.selection[0]?.id !== want; i++) await new Promise((r) => setTimeout(r, 40));
+      await quiet(300, 3000);
+      if (view.selection[0]?.id === want && (this.treeChangedAt === before || Date.now() - this.treeChangedAt >= 300)) return { ok: true };
     }
-    return { ok: true };
+    return { ok: false, reason: `The tree did not keep the node selected; it was refreshing (view visible: ${view.visible}, selection: [${view.selection.map((s) => s.id).join(", ")}]${errors.length ? `, ${errors.join("; ")}` : ""}).` };
   }
 
   /** A hidden view ignores reveal and selection, so open its container first, as a user would. */
