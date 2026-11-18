@@ -170,6 +170,13 @@ Two walkthroughs, opened from the Welcome page (Get Started), cover the same gro
 (the Model view, creating a file, the requirements editor) and **SysML: Diagram Basics** (creating a diagram, placing an
 element, connecting, saving). Their steps complete when the user runs the matching command.
 
+## Skills
+
+Three Claude agent skills ship with the extension in `src/skills/` (and in the VSIX): `sysml-modeling` (read and edit the model and
+diagrams), `sysml-ui-testing` (drive and test the UI, record acceptance results) and `sysml-tutor` (teach with highlights). In this
+repository they are linked from `.claude/skills/`. To use them in another Claude setup, copy the folders
+(`<extension path>/src/skills/<name>`) into your own skills folder, for example `~/.claude/skills/` or a project's `.claude/skills/`.
+
 ## Channels
 
 - **Language Model Tools**: registered with VS Code, so agents built into VS Code (Copilot agent mode and others) can call the tools directly.
