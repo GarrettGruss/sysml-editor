@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import type { AnswerOutcome, MessageLevel, PromptKind, UiAnswer, UiMessage, UiPrompt } from "./ui-driver.js";
+import type { AnswerOutcome, ChromeTargetName, MessageLevel, PromptKind, UiAnswer, UiGate, UiMessage, UiPrompt, UserEvent } from "./ui-driver.js";
 
 // ---- the allowlist (D54) ---------------------------------------------------------------------------
 
@@ -356,4 +356,75 @@ export const TREE_NODE_COMMANDS: readonly { command: string; contextValue: RegEx
 export function treeCommandOffered(command: string, contextValue: string | undefined): boolean {
   if (contextValue === undefined) return TREE_TITLE_COMMANDS.includes(command);
   return TREE_NODE_COMMANDS.some((c) => c.command === command && c.contextValue.test(contextValue));
+}
+
+// ---- the tutor (D62 to D67) ------------------------------------------------------------------------
+
+/** `control` tools need `sysml.agent.uiControl`; `tutor` tools (display and observe only) pass on either setting. */
+export type ToolClass = "control" | "tutor";
+
+export const SETTING_OFF = 'UI control is off. The user must turn on the user setting "sysml.agent.uiControl" (it is ignored in workspace settings).';
+export const TUTOR_OFF = 'The tutor tools are off. The user must turn on the user setting "sysml.agent.tutor" (or "sysml.agent.uiControl"); both are ignored in workspace settings.';
+export const UNTRUSTED = "UI control is not available in an untrusted workspace. Trust the workspace first.";
+
+/** Why a tool of this class is refused, or undefined when it may run. */
+export function gateFor(g: UiGate, cls: ToolClass): string | undefined {
+  if (!g.trusted) return UNTRUSTED;
+  if (cls === "control") return g.enabled ? undefined : SETTING_OFF;
+  return g.enabled || g.tutor ? undefined : TUTOR_OFF;
+}
+
+export const CALLOUT_MAX = 280;
+
+/** Callout text, cut to at most CALLOUT_MAX characters (D66). */
+export function truncateCallout(text: string): string {
+  return text.length > CALLOUT_MAX ? text.slice(0, CALLOUT_MAX - 3) + "..." : text;
+}
+
+/** Fixed descriptions of chrome the tutor cannot draw on (D64). */
+export const CHROME_TARGETS: Record<ChromeTargetName, string> = {
+  modelTree: "The SysML Model view in the Activity Bar (left side): the tree of files, packages and elements. No overlay was drawn; the view was revealed.",
+  treeNewFile: "The New File button (a page icon with a plus) in the title bar of the SysML Model view. No overlay was drawn; the view was revealed.",
+  treeNewFolder: "The New Folder button (a folder icon with a plus) in the title bar of the SysML Model view. No overlay was drawn; the view was revealed.",
+  commandPalette: "The Command Palette (Ctrl+Shift+P, Cmd+Shift+P on macOS), opened with the command typed in. No overlay was drawn.",
+};
+
+export const WAIT_DEFAULT_S = 60;
+export const WAIT_MAX_S = 300;
+
+/** The wait in milliseconds: default 60 s, at most 300 s, at least 1 s. */
+export function waitMs(seconds: unknown): number {
+  const s = typeof seconds === "number" && Number.isFinite(seconds) ? seconds : WAIT_DEFAULT_S;
+  return Math.round(Math.min(WAIT_MAX_S, Math.max(1, s)) * 1000);
+}
+
+/** A bounded queue of user events with waiters. The driver pushes only events the user caused (D67). */
+export class UserEventQueue {
+  private queue: UserEvent[] = [];
+  private waiters: ((e: UserEvent | undefined) => void)[] = [];
+  constructor(private readonly cap = 100) {}
+  push(e: UserEvent): void {
+    const w = this.waiters.shift();
+    if (w) return w(e);
+    this.queue.push(e);
+    if (this.queue.length > this.cap) this.queue.shift();
+  }
+  /** The oldest pending event, or the next one, or undefined at the timeout. */
+  wait(timeoutMs: number): Promise<UserEvent | undefined> {
+    const first = this.queue.shift();
+    if (first) return Promise.resolve(first);
+    return new Promise((resolve) => {
+      const done = (e: UserEvent | undefined) => {
+        clearTimeout(timer);
+        const i = this.waiters.indexOf(done);
+        if (i >= 0) this.waiters.splice(i, 1);
+        resolve(e);
+      };
+      const timer = setTimeout(() => done(undefined), timeoutMs);
+      this.waiters.push(done);
+    });
+  }
+  clear(): void {
+    this.queue = [];
+  }
 }

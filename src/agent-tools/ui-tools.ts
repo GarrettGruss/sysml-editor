@@ -5,24 +5,20 @@
  */
 import { ToolError, type ToolContext, type ToolDefinition, type ToolResult } from "./types.js";
 import type { DiagramGesture, RequirementsAction, RequirementsGesture, RequirementsScopeArg, ScreenshotTarget, UiAnswer, UiDriver } from "./ui-driver.js";
-import { formatAuditLine, isAllowedCommand, resolveInWorkspace, treeCommandOffered, validSelector, validateCommandArgs } from "./ui-support.js";
+import { CHROME_TARGETS, SETTING_OFF, UNTRUSTED, gateFor, truncateCallout, waitMs, type ToolClass, formatAuditLine, isAllowedCommand, resolveInWorkspace, treeCommandOffered, validSelector, validateCommandArgs } from "./ui-support.js";
 
 const json = (v: unknown): ToolResult => ({ text: JSON.stringify(v, null, 2) });
 const refused = (reason: string): ToolResult => ({ isError: true, text: reason });
 
-export const SETTING_OFF = 'UI control is off. The user must turn on the user setting "sysml.agent.uiControl" (it is ignored in workspace settings).';
-export const UNTRUSTED = "UI control is not available in an untrusted workspace. Trust the workspace first.";
+export { SETTING_OFF, UNTRUSTED };
 
-/** Why the tools are refused, or undefined when they may run. */
-export function gateReason(driver: UiDriver): string | undefined {
-  const g = driver.gate();
-  if (!g.trusted) return UNTRUSTED;
-  if (!g.enabled) return SETTING_OFF;
-  return undefined;
+/** Why the tools of a class are refused, or undefined when they may run. */
+export function gateReason(driver: UiDriver, cls: ToolClass = "control"): string | undefined {
+  return gateFor(driver.gate(), cls);
 }
 
 /** Log the call, then check the gate. Returns the driver to use, or the refusal. */
-function enter(ctx: ToolContext, tool: string, target: string | undefined, args: unknown): UiDriver | ToolResult {
+function enter(ctx: ToolContext, tool: string, target: string | undefined, args: unknown, cls: ToolClass = "control"): UiDriver | ToolResult {
   const driver = ctx.ui;
   if (!driver) return refused("UI control is not available in this host.");
   try {
@@ -30,7 +26,7 @@ function enter(ctx: ToolContext, tool: string, target: string | undefined, args:
   } catch {
     // A failing log must not decide whether the action may run; the gate below still does.
   }
-  const why = gateReason(driver);
+  const why = gateReason(driver, cls);
   return why ? refused(why) : driver;
 }
 const isDriver = (x: UiDriver | ToolResult): x is UiDriver => "runCommand" in x;
@@ -130,7 +126,7 @@ const sysmlUiState: ToolDefinition = {
     } catch {
       // see enter()
     }
-    const why = gateReason(d);
+    const why = gateReason(d, "tutor");
     if (why) return json({ enabled: false, reason: why });
     return json({ enabled: true, ...(await d.state()) });
   },
@@ -443,7 +439,7 @@ const sysmlUiScreenshot: ToolDefinition = {
   },
   readOnly: true,
   async handler(input, ctx) {
-    const d = enter(ctx, "sysml_ui_screenshot", [input.path, input.package, input.file].find((x) => typeof x === "string") as string | undefined, input);
+    const d = enter(ctx, "sysml_ui_screenshot", [input.path, input.package, input.file].find((x) => typeof x === "string") as string | undefined, input, "tutor");
     if (!isDriver(d)) return d;
     if ([input.path, input.package, input.file].filter((x) => x !== undefined).length !== 1) throw new ToolError("Give exactly one of `path`, `package` and `file`.");
     let target: ScreenshotTarget;
@@ -465,4 +461,85 @@ const sysmlUiScreenshot: ToolDefinition = {
   },
 };
 
-export const uiToolDefinitions: readonly ToolDefinition[] = [sysmlUiCommand, sysmlUiAnswer, sysmlUiState, sysmlUiDiagram, sysmlUiRequirements, sysmlUiTree, sysmlUiScreenshot];
+// ---- tutor: highlight and wait_for_user (D62 to D67) -----------------------------------------------
+
+const CHROME_NAMES = Object.keys(CHROME_TARGETS) as (keyof typeof CHROME_TARGETS)[];
+
+const sysmlUiHighlight: ToolDefinition = {
+  name: "sysml_ui_highlight",
+  description:
+    "Point at something in the UI to teach the user: a spotlight and a callout (plain text, at most 280 characters) in a diagram (`path`, with `node` = a node id, or `selector` = a data-testid/data-qn CSS selector) or in a requirements editor (`package` or `file`, with `selector`), which is brought to the front first. " +
+    "For VS Code's own chrome use `chrome` (modelTree, treeNewFile, treeNewFolder, commandPalette with `command`): nothing can be drawn there, so the view is revealed (or the Command Palette opened) and the result describes where the target is, which you pass on to the user in words. " +
+    "The user dismisses a highlight with Esc or the callout's close button; it never changes the model. A new highlight replaces the last. Works with sysml.agent.tutor or sysml.agent.uiControl on, in a trusted workspace; every call is logged.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      text: { type: "string", minLength: 1, maxLength: 2000, description: "The callout, plain text; cut to 280 characters." },
+      path: { type: "string", maxLength: 4096, description: "The .sysmld diagram file." },
+      node: { type: "string", maxLength: 500, description: "A node id in the diagram." },
+      package: { type: "string", maxLength: 500, description: "Qualified name of a requirements package." },
+      file: { type: "string", maxLength: 4096, description: "A .sysml file for the requirements editor." },
+      selector: { type: "string", maxLength: 300, description: "A CSS selector in the webview, e.g. [data-testid=add-root-requirement]." },
+      chrome: { type: "string", enum: CHROME_NAMES },
+      command: { type: "string", maxLength: 200, description: "For chrome commandPalette: the command id to show." },
+    },
+    required: ["text"],
+    additionalProperties: false,
+  },
+  readOnly: true,
+  async handler(input, ctx) {
+    const given = ["path", "package", "file", "chrome"].filter((k) => input[k] !== undefined);
+    const d = enter(ctx, "sysml_ui_highlight", [input.path, input.package, input.file, input.chrome].find((x) => typeof x === "string") as string | undefined, input, "tutor");
+    if (!isDriver(d)) return d;
+    if (given.length !== 1) throw new ToolError("Give exactly one of path, package, file and chrome.");
+    const body = truncateCallout(text(input.text, "text", 2000));
+    let target: Parameters<UiDriver["highlight"]>[0];
+    if (input.chrome !== undefined) {
+      const name = oneOf(input.chrome, CHROME_NAMES, "chrome");
+      let command: string | undefined;
+      if (input.command !== undefined) {
+        command = text(input.command, "command", 200);
+        if (!isAllowedCommand(command, d.ownCommands())) return refused(`The command "${command.slice(0, 60)}" is not on the allowlist.`);
+      }
+      target = { kind: "chrome", name, ...(command !== undefined ? { command } : {}) };
+    } else if (input.path !== undefined) {
+      const abs = resolveInWorkspace(text(input.path, "path", 4096), d.workspaceRoots());
+      if (abs === undefined) return refused("Refused: the path is outside the workspace.");
+      if ((input.node === undefined) === (input.selector === undefined)) throw new ToolError("For a diagram give exactly one of `node` and `selector`.");
+      target = { kind: "diagram", path: abs, ...(input.node !== undefined ? { node: text(input.node, "node", 500) } : { selector: selectorOf(input.selector) }) };
+    } else {
+      let scope: RequirementsScopeArg;
+      if (input.package !== undefined) scope = { kind: "package", qualifiedName: text(input.package, "package", 500) };
+      else {
+        const abs = resolveInWorkspace(text(input.file, "file", 4096), d.workspaceRoots());
+        if (abs === undefined) return refused("Refused: the file is outside the workspace.");
+        scope = { kind: "file", path: abs };
+      }
+      target = { kind: "requirements", scope, selector: selectorOf(input.selector) };
+    }
+    try {
+      const r = await d.highlight(target, body);
+      if (!r.ok) return refused(r.reason);
+      return json(target.kind === "chrome" ? { highlighted: false, description: CHROME_TARGETS[target.name], ...(target.command ? { command: target.command } : {}) } : { highlighted: true });
+    } catch (e) {
+      return refused(`The highlight failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  },
+};
+
+const sysmlUiWaitForUser: ToolDefinition = {
+  name: "sysml_ui_wait_for_user",
+  description:
+    "Wait until the user does something in the editor (a gesture in a diagram or requirements editor, a sysml.* command, a selection or editor change), then report what it was as {event: {kind, id?}} (kinds and ids only, never text). Your own actions are not reported. " +
+    "Returns {event: null, timedOut: true} after `timeoutSeconds` (default 60, at most 300). Use it after highlight to see the user try the step. Works with sysml.agent.tutor or sysml.agent.uiControl on, in a trusted workspace; every call is logged.",
+  inputSchema: { type: "object", properties: { timeoutSeconds: { type: "number", minimum: 1, maximum: 300, description: "How long to wait; default 60." } }, additionalProperties: false },
+  readOnly: true,
+  async handler(input, ctx) {
+    const d = enter(ctx, "sysml_ui_wait_for_user", undefined, input, "tutor");
+    if (!isDriver(d)) return d;
+    const e = await d.waitForUser(waitMs(input.timeoutSeconds));
+    return json(e ? { event: e } : { event: null, timedOut: true });
+  },
+};
+
+export const uiToolDefinitions: readonly ToolDefinition[] = [sysmlUiCommand, sysmlUiAnswer, sysmlUiState, sysmlUiDiagram, sysmlUiRequirements, sysmlUiTree, sysmlUiScreenshot, sysmlUiHighlight, sysmlUiWaitForUser];

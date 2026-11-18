@@ -110,6 +110,9 @@ export type HostToWebview =
   | { type: "resetHover" }
   | { type: "select"; ids: string[] }
   | { type: "testGesture"; requestId: number; gesture: TestGesture }
+  /** The tutor: spotlight a node (id) or a selector with a callout; answered with a `gestureResult` (error when the target is missing). `text` is plain text. */
+  | { type: "highlight"; requestId: number; node?: string; selector?: string; text: string }
+  | { type: "clearHighlights" }
   | { type: "typeSuggestionsResult"; requestId: number; items: { name: string; qualifiedName: string; library: boolean }[] }
   /** The answer to `nameCheck`: why the name cannot be used (absent: fine), and the default name of the kind. */
   | { type: "nameCheckResult"; requestId: number; problem?: string; suggested?: string }

@@ -1,20 +1,20 @@
 ## 1. Gate and setting
 
-- [ ] 1.1 Add setting `sysml.agent.tutor` (application scope, default off) and the tutor tool class in `ui-support.ts`; unit tests for tutor-on/control-off, workspace override, untrusted, audit line (D62, D69)
+- [x] 1.1 Add setting `sysml.agent.tutor` (application scope, default off) and the tutor tool class in `ui-support.ts`; unit tests for tutor-on/control-off, workspace override, untrusted, audit line (D62, D69)
 
 ## 2. Highlight
 
-- [ ] 2.1 Add `UiDriver.highlight` and `sysml_ui_highlight` handler with target resolution, text truncation and chrome descriptions; unit tests with a fake driver (D63, D64, D66)
-- [ ] 2.2 Webview overlay (spotlight, callout, close button, Esc, clear on target loss) in the diagram and requirements webviews; unit tests for plain-text rendering and clearing (D63, D65)
+- [x] 2.1 Add `UiDriver.highlight` and `sysml_ui_highlight` handler with target resolution, text truncation and chrome descriptions; unit tests with a fake driver (D63, D64, D66)
+- [x] 2.2 Webview overlay (spotlight, callout, close button, Esc, clear on target loss) in the diagram and requirements webviews; unit tests for plain-text rendering and clearing (D63, D65)
 
 ## 3. Wait for user
 
-- [ ] 3.1 User-event queue in the driver excluding agent actions; `sysml_ui_wait_for_user` with timeout; unit tests (D67)
-- [ ] 3.2 Register both tools in the MCP manifest and as LM tools in `package.json`; manifest tests; allow `sysml_ui_state` and `sysml_ui_screenshot` under the tutor gate
+- [x] 3.1 User-event queue in the driver excluding agent actions; `sysml_ui_wait_for_user` with timeout; unit tests (D67)
+- [x] 3.2 Register both tools in the MCP manifest and as LM tools in `package.json`; manifest tests; allow `sysml_ui_state` and `sysml_ui_screenshot` under the tutor gate
 
 ## 4. Walkthroughs
 
-- [ ] 4.1 Add the "First steps" and "Diagram basics" walkthroughs with command completion events and media text (D68); test that each completion command exists
+- [x] 4.1 Add the "First steps" and "Diagram basics" walkthroughs with command completion events and media text (D68); test that each completion command exists
 
 ## 5. Integration tests
 

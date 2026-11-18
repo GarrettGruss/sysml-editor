@@ -501,6 +501,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         doc.selection = Array.isArray(m.ids) ? m.ids.filter((i) => typeof i === "string") : [];
         this.syncSelectionKey();
         this.followSelection(doc);
+        this.onUserEvent?.("selection", doc.selection[0]);
         break;
       case "model":
         if (m.generation !== undefined && m.generation !== doc.state.generation) {
@@ -1580,6 +1581,20 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Called for each selection the webview reports (kinds and ids only); the UI driver uses it to tell user actions from agent ones. */
+  onUserEvent?: (kind: "selection" | "gesture", id?: string) => void;
+
+  /** The tutor (D63): bring the diagram to the front and spotlight a node or selector. Throws with the webview's reason. */
+  async highlight(uri: vscode.Uri, spec: { node?: string; selector?: string }, text: string): Promise<void> {
+    await this.testApi.open(uri);
+    const r = await this.request<"gestureResult">(uri, (requestId) => ({ type: "highlight", requestId, ...spec, text }));
+    if (r.error) throw new Error(r.error);
+  }
+
+  clearHighlights(): void {
+    for (const set of this.panels.values()) for (const p of set) if (p.ready) this.post(p, { type: "clearHighlights" });
   }
 
   // ---- test support ----------------------------------------------------------------------

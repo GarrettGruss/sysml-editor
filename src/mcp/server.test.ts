@@ -29,7 +29,7 @@ host.disk.set(ROOT + "m.sysml", M_TEXT);
 const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64");
 /** A driver that is on and does nothing, so the UI-control tools run over MCP like any other. */
 const uiDriver: UiDriver = {
-  gate: () => ({ enabled: true, trusted: true }),
+  gate: () => ({ enabled: true, tutor: false, trusted: true }),
   workspaceRoots: () => ["/w"],
   ownCommands: () => [],
   audit: () => {},
@@ -45,6 +45,8 @@ const uiDriver: UiDriver = {
   treeCollapseAll: async () => {},
   treeCommand: async () => ({ ok: true, completed: true, prompts: [] }),
   screenshot: async () => PNG_B64,
+  highlight: async () => ({ ok: true, drawn: false }),
+  waitForUser: async () => undefined,
 };
 const ctx: ToolContext = {
   ui: uiDriver,
@@ -85,6 +87,8 @@ const INPUTS: Record<string, unknown> = {
   sysml_ui_requirements: { package: "P", action: "observe" },
   sysml_ui_tree: { op: "list" },
   sysml_ui_screenshot: { path: "/w/a.sysmld" },
+  sysml_ui_highlight: { chrome: "modelTree", text: "Here is the tree." },
+  sysml_ui_wait_for_user: { timeoutSeconds: 1 },
 };
 /** More inputs of tools above: the relationship kinds of the requirements editor, over both channels. */
 const MORE: [string, unknown][] = [

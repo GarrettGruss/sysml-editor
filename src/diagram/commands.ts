@@ -1,5 +1,6 @@
 /** The VS Code side of the diagram commands: tree actions, "New Diagram…", pickers and the diagram file watcher. */
 import * as vscode from "vscode";
+import { registerCommand } from "../command-events.js";
 import type { Element } from "../model/index.js";
 import { isLibraryUri } from "../model/index.js";
 import type { ModelNode } from "../tree/tree-model.js";
@@ -201,41 +202,41 @@ export function addToActiveDiagram(deps: DiagramCommandDeps, clicked?: ModelNode
 export function registerDiagramCommands(deps: DiagramCommandDeps): vscode.Disposable[] {
   const active = () => deps.diagrams.activeDocument();
   return [
-    vscode.commands.registerCommand("sysml.newDiagram", (node?: ModelNode | vscode.Uri) => newDiagram(deps, node)),
-    vscode.commands.registerCommand("sysml.showInDiagram", (node?: ModelNode) => showInDiagram(deps, node)),
-    vscode.commands.registerCommand("sysml.addToActiveDiagram", (node?: ModelNode, selected?: ModelNode[]) => addToActiveDiagram(deps, node, selected)),
-    vscode.commands.registerCommand("sysml.diagram.autoLayout", () => {
+    registerCommand("sysml.newDiagram", (node?: ModelNode | vscode.Uri) => newDiagram(deps, node)),
+    registerCommand("sysml.showInDiagram", (node?: ModelNode) => showInDiagram(deps, node)),
+    registerCommand("sysml.addToActiveDiagram", (node?: ModelNode, selected?: ModelNode[]) => addToActiveDiagram(deps, node, selected)),
+    registerCommand("sysml.diagram.autoLayout", () => {
       if (!deps.diagrams.runCommand(active(), "autoLayout")) void showInfo("Open a diagram first: Auto-layout needs a diagram editor to be active.");
     }),
     ...ALIGN_COMMANDS.map(([name, command]) =>
-      vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
+      registerCommand(`sysml.diagram.${name}`, () => {
         if (!deps.diagrams.runCommand(active(), command)) void showInfo("Open a diagram first.");
       })),
-    vscode.commands.registerCommand("sysml.diagram.back", () => deps.diagrams.navigate(-1)),
-    vscode.commands.registerCommand("sysml.diagram.forward", () => deps.diagrams.navigate(1)),
-    vscode.commands.registerCommand("sysml.diagram.saveImage", () => {
+    registerCommand("sysml.diagram.back", () => deps.diagrams.navigate(-1)),
+    registerCommand("sysml.diagram.forward", () => deps.diagrams.navigate(1)),
+    registerCommand("sysml.diagram.saveImage", () => {
       const doc = active();
       if (!doc) { void showInfo("Open a diagram first."); return; }
       return deps.diagrams.saveImage(doc);
     }),
-    vscode.commands.registerCommand("sysml.diagram.copyImage", () => {
+    registerCommand("sysml.diagram.copyImage", () => {
       const doc = active();
       if (!doc) { void showInfo("Open a diagram first."); return; }
       return deps.diagrams.copyImage(doc);
     }),
-    vscode.commands.registerCommand("sysml.diagram.toggleLegend", () => {
+    registerCommand("sysml.diagram.toggleLegend", () => {
       const doc = active();
       if (!doc) { void showInfo("Open a diagram first."); return; }
       deps.diagrams.toggleLegend(doc);
     }),
     ...ASPECT_COMMANDS.map(([name, command]) =>
-      vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
+      registerCommand(`sysml.diagram.${name}`, () => {
         const doc = active();
         if (!doc) { void showInfo("Open a diagram first."); return; }
         return deps.diagrams.aspectCommand(doc, command);
       })),
     ...NODE_COMMANDS.map(([name, command]) =>
-      vscode.commands.registerCommand(`sysml.diagram.${name}`, () => {
+      registerCommand(`sysml.diagram.${name}`, () => {
         const doc = active();
         if (!doc) { void showInfo("Open a diagram first."); return; }
         return deps.diagrams.nodeCommand(doc, command);

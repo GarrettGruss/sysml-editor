@@ -1,4 +1,5 @@
 /** Entry point of the diagram webview bundle (`dist/webview/diagram.js`). */
+import { Highlighter, bindHighlighter, domEnv } from "../shared/highlight.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { DiagramEdit, HostToWebview, NodeBox, PngTheme, WebviewToHost } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
@@ -17,6 +18,8 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 const post = (m: WebviewToHost) => vscode.postMessage(m);
+const highlighter = new Highlighter(domEnv((t) => (t.node !== undefined ? document.querySelector(`g[data-node="${CSS.escape(t.node)}"]`) : t.selector !== undefined ? document.querySelector(t.selector) : null)));
+bindHighlighter(highlighter, document.body);
 const fail = (e: unknown) => post({ type: "error", message: e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e) });
 window.addEventListener("error", (e) => fail(e.error ?? e.message));
 window.addEventListener("unhandledrejection", (e) => fail(e.reason));
@@ -297,6 +300,14 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "notice":
       renderer.tools.notice(m.message);
+      break;
+    case "highlight": {
+      const err = highlighter.show({ ...(m.node !== undefined ? { node: m.node } : {}), ...(m.selector !== undefined ? { selector: m.selector } : {}) }, m.text);
+      post({ type: "gestureResult", requestId: m.requestId, ...(err ? { error: err } : {}) });
+      break;
+    }
+    case "clearHighlights":
+      highlighter.clear();
       break;
     case "testGesture":
       queue = queue

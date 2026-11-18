@@ -562,6 +562,12 @@
           ],
           "description": "How AI agents reach the SysML tools. Changes apply without reloading."
         },
+        "sysml.agent.tutor": {
+          "type": "boolean",
+          "default": false,
+          "scope": "application",
+          "markdownDescription": "Let an AI agent teach you the editor: it can point at things in diagrams and the requirements editor with a spotlight and a callout, and watch what you do (`sysml_ui_highlight`, `sysml_ui_wait_for_user`, `sysml_ui_state`, `sysml_ui_screenshot`). It cannot act for you. User-level only. Never available in an untrusted workspace. Every call is logged to the `SysML Agent UI` output channel."
+        },
         "sysml.agent.uiControl": {
           "type": "boolean",
           "default": false,
@@ -1857,6 +1863,98 @@
           },
           "additionalProperties": false
         }
+      },
+      {
+        "name": "sysml_ui_highlight",
+        "displayName": "SysML: Ui Highlight",
+        "modelDescription": "Point at something in the UI to teach the user: a spotlight and a callout (plain text, at most 280 characters) in a diagram (`path`, with `node` = a node id, or `selector` = a data-testid/data-qn CSS selector) or in a requirements editor (`package` or `file`, with `selector`), which is brought to the front first. For VS Code's own chrome use `chrome` (modelTree, treeNewFile, treeNewFolder, commandPalette with `command`): nothing can be drawn there, so the view is revealed (or the Command Palette opened) and the result describes where the target is, which you pass on to the user in words. The user dismisses a highlight with Esc or the callout's close button; it never changes the model. A new highlight replaces the last. Works with sysml.agent.tutor or sysml.agent.uiControl on, in a trusted workspace; every call is logged.",
+        "toolReferenceName": "sysmlUiHighlight",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "ui-control",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "description": "The callout, plain text; cut to 280 characters."
+            },
+            "path": {
+              "type": "string",
+              "maxLength": 4096,
+              "description": "The .sysmld diagram file."
+            },
+            "node": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "A node id in the diagram."
+            },
+            "package": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "Qualified name of a requirements package."
+            },
+            "file": {
+              "type": "string",
+              "maxLength": 4096,
+              "description": "A .sysml file for the requirements editor."
+            },
+            "selector": {
+              "type": "string",
+              "maxLength": 300,
+              "description": "A CSS selector in the webview, e.g. [data-testid=add-root-requirement]."
+            },
+            "chrome": {
+              "type": "string",
+              "enum": [
+                "modelTree",
+                "treeNewFile",
+                "treeNewFolder",
+                "commandPalette"
+              ]
+            },
+            "command": {
+              "type": "string",
+              "maxLength": 200,
+              "description": "For chrome commandPalette: the command id to show."
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_ui_wait_for_user",
+        "displayName": "SysML: Ui Wait For User",
+        "modelDescription": "Wait until the user does something in the editor (a gesture in a diagram or requirements editor, a sysml.* command, a selection or editor change), then report what it was as {event: {kind, id?}} (kinds and ids only, never text). Your own actions are not reported. Returns {event: null, timedOut: true} after `timeoutSeconds` (default 60, at most 300). Use it after highlight to see the user try the step. Works with sysml.agent.tutor or sysml.agent.uiControl on, in a trusted workspace; every call is logged.",
+        "toolReferenceName": "sysmlUiWaitForUser",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "ui-control",
+          "read-only"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "timeoutSeconds": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 300,
+              "description": "How long to wait; default 60."
+            }
+          },
+          "additionalProperties": false
+        }
       }
     ],
     "customEditors": [
@@ -1876,6 +1974,93 @@
         "command": "sysml.tree.rename",
         "key": "f2",
         "when": "focusedView == sysmlModel"
+      }
+    ],
+    "walkthroughs": [
+      {
+        "id": "sysml.firstSteps",
+        "title": "SysML: First Steps",
+        "description": "Find your way around the model tree, create a file and open the requirements editor.",
+        "steps": [
+          {
+            "id": "tree",
+            "title": "Browse the model tree",
+            "description": "Open the **SysML Model** view in the Activity Bar to see files, packages and elements.",
+            "completionEvents": [
+              "onCommand:sysml.tree.refresh"
+            ],
+            "media": {
+              "markdown": "media/walkthroughs/model-tree.md"
+            }
+          },
+          {
+            "id": "newFile",
+            "title": "Create a file",
+            "description": "Select [New File]($(command:sysml.tree.newFile)) and name it with a `.sysml` extension.",
+            "completionEvents": [
+              "onCommand:sysml.tree.newFile"
+            ],
+            "media": {
+              "markdown": "media/walkthroughs/new-file.md"
+            }
+          },
+          {
+            "id": "requirements",
+            "title": "Open the requirements editor",
+            "description": "Right-click a package and choose Open Requirements Editor.",
+            "completionEvents": [
+              "onCommand:sysml.openRequirementsEditor"
+            ],
+            "media": {
+              "markdown": "media/walkthroughs/requirements.md"
+            }
+          }
+        ]
+      },
+      {
+        "id": "sysml.diagramBasics",
+        "title": "SysML: Diagram Basics",
+        "description": "Create a diagram, place and connect elements, and save it.",
+        "steps": [
+          {
+            "id": "newDiagram",
+            "title": "Create a diagram",
+            "description": "Right-click a package and choose New Diagram.",
+            "completionEvents": [
+              "onCommand:sysml.newDiagram"
+            ],
+            "media": {
+              "markdown": "media/walkthroughs/new-diagram.md"
+            }
+          },
+          {
+            "id": "place",
+            "title": "Place an element",
+            "description": "Pick an item from the palette and click the canvas.",
+            "media": {
+              "markdown": "media/walkthroughs/palette.md"
+            }
+          },
+          {
+            "id": "connect",
+            "title": "Connect elements",
+            "description": "Drag from a node's handle onto another node.",
+            "media": {
+              "markdown": "media/walkthroughs/connect.md"
+            }
+          },
+          {
+            "id": "save",
+            "title": "Save the diagram",
+            "description": "Press Ctrl+S to keep the layout.",
+            "completionEvents": [
+              "onCommand:workbench.action.files.save"
+            ],
+            "media": {
+              "markdown": "media/walkthroughs/save-diagram.md"
+            }
+          }
+        ]
       }
     ]
   },

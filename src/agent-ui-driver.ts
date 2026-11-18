@@ -6,9 +6,9 @@
 import * as vscode from "vscode";
 import {
   type AnswerOutcome, type CommandOutcome, type DiagramGesture, type DiagramObservation, type RequirementsAction, type RequirementsObservation, type RequirementsScopeArg,
-  type ScreenshotTarget, type TreeNodeInfo, type TreeOutcome, type UiAnswer, type UiDriver, type UiGate, type UiPrompt, type UiState,
+  type HighlightOutcome, type HighlightTarget, type ScreenshotTarget, type UserEvent, type TreeNodeInfo, type TreeOutcome, type UiAnswer, type UiDriver, type UiGate, type UiPrompt, type UiState,
 } from "./agent-tools/ui-driver.js";
-import { MessageLog, PromptBroker, resolveInWorkspace, saveAnswerAllowed, runUntilPromptOrDone, type PromptResult } from "./agent-tools/ui-support.js";
+import { MessageLog, PromptBroker, UserEventQueue, resolveInWorkspace, saveAnswerAllowed, runUntilPromptOrDone, type PromptResult } from "./agent-tools/ui-support.js";
 import type { DiagramEditorProvider, DiagramUi } from "./diagram/diagram-editor.js";
 import { VIEW_TYPE as DIAGRAM_VIEW_TYPE } from "./diagram/diagram-editor.js";
 import type { RequirementsEditor } from "./requirements/editor.js";
@@ -16,9 +16,11 @@ import type { RequirementsScope } from "./requirements/protocol.js";
 import type { ModelTreeProvider } from "./tree/tree-provider.js";
 import type { ModelNode } from "./tree/tree-model.js";
 import type { NewEntryTestApi } from "./tree/new-entry-flow.js";
+import { setCommandSink } from "./command-events.js";
 import { setMessageSink } from "./ui-messages.js";
 
 export const UI_CONTROL_SETTING = "sysml.agent.uiControl";
+export const TUTOR_SETTING = "sysml.agent.tutor";
 export const AGENT_UI_CHANNEL = "SysML Agent UI";
 /** Id of the New File / New Folder input box in the prompt list (it is not recorded by the broker). */
 export const NEW_ENTRY_PROMPT_ID = 999_999;
@@ -51,6 +53,7 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   private readonly broker: PromptBroker;
   private readonly subs: vscode.Disposable[] = [];
   private lastCall = 0;
+  private readonly userEvents = new UserEventQueue();
   /** Agent commands and gestures running now; only their questions are routed to the agent. */
   private inFlight = 0;
 
@@ -58,8 +61,18 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     this.broker = new PromptBroker(timeoutMs, (p) => this.channel.appendLine(`prompt ${p.id} (${p.kind}) timed out and was cancelled`));
     setMessageSink((level, text) => this.messages.add(level, text));
     deps.diagrams.uiLayer = (base) => this.layer(base);
+    // What the user does, for sysml_ui_wait_for_user (D67): kinds and ids only; agent actions are skipped.
+    const user = (e: UserEvent) => {
+      const g = this.gate();
+      if (this.inFlight === 0 && g.trusted && (g.enabled || g.tutor)) this.userEvents.push(e);
+    };
+    setCommandSink((id) => { if (id.startsWith("sysml.")) user({ kind: "command", id }); });
+    deps.diagrams.onUserEvent = (kind, id) => user({ kind, ...(id !== undefined ? { id } : {}) });
+    deps.requirements.onUserEvent = (kind, id) => user({ kind, ...(id !== undefined ? { id } : {}) });
     this.subs.push(
       this.channel,
+      deps.tree.view.onDidChangeSelection((e) => user({ kind: "selection", ...(e.selection[0] ? { id: e.selection[0].id } : {}) })),
+      vscode.window.tabGroups.onDidChangeTabs((e) => { if (e.opened.length || e.changed.some((t) => t.isActive)) user({ kind: "editor" }); }),
       vscode.workspace.onDidChangeConfiguration((e) => {
         if (e.affectsConfiguration(UI_CONTROL_SETTING) && !this.gate().enabled) this.broker.cancelAll();
       }),
@@ -68,8 +81,10 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
 
   gate(): UiGate {
     // User settings only: a workspace value cannot turn this on (the setting is application-scoped as well).
-    const enabled = vscode.workspace.getConfiguration().inspect<boolean>(UI_CONTROL_SETTING)?.globalValue === true;
-    return { enabled, trusted: vscode.workspace.isTrusted };
+    const cfg = vscode.workspace.getConfiguration();
+    const enabled = cfg.inspect<boolean>(UI_CONTROL_SETTING)?.globalValue === true;
+    const tutor = cfg.inspect<boolean>(TUTOR_SETTING)?.globalValue === true;
+    return { enabled, tutor, trusted: vscode.workspace.isTrusted };
   }
 
   ownCommands(): string[] {
@@ -457,6 +472,41 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     return this.execute(command, [node]);
   }
 
+  highlight(target: HighlightTarget, text: string): Promise<HighlightOutcome> {
+    return this.agentAction(() => this.highlightInner(target, text));
+  }
+
+  private async highlightInner(target: HighlightTarget, text: string): Promise<HighlightOutcome> {
+    this.touch();
+    try {
+      // One highlight at a time, across both editors.
+      this.deps.diagrams.clearHighlights();
+      this.deps.requirements.clearHighlights();
+      switch (target.kind) {
+        case "diagram":
+          await this.deps.diagrams.highlight(vscode.Uri.file(target.path), { ...(target.node !== undefined ? { node: target.node } : {}), ...(target.selector !== undefined ? { selector: target.selector } : {}) }, text);
+          return { ok: true, drawn: true };
+        case "requirements":
+          await this.deps.requirements.highlight(this.scopeOf(target.scope), target.selector, text);
+          return { ok: true, drawn: true };
+        case "chrome":
+          // Nothing can be drawn over VS Code's own UI (D64): reveal or open it, and the handler describes it.
+          if (target.name === "commandPalette") {
+            const opened = Promise.resolve(vscode.commands.executeCommand("workbench.action.quickOpen", `>${target.command ?? ""}`));
+            await Promise.race([opened.then(undefined, () => undefined), new Promise((r) => setTimeout(r, 500))]);
+          } else await this.showTree();
+          return { ok: true, drawn: false };
+      }
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    }
+  }
+
+  waitForUser(timeoutMs: number): Promise<UserEvent | undefined> {
+    this.touch();
+    return this.userEvents.wait(timeoutMs);
+  }
+
   async screenshot(target: ScreenshotTarget): Promise<string> {
     this.touch();
     if (target.kind === "diagram") {
@@ -472,6 +522,9 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   dispose(): void {
     this.broker.cancelAll();
     setMessageSink(undefined);
+    setCommandSink(undefined);
+    this.deps.diagrams.onUserEvent = undefined;
+    this.deps.requirements.onUserEvent = undefined;
     this.deps.diagrams.uiLayer = undefined;
     this.subs.forEach((d) => d.dispose());
   }
