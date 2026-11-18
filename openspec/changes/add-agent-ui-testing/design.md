@@ -80,6 +80,8 @@ Items are the 10 diagramming scenarios of the v0.3.0 results plus the manual tes
 
 30 of 33 is 91%. The three exceptions are named in rows 31 to 33.
 
+**Check against the tools as built (task 3.4).** Every row marked yes has a tool and a call sequence in the tool descriptions (`sysml_ui_diagram` gestures and `menuItem`, `sysml_ui_tree`, `sysml_ui_requirements`, `sysml_ui_screenshot`, `sysml_ui_command`, `sysml_ui_answer`, `sysml_ui_state`). Corrections: row 14 can select and reveal one node only, because the tree API reveals nodes one at a time; `sysml_ui_tree select` with several nodes is refused explicitly, so a multi-node tree selection is not agent-testable (the diagram multi-select of row 8 uses shift-select and is unaffected). Rows 2, 6, 9, 22 and 45 rely on existing tools plus the UI tools. Verified so far by a passing integration test through MCP and LM: row 30 (refusals with the setting off and the allowlist, path and gesture refusals, the audit log; the untrusted-workspace refusal itself is covered by unit tests only). The scenario tests for rows 1, 5, 8, 11 to 16, 20, 21 and 25 to 28 are written in `test/integration/ui-agent.ts` but have not yet been seen to pass: until they do, only row 30 is proven (1 of 33, 3%), and the 91% is the design target, not a measured result. Rows 3, 4, 7, 9, 10, 17 to 19, 22 to 24 and 29 have no test yet.
+
 ## Risks / Trade-offs
 
 - [Prompt injection drives a destructive command] → Gate, allowlist, workspace-only paths, audit log, and delete commands still ask their normal confirmation, which the agent must answer explicitly.

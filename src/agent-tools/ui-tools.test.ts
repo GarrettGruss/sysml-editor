@@ -366,6 +366,7 @@ describe("sysml_ui_tree", () => {
       { op: "command", command: "sysml.tree.refresh", node: "pkg" },
       { op: "delete" },
       { op: "select", nodes: [] },
+      { op: "select", nodes: ["pkg", "dir"] },
     ]) expect((await call(d, "sysml_ui_tree", input)).isError, JSON.stringify(input)).toBe(true);
     expect(d.treeRan).toEqual([]);
   });

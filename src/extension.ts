@@ -34,6 +34,8 @@ export interface TestApi {
   search: { post(message: unknown): void; query(): string };
   /** The input box of New File and New Folder. */
   newEntry: NewEntryTestApi;
+  /** The UI-control driver; tests read its audit lines. */
+  ui: VsCodeUiDriver;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -164,7 +166,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     },
     setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
-  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi, ui: uiDriver };
 }
 
 export function deactivate(): void {}

@@ -46,6 +46,7 @@ function toEditorArgs(v: unknown): unknown {
 
 export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
   private readonly channel = vscode.window.createOutputChannel(AGENT_UI_CHANNEL);
+  private readonly recent: string[] = [];
   private readonly messages = new MessageLog();
   private readonly broker: PromptBroker;
   private readonly subs: vscode.Disposable[] = [];
@@ -75,7 +76,15 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
 
   audit(line: string): void {
     this.lastCall = Date.now();
-    this.channel.appendLine(`${new Date().toISOString()} ${line}`);
+    const stamped = `${new Date().toISOString()} ${line}`;
+    this.channel.appendLine(stamped);
+    this.recent.push(stamped);
+    if (this.recent.length > 200) this.recent.shift();
+  }
+
+  /** TEST ONLY: the last audit lines written to the channel, which a test cannot read back. */
+  auditLines(): string[] {
+    return [...this.recent];
   }
 
   /** Called by the other UI tools (gestures, menus) so questions they cause are routed to the agent. */
@@ -232,7 +241,9 @@ export class VsCodeUiDriver implements UiDriver, vscode.Disposable {
     let clipboard: UiState["clipboard"] = this.deps.diagrams.lastCopy ?? "none";
     if (clipboard === "none") {
       try {
-        if ((await vscode.env.clipboard.readText()) !== "") clipboard = "text";
+        // The system clipboard can be unavailable (no display) and then never answers: do not wait for it.
+        const text = await Promise.race([vscode.env.clipboard.readText(), new Promise<string>((r) => setTimeout(() => r(""), 750))]);
+        if (text !== "") clipboard = "text";
       } catch {
         // No clipboard access: report none.
       }

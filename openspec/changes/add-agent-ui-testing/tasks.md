@@ -12,11 +12,11 @@
 - [x] 2.6 Register all tools in the MCP manifest and `package.json` LM tools; manifest tests
 
 ## 3. Integration tests
-- [ ] 3.1 Through MCP and LM, in a trusted workspace: tools refused with the setting off, allowlist refusals, audit log
+- [x] 3.1 Through MCP and LM, in a trusted workspace: tools refused with the setting off, allowlist refusals, audit log
 - [ ] 3.2 Diagram scenarios: menu list and click, multi-select and align, copy and paste across diagrams, legend screenshot, back and forward
 - [ ] 3.3 Tree, create-diagram naming, undo and dirty, requirements Document and Matrix, reorder
-- [ ] 3.4 Check the coverage table in design.md D61 against the tools as built and update it
+- [x] 3.4 Check the coverage table in design.md D61 against the tools as built and update it
 
 ## 4. Docs and acceptance
-- [ ] 4.1 Document the tools and the safety setting in `docs/agents.md`
+- [x] 4.1 Document the tools and the safety setting in `docs/agents.md`
 - [ ] 4.2 Rerun the 10 diagramming acceptance scenarios via an agent using the new tools, record the results beside `diagramming-results-v0.3.0.md`, and confirm at least 9 are agent-verified

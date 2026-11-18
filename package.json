@@ -1764,7 +1764,7 @@
       {
         "name": "sysml_ui_tree",
         "displayName": "SysML: Ui Tree",
-        "modelDescription": "Use the SysML Model tree. `op`: list {parent?, depth? (1 to 4, default 1), limit?} lists the visible nodes with id, label, context value, depth and selection; select {nodes: [ids]} selects and reveals nodes (ids from list); command {command, node?} runs a command the tree offers: the view title commands (sysml.tree.newFile, sysml.tree.newFolder, sysml.tree.refresh, sysml.tree.changeView, sysml.tree.clearSearch; no node) or a node's context commands (sysml.tree.rename, sysml.tree.delete, sysml.tree.deleteFile, sysml.tree.addChild, sysml.newDiagram, sysml.showInDiagram, sysml.openRequirementsEditor, sysml.goToDefinition, sysml.addToActiveDiagram, sysml.tree.newFile and newFolder on folders). A command not offered for that node is refused. The result lists the prompts the command opened, which sysml_ui_answer answers. collapseAll collapses the tree. Needs sysml.agent.uiControl on in a trusted workspace; every call is logged.",
+        "modelDescription": "Use the SysML Model tree. `op`: list {parent?, depth? (1 to 4, default 1), limit?} lists the visible nodes with id, label, context value, depth and selection; select {nodes: [one id]} selects and reveals one node (ids from list; the tree API cannot select several, so more than one is refused); command {command, node?} runs a command the tree offers: the view title commands (sysml.tree.newFile, sysml.tree.newFolder, sysml.tree.refresh, sysml.tree.changeView, sysml.tree.clearSearch; no node) or a node's context commands (sysml.tree.rename, sysml.tree.delete, sysml.tree.deleteFile, sysml.tree.addChild, sysml.newDiagram, sysml.showInDiagram, sysml.openRequirementsEditor, sysml.goToDefinition, sysml.addToActiveDiagram, sysml.tree.newFile and newFolder on folders). A command not offered for that node is refused. The result lists the prompts the command opened, which sysml_ui_answer answers. collapseAll collapses the tree. Needs sysml.agent.uiControl on in a trusted workspace; every call is logged.",
         "toolReferenceName": "sysmlUiTree",
         "canBeReferencedInPrompt": true,
         "when": "config.sysml.agent.channels != 'mcp'",
@@ -1806,7 +1806,7 @@
                 "type": "string",
                 "maxLength": 4096
               },
-              "description": "Node ids to select, at most 50."
+              "description": "The one node id to select."
             },
             "node": {
               "type": "string",

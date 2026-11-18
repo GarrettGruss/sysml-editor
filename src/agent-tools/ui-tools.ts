@@ -363,7 +363,7 @@ const TREE_OPS = ["list", "select", "command", "collapseAll"] as const;
 const sysmlUiTree: ToolDefinition = {
   name: "sysml_ui_tree",
   description:
-    "Use the SysML Model tree. `op`: list {parent?, depth? (1 to 4, default 1), limit?} lists the visible nodes with id, label, context value, depth and selection; select {nodes: [ids]} selects and reveals nodes (ids from list); " +
+    "Use the SysML Model tree. `op`: list {parent?, depth? (1 to 4, default 1), limit?} lists the visible nodes with id, label, context value, depth and selection; select {nodes: [one id]} selects and reveals one node (ids from list; the tree API cannot select several, so more than one is refused); " +
     "command {command, node?} runs a command the tree offers: the view title commands (sysml.tree.newFile, sysml.tree.newFolder, sysml.tree.refresh, sysml.tree.changeView, sysml.tree.clearSearch; no node) or a node's context commands (sysml.tree.rename, sysml.tree.delete, sysml.tree.deleteFile, sysml.tree.addChild, sysml.newDiagram, sysml.showInDiagram, sysml.openRequirementsEditor, sysml.goToDefinition, sysml.addToActiveDiagram, sysml.tree.newFile and newFolder on folders). A command not offered for that node is refused. " +
     "The result lists the prompts the command opened, which sysml_ui_answer answers. collapseAll collapses the tree. Needs sysml.agent.uiControl on in a trusted workspace; every call is logged.",
   inputSchema: {
@@ -373,7 +373,7 @@ const sysmlUiTree: ToolDefinition = {
       parent: { type: "string", maxLength: 4096, description: "Node id to list below; default the roots." },
       depth: { type: "integer", minimum: 1, maximum: 4 },
       limit: { type: "integer", minimum: 1, maximum: 500 },
-      nodes: { type: "array", items: { type: "string", maxLength: 4096 }, description: "Node ids to select, at most 50." },
+      nodes: { type: "array", items: { type: "string", maxLength: 4096 }, description: "The one node id to select." },
       node: { type: "string", maxLength: 4096, description: "The node a command acts on." },
       command: { type: "string", maxLength: 200 },
     },
@@ -394,7 +394,8 @@ const sysmlUiTree: ToolDefinition = {
           return json({ nodes: await d.treeList(parent, depth, limit) });
         }
         case "select": {
-          if (!Array.isArray(input.nodes) || input.nodes.length === 0 || input.nodes.length > 50) throw new ToolError("nodes must be 1 to 50 node ids.");
+          if (!Array.isArray(input.nodes) || input.nodes.length === 0) throw new ToolError("nodes must be one node id.");
+          if (input.nodes.length > 1) return refused("Selecting several tree nodes is not supported: the tree API reveals one node at a time. Select one node.");
           const r = await d.treeSelect(input.nodes.map((n, i) => text(n, `nodes[${i}]`, 4096)));
           return r.ok ? json({ selected: true }) : refused(r.reason);
         }
