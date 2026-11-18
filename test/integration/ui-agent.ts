@@ -100,7 +100,7 @@ export function uiAgentTests(c: Ctx): Test[] {
   const g = (path: string, gesture: object, channel?: "mcp" | "lm") => call("sysml_ui_diagram", { path, gesture }, channel).then((r) => ok(r, `gesture ${JSON.stringify(gesture)}`).json as {
     selected: string[]; menu: string[]; nodes: { id: string; x: number; y: number; w: number; h: number }[]; legend?: string[]; clipboard: string; edgeCount: number;
   });
-  const state = async () => ok(await both("sysml_ui_state", {}), "state").json as {
+  const state = async () => ok(await call("sysml_ui_state", {}), "state").json as {
     enabled: boolean; activeEditor?: { kind: string; path?: string; dirty: boolean }; selection: { path: string; ids: string[] }[]; undo: { path: string; undo?: string; redo?: string }[];
     messages: { level: string; text: string }[]; prompts: { id: number; kind: string; title?: string; items?: string[]; validation?: string }[]; navigation: string[]; clipboard: string;
   };
@@ -161,8 +161,9 @@ export function uiAgentTests(c: Ctx): Test[] {
       for (const t of ["sysml_ui_command", "sysml_ui_diagram", "sysml_ui_tree", "sysml_ui_requirements"]) assert.ok(lines.some((l) => l.includes(`${t} target=`)), `the audit log has ${t}`);
       assert.ok(lines.some((l) => l.includes("workbench.action.terminal.new")), "refused calls are logged too");
       assert.ok(lines.every((l) => /^\d{4}-\d\d-\d\dT/.test(l)), "each line is timestamped");
-      const s = await both("sysml_ui_state", {});
+      const s = await call("sysml_ui_state", {}, "lm");
       assert.strictEqual(s.json.enabled, true);
+      assert.strictEqual((await call("sysml_ui_state", {}, "mcp")).json.enabled, true);
     })],
 
     ["Diagrams through the tools: open, list the menu and click Align Left, multi-select, copy and paste across diagrams, legend and a screenshot", withFleet({
@@ -222,7 +223,7 @@ export function uiAgentTests(c: Ctx): Test[] {
     ["Tree through the tools: list, select one node (several are refused), collapse all, refresh, create a diagram with naming prompts, then undo, dirty and save", withFleet({
       "tmp-ui-a.sysmld": { kind: "general", root: "UiFleet", nodes: nodes3 },
     }, async () => {
-      const list = async (parent?: string, depth = 4) => ok(await both("sysml_ui_tree", { op: "list", ...(parent ? { parent } : {}), depth, limit: 500 }), "list").json.nodes as { id: string; label: string; contextValue: string; selected: boolean; depth: number }[];
+      const list = async (parent?: string, depth = 4) => ok(await call("sysml_ui_tree", { op: "list", ...(parent ? { parent } : {}), depth, limit: 500 }), "list").json.nodes as { id: string; label: string; contextValue: string; selected: boolean; depth: number }[];
       const roots = await list(undefined, 1);
       assert.ok(roots.length > 0, "the tree has roots");
       let all = await list();
