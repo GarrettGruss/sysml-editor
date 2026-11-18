@@ -24,9 +24,6 @@ jobs:
       - run: npm run build
       - run: npm run package
       - run: npm run check:vsix
-      - name: TEMP #77 tree test repeated
-        continue-on-error: true
-        run: SYSML_TEST_FILTER="Tree through the tools" SYSML_TEST_REPEAT=10 xvfb-run -a npm run test:integration
       - run: xvfb-run -a npm run test:integration
       - name: Upload diagram PNGs
         if: always()

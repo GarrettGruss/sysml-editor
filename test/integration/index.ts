@@ -21,8 +21,6 @@ export type { Gesture, ReqGesture };
 export interface ModelNode { id: string; uri: string; kind?: "folder" | "file" | "diagram" | "message" | "placeholder" }
 export interface TestApi {
   model: { ready: Promise<void>; index: { uris(): string[]; isReadOnly(u: string): boolean; getDocument(u: string): { errors: unknown[]; detailsPending?: boolean } | undefined; findByQualifiedName(qn: string): readonly unknown[]; pendingDetails(): string[] } };
-  /** TEMP #77 diagnostics. */
-  treeTrace: string[];
   provider: {
     /** An array below a file node (the elements); the folder levels, and the Diagrams view, answer with a promise (await it). */
     getChildren(n?: ModelNode): ModelNode[];
@@ -669,8 +667,7 @@ export async function run(): Promise<void> {
 
   const failures: string[] = [];
   const only = process.env.SYSML_TEST_FILTER ? new RegExp(process.env.SYSML_TEST_FILTER) : undefined;
-  const repeat = Number(process.env.SYSML_TEST_REPEAT ?? 1); // TEMP #77
-  for (const [name, fn] of tests.flatMap((t) => Array.from({ length: repeat }, () => t))) {
+  for (const [name, fn] of tests) {
     if (only && !only.test(name)) continue;
     try {
       await fn();

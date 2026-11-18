@@ -260,25 +260,15 @@ export function uiAgentTests(c: Ctx): Test[] {
       assert.ok(frigate, `Frigate is listed: ${all.map((n) => n.label).join(", ")}`);
       const ship = find("Ship")!;
       // select one node, observe the selection
-      const t0 = api.treeTrace.length;
-      const sel = await call("sysml_ui_tree", { op: "select", nodes: [frigate.id] });
-      api.treeTrace.push(`select result ${JSON.stringify(sel.json ?? sel)}`);
-      try {
-        await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate selected");
-      } catch (e) {
-        throw new Error(`${e instanceof Error ? e.message : String(e)}\nTREE TRACE (#77):\n${api.treeTrace.slice(-40).join("\n")}\nview.selection=[${api.view.selection.map((n) => n.id).join(",")}] visible=${api.view.visible} frigate=${frigate.id} t0=${t0}`);
-      }
+      ok(await call("sysml_ui_tree", { op: "select", nodes: [frigate.id] }), "select");
+      await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate selected");
       // several nodes: refused explicitly, the single selection is unchanged
       for (const ch of ["mcp", "lm"] as const) {
         const many = await call("sysml_ui_tree", { op: "select", nodes: [frigate.id, ship.id] }, ch);
         assert.match(many.text, /several|one node/i, `multi-select refused via ${ch}`);
       }
       // a re-index may refresh the tree and drop the selection for a moment; it is selected again
-      try {
-        await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate still selected");
-      } catch (e) {
-        throw new Error(`${e instanceof Error ? e.message : String(e)}\nTREE TRACE (#77):\n${api.treeTrace.slice(-40).join("\n")}`);
-      }
+      await waitFor(async () => (await list()).find((n) => n.id === frigate.id)?.selected === true, 5000, "Frigate still selected");
       ok(await call("sysml_ui_tree", { op: "command", command: "sysml.tree.refresh" }), "refresh");
       ok(await call("sysml_ui_tree", { op: "collapseAll" }), "collapse all");
       all = await list(undefined, 1);

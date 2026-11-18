@@ -159,7 +159,6 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   /** Refresh everything; VS Code asks for the children again, so what was handed out is forgotten. */
   private fullRefresh(): void {
     this.handed.clear();
-    this.note("fullRefresh");
     this.emitter.fire(undefined);
   }
 
@@ -180,7 +179,6 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
         }
       }
     }
-    this.note(`fireTargeted [${nodes.map((n) => n.id).join(",")}] -> [${[...out].map((n) => n.id).join(",")}]`);
     if (out.size) this.emitter.fire([...out]);
   }
 
@@ -448,7 +446,6 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   }
 
   private onModelChange(uris: string[]): void {
-    this.note(`modelChange ${uris.join(",")} query=${this.queryValue}`);
     const nodes = this.filterValue !== "diagrams" ? affectedFolderNodes(this.index, this.env, this.files, uris) : [];
     this.files = new Set(workspaceUris(this.index));
     this.elementFilterCache = undefined;
@@ -669,16 +666,8 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   /** When an explicit reveal (Show in Tree, navigation) last ran; editor activation that follows it must not override it. */
   lastExplicitReveal = 0;
 
-  /** TEMP #77 diagnostics: reveals, selection changes and refreshes, with times. */
-  readonly revealTrace: string[] = [];
-  note(m: string): void {
-    this.revealTrace.push(`${Date.now() % 100000} ${m}`);
-    if (this.revealTrace.length > 300) this.revealTrace.shift();
-  }
-
   async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void, follow = false): Promise<void> {
     if (!follow) this.lastExplicitReveal = Date.now();
-    this.note(`reveal ${node.id} follow=${follow} visible=${view.visible} handed=${this.handed.has(node.id)} chain=${(() => { const c: string[] = []; for (let p = this.getParent(node), i = 0; p && i < 50; p = this.getParent(p), i++) c.push(`${p.id}${this.handed.has(p.id) ? "+" : "-"}`); return c.join(" < "); })()}`);
     const say = log ?? ((m: string) => console.warn(m));
     if (!this.isShown(node)) {
       say(`SysML tree: ${node.id} is hidden by the filter "${this.queryValue}"`);
@@ -686,9 +675,7 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
     }
     try {
       await view.reveal(node, { select: true, focus: false, expand: false });
-      this.note(`reveal ${node.id} resolved; selection=[${view.selection.map((n) => n.id).join(",")}]`);
     } catch (e) {
-      this.note(`reveal ${node.id} rejected ${e instanceof Error ? e.message : String(e)}`);
       say(`SysML tree: reveal of ${node.id} failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
@@ -888,7 +875,6 @@ export function keepSelectionAcrossRefresh(index: ModelIndex, view: vscode.TreeV
       timer = undefined;
       const again = lost.filter((n) => isFolderNode(n) || isFileNode(n) || isDiagramNode(n) || resolveNode(index, n));
       if (!again.length || view.selection.length) { lost = []; return; }
-      provider.note(`restore [${again.map((n) => n.id).join(",")}]`);
       void (async () => {
         for (const n of again) await provider.revealNode(view, n, log, true);
         if (!view.selection.length && Date.now() - refreshedAt < 1000) schedule();
