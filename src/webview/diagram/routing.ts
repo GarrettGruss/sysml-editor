@@ -228,14 +228,36 @@ export function routeFits(pts: readonly Pt[] | undefined, src: Box, tgt: Box, to
   return nested || (!routeThroughBox(pts, src) && !routeThroughBox(pts, tgt));
 }
 
-export interface EdgeEnd { box: Box; /** For a port: its owner's box. */ owner?: Box }
+export interface EdgeEnd { box: Box; /** For a port: its owner's box. */ owner?: Box; /** Height of the node's header; a line that meets a side of a node with compartments is moved up to it. */ headerH?: number }
+
+/** Move an end that meets the left or right side below the header (on a compartment row) up to the middle of the header, keeping the route orthogonal. */
+export function attachToHeader(route: Pt[], end: EdgeEnd, atStart: boolean): Pt[] {
+  const { box, headerH } = end;
+  if (headerH === undefined || end.owner || headerH >= box.h - 2 || route.length < 2) return route;
+  const hy = box.y + headerH / 2;
+  const r = route.map((p) => ({ x: p.x, y: p.y }));
+  const i = atStart ? 0 : r.length - 1, j = atStart ? 1 : r.length - 2;
+  const p = r[i]!, q = r[j]!;
+  const onSide = Math.abs(p.x - box.x) < 1.5 || Math.abs(p.x - box.x - box.w) < 1.5;
+  if (!onSide || Math.abs(q.y - p.y) > 0.5 || p.y <= box.y + headerH) return route;
+  if (r.length === 2) {
+    // A straight line to the other end: bend once, in the middle, so the other end keeps its place.
+    const mx = (p.x + q.x) / 2;
+    const bent = [{ x: p.x, y: hy }, { x: mx, y: hy }, { x: mx, y: q.y }, q];
+    return atStart ? bent : bent.reverse();
+  }
+  p.y = hy;
+  q.y = hy;
+  return clean(r);
+}
 
 /** The route to draw: the stored (or ELK) one while it fits, otherwise a computed orthogonal one. */
 export function edgeRoute(src: EdgeEnd, tgt: EdgeEnd, stored?: readonly Pt[], obstacles: readonly Box[] = [], others: readonly (readonly Pt[])[] = []): Pt[] {
-  if (routeFits(stored as Pt[] | undefined, src.box, tgt.box)) return clean(stored!.map((p) => ({ x: p.x, y: p.y })));
+  const header = (r: Pt[]) => attachToHeader(attachToHeader(r, src, true), tgt, false);
+  if (routeFits(stored as Pt[] | undefined, src.box, tgt.box)) return header(clean(stored!.map((p) => ({ x: p.x, y: p.y }))));
   const sa = src.owner ? outwardSide(src.box, src.owner) : undefined;
   const sb = tgt.owner ? outwardSide(tgt.box, tgt.owner) : undefined;
-  return routeOrthogonal(src.box, tgt.box, sa, sb, obstacles, others);
+  return header(routeOrthogonal(src.box, tgt.box, sa, sb, obstacles, others));
 }
 
 export interface Rect extends Box {}

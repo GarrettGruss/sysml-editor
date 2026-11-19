@@ -31,8 +31,8 @@ const fails = async (ctx: ToolContext, name: string, input: unknown = {}) => {
 describe("diagram tool definitions", () => {
   it("the write tools are marked not read-only, the others read-only", () => {
     const writes = toolDefinitions.filter((t) => !t.readOnly).map((t) => t.name).sort();
-    expect(writes).toEqual(["sysml_add_to_diagram", "sysml_create_diagram", "sysml_create_element", "sysml_create_relationship", "sysml_create_requirement", "sysml_delete_element", "sysml_layout_diagram", "sysml_remove_from_diagram", "sysml_rename_element", "sysml_set_element_properties", "sysml_set_transition"]);
-    expect(toolDefinitions.filter((t) => t.readOnly).map((t) => t.name)).toEqual(["sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate", "sysml_list_diagrams", "sysml_read_diagram", "sysml_get_editor_context", "sysml_read_requirements_document", "sysml_read_verification_matrix"]);
+    expect(writes).toEqual(["sysml_add_to_diagram", "sysml_apply_diagram_aspect", "sysml_create_diagram", "sysml_create_element", "sysml_create_relationship", "sysml_create_requirement", "sysml_delete_element", "sysml_layout_diagram", "sysml_remove_from_diagram", "sysml_rename_element", "sysml_set_element_properties", "sysml_set_transition", "sysml_show_hide_diagram_members", "sysml_ui_answer", "sysml_ui_command", "sysml_ui_diagram", "sysml_ui_requirements", "sysml_ui_tree"]);
+    expect(toolDefinitions.filter((t) => t.readOnly).map((t) => t.name)).toEqual(["sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate", "sysml_list_diagrams", "sysml_read_diagram", "sysml_get_editor_context", "sysml_read_requirements_document", "sysml_read_verification_matrix", "sysml_ui_state", "sysml_ui_screenshot", "sysml_ui_highlight", "sysml_ui_wait_for_user"]);
     for (const t of toolDefinitions) expect(t.description.length).toBeGreaterThan(80);
   });
   it("validates paths", () => {
@@ -103,6 +103,20 @@ describe("sysml_read_diagram", () => {
     expect(failed.isError).toBeUndefined();
     expect(failed.image).toBeUndefined();
     expect(JSON.parse(failed.text).image).toEqual({ available: false, reason: "timed out" });
+  });
+  it("returns SVG text with format svg", async () => {
+    const { ctx, diagrams } = setup();
+    const r = await callTool("sysml_read_diagram", { path: "ports-general.sysmld", includeImage: true, format: "svg" }, ctx);
+    expect(r.image).toBeUndefined();
+    const image = JSON.parse(r.text).image;
+    expect(image).toMatchObject({ format: "svg", mimeType: "image/svg+xml" });
+    expect(image.svg).toContain("<svg");
+    // The default and an unknown format keep the PNG; svg without includeImage adds nothing.
+    expect((await callTool("sysml_read_diagram", { path: "ports-general.sysmld", includeImage: true }, ctx)).image?.mimeType).toBe("image/png");
+    expect(JSON.parse((await callTool("sysml_read_diagram", { path: "ports-general.sysmld", format: "svg" }, ctx)).text).image).toBeUndefined();
+    expect(await fails(ctx, "sysml_read_diagram", { path: "ports-general.sysmld", includeImage: true, format: "gif" })).toBeTruthy();
+    diagrams.image = { ok: false, reason: "no" };
+    expect(JSON.parse((await callTool("sysml_read_diagram", { path: "ports-general.sysmld", includeImage: true, format: "svg" }, ctx)).text).image).toEqual({ available: false, reason: "no" });
   });
   it("rejects a bad path, a missing file and an invalid file", async () => {
     const { ctx, diagrams } = setup();
@@ -245,5 +259,51 @@ describe("sysml_get_editor_context, focus and unknown ids", () => {
     const r = await ok(ctx, "sysml_get_editor_context");
     expect(r.hovered).toEqual({ id: "d:composition:n9:n8", resolved: false });
     expect(r.selected).toEqual([{ id: "nope", resolved: false }]);
+  });
+});
+
+describe("sysml_apply_diagram_aspect and sysml_show_hide_diagram_members", () => {
+  const withAspect = () => {
+    const s = setup();
+    const d = s.diagrams.files.get("ports-general.sysmld") as DiagramDocument;
+    s.diagrams.files.set("ports-general.sysmld", { ...d, style: { aspects: { Power: ["n1", "n2"] } } });
+    return s;
+  };
+  it("applies and clears an aspect as a layout edit", async () => {
+    const { ctx, diagrams } = withAspect();
+    diagrams.open.add("ports-general.sysmld");
+    let r = await ok(ctx, "sysml_apply_diagram_aspect", { path: "ports-general.sysmld", action: "apply", name: "Power" });
+    expect(r).toMatchObject({ applied: "editor", edit: "layout", activeAspect: "Power", aspects: ["Power"] });
+    expect(r.layoutNote).toContain("layout edit");
+    r = await ok(ctx, "sysml_apply_diagram_aspect", { path: "ports-general.sysmld", action: "clear" });
+    expect(r).toMatchObject({ edit: "layout", activeAspect: null });
+  });
+  it("refuses an unknown aspect and a missing name", async () => {
+    const { ctx } = withAspect();
+    expect(await fails(ctx, "sysml_apply_diagram_aspect", { path: "ports-general.sysmld", action: "apply", name: "Nope" })).toContain("No aspect named");
+    expect(await fails(ctx, "sysml_apply_diagram_aspect", { path: "ports-general.sysmld", action: "apply" })).toContain("name");
+    expect(await fails(ctx, "sysml_apply_diagram_aspect", { path: "ports-general.sysmld", action: "drop" })).toBeTruthy();
+  });
+  it("refuses both write tools in an untrusted workspace", async () => {
+    const { ctx, diagrams } = withAspect();
+    diagrams.trusted = false;
+    const before = serializeDiagram(diagrams.files.get("ports-general.sysmld") as DiagramDocument);
+    expect(await fails(ctx, "sysml_apply_diagram_aspect", { path: "ports-general.sysmld", action: "apply", name: "Power" })).toContain("not trusted");
+    expect(await fails(ctx, "sysml_show_hide_diagram_members", { path: "ports-general.sysmld", node: "n4", show: ["motor"] })).toContain("not trusted");
+    expect(serializeDiagram(diagrams.files.get("ports-general.sysmld") as DiagramDocument)).toBe(before);
+  });
+  it("shows and hides parts and ports of a node, and refuses what is not one", async () => {
+    const { ctx, diagrams } = setup();
+    let r = await ok(ctx, "sysml_show_hide_diagram_members", { path: "ports-general.sysmld", node: "n4", show: ["motor", "supply"], hide: ["battery"] });
+    expect(r).toMatchObject({ edit: "layout", added: 2, removed: 1 });
+    const refs = (r.diagram.nodes as { element: { qualifiedName: string } }[]).map((n) => n.element.qualifiedName);
+    expect(refs).toContain("Ports::Drivetrain::motor");
+    expect(refs).toContain("Ports::Drivetrain::supply");
+    expect(refs).not.toContain("Ports::Drivetrain::battery");
+    expect(r.members.find((m: { name: string }) => m.name === "motor")).toMatchObject({ drawn: true });
+    expect(await fails(ctx, "sysml_show_hide_diagram_members", { path: "ports-general.sysmld", node: "n4", show: ["nothing"] })).toContain("not a part or port");
+    expect(await fails(ctx, "sysml_show_hide_diagram_members", { path: "ports-general.sysmld", node: "zz", show: ["motor"] })).toContain("No node");
+    expect(await fails(ctx, "sysml_show_hide_diagram_members", { path: "ports-general.sysmld", node: "n4" })).toContain("at least one");
+    expect(diagrams.files.get("ports-general.sysmld")).toBeDefined();
   });
 });

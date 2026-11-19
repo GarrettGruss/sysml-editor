@@ -1,4 +1,6 @@
 /** Entry point of the diagram webview bundle (`dist/webview/diagram.js`). */
+import { exportBox, exportHighlight } from "./export-map.js";
+import { Highlighter, bindHighlighter, domEnv } from "../shared/highlight.js";
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { DiagramEdit, HostToWebview, NodeBox, PngTheme, WebviewToHost } from "../../diagram/protocol.js";
 import type { ViewModel } from "../../diagram/view-model.js";
@@ -17,6 +19,8 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 const post = (m: WebviewToHost) => vscode.postMessage(m);
+const highlighter = new Highlighter(domEnv((t) => (t.node !== undefined ? document.querySelector(`g[data-node="${CSS.escape(t.node)}"]`) : t.selector !== undefined ? document.querySelector(t.selector) : null)));
+bindHighlighter(highlighter, document.body);
 const fail = (e: unknown) => post({ type: "error", message: e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e) });
 window.addEventListener("error", (e) => fail(e.error ?? e.message));
 window.addEventListener("unhandledrejection", (e) => fail(e.reason));
@@ -40,6 +44,7 @@ const renderer = new SvgRenderer(document.body, measure, {
   onSelection: (ids) => post({ type: "selection", ids }),
   onHover: (id) => hoverReport(id),
   onRelink: (id) => post({ type: "relink", id }),
+  onNodeCommand: (command, id, ids) => post({ type: "nodeCommand", command, ...(id !== undefined ? { id } : {}), ids }),
   onDrop: (names, at) => post({ type: "dropElements", names, ...(at ? { x: at.x, y: at.y } : {}) }),
   onModel: (intent) => post({ type: "model", intent, ...(generation !== undefined ? { generation } : {}) }),
   suggest: (id, query) => new Promise((resolve) => {
@@ -185,7 +190,7 @@ function windowSvg(theme: PngTheme): { svg: string; width: number; height: numbe
   const k = Math.min(1, (W - left - right - 20) / dw, (H - top - 10) / dh);
   const nested = inner.replace(/width="\d+" height="\d+"/, `x="${left + 10}" y="${top}" width="${Math.round(dw * k)}" height="${Math.round(dh * k)}"`);
   let panels = "";
-  for (const sel of [".toolbar", ".palette", ".props", ".quick-bar", ".inline-wrap"]) {
+  for (const sel of [".toolbar", ".palette", ".props", ".quick-bar", ".inline-wrap", ".ctx-menu", "[data-testid=tutor-spotlight]", "[data-testid=tutor-callout]"]) {
     const e = document.querySelector(sel);
     if (!e) continue;
     const r = e.getBoundingClientRect();
@@ -196,10 +201,18 @@ function windowSvg(theme: PngTheme): { svg: string; width: number; height: numbe
       px = left + 10 + (Number(e.dataset.ax) - Number(vb[1])) * k;
       py = top + (Number(e.dataset.ay) - Number(vb[2])) * k;
     }
+    let w = Math.ceil(r.width), h = Math.ceil(r.height);
+    const tid = e instanceof HTMLElement ? e.dataset.testid : undefined;
+    const nb = highlighter.target?.node !== undefined ? renderer.nodeBox(highlighter.target.node) : undefined;
+    if (nb && vb && (tid === "tutor-spotlight" || tid === "tutor-callout")) {
+      const hl = exportHighlight(exportBox(nb, { x: Number(vb[1]), y: Number(vb[2]) }, left + 10, top, k), { width: W, height: H });
+      if (tid === "tutor-spotlight") { px = hl.frame.x; py = hl.frame.y; w = Math.ceil(hl.frame.w); h = Math.ceil(hl.frame.h); }
+      else { px = hl.callout.left; py = hl.callout.top; }
+    }
     const copy = styledCopy(e);
     copy.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
     copy.setAttribute("style", (copy.getAttribute("style") ?? "") + ";position:static;margin:0;top:auto;left:auto;right:auto;");
-    panels += `<foreignObject x="${px}" y="${py}" width="${Math.ceil(r.width)}" height="${Math.ceil(r.height)}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
+    panels += `<foreignObject x="${px}" y="${py}" width="${w}" height="${h}">${new XMLSerializer().serializeToString(copy)}</foreignObject>`;
   }
   const bg = exportBackground(theme);
   return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="${bg}"/>${nested}${panels}</svg>`, width: W, height: H };
@@ -231,6 +244,17 @@ async function exportPng(theme: PngTheme, maxWidth = 1600, panels = false): Prom
   return b64;
 }
 
+/** Put a PNG on the system clipboard; false with the reason when the webview may not (no focus, no permission). */
+async function copyPng(b64: string): Promise<string | undefined> {
+  try {
+    const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+    await navigator.clipboard.write([new ClipboardItem({ "image/png": new Blob([bytes], { type: "image/png" }) })]);
+    return undefined;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
 window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
   const m = ev.data;
   switch (m.type) {
@@ -238,11 +262,20 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       queue = queue.then(() => render(m.viewModel, m.generation)).catch(fail);
       break;
     case "getMetrics":
-      queue = queue.then(() => post({ type: "metricsResult", requestId: m.requestId, ...renderer.getMetrics() })).catch(fail);
+      queue = queue.then(() => post({ type: "metricsResult", requestId: m.requestId, ...renderer.getMetrics(), ...(highlighter.shownText !== undefined ? { highlight: highlighter.shownText } : {}) })).catch(fail);
+      break;
+    case "copyImage":
+      queue = queue
+        .then(async () => {
+          const base64 = await exportPng(m.theme);
+          const error = await copyPng(base64);
+          post({ type: "copyResult", requestId: m.requestId, base64, copied: error === undefined, ...(error !== undefined ? { error } : {}) });
+        })
+        .catch((e) => post({ type: "copyResult", requestId: m.requestId, base64: "", copied: false, error: e instanceof Error ? e.message : String(e) }));
       break;
     case "exportPng":
       queue = queue
-        .then(async () => post({ type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
+        .then(async () => post(m.svg === true ? { type: "pngResult", requestId: m.requestId, base64: "", svg: renderer.toSvgString(m.theme) } : { type: "pngResult", requestId: m.requestId, base64: await exportPng(m.theme, m.maxWidth, m.panels === true) }))
         .catch((e) => post({ type: "pngResult", requestId: m.requestId, base64: "", error: e instanceof Error ? e.message : String(e) }));
       break;
     case "resetHover":
@@ -255,6 +288,7 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
         else if (m.name === "zoomIn") renderer.zoomBy(1.25);
         else if (m.name === "zoomOut") renderer.zoomBy(0.8);
         else if (m.name === "selectAll") renderer.selectAll();
+        else renderer.align(m.name);
       }).catch(fail);
       break;
     case "select":
@@ -275,6 +309,14 @@ window.addEventListener("message", (ev: MessageEvent<HostToWebview>) => {
       break;
     case "notice":
       renderer.tools.notice(m.message);
+      break;
+    case "highlight": {
+      const err = highlighter.show({ ...(m.node !== undefined ? { node: m.node } : {}), ...(m.selector !== undefined ? { selector: m.selector } : {}) }, m.text);
+      post({ type: "gestureResult", requestId: m.requestId, ...(err ? { error: err } : {}) });
+      break;
+    }
+    case "clearHighlights":
+      highlighter.clear();
       break;
     case "testGesture":
       queue = queue

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, goToDefinition, registerCursorSync } from "./tree/tree-provider.js";
+import { registerCommand } from "./command-events.js";
+import { ModelTreeDragAndDrop, ModelTreeProvider, type TreeFilter, VIEW_ID, goToDefinition, registerCursorSync, keepSelectionAcrossRefresh } from "./tree/tree-provider.js";
 import { NewEntryFlow, type NewEntryTestApi } from "./tree/new-entry-flow.js";
 import { newEntryTarget } from "./tree/new-entry.js";
 import { SEARCH_VIEW_ID, SearchViewProvider } from "./tree/search-view.js";
@@ -7,6 +8,7 @@ import { isFolderNode, nodeForElement, type ModelNode } from "./tree/tree-model.
 import { DiagramFiles, registerDiagramCommands } from "./diagram/commands.js";
 import { VsCodeDiagramService } from "./diagram/agent-service.js";
 import { AgentIntegration } from "./agent-integration.js";
+import { VsCodeUiDriver } from "./agent-ui-driver.js";
 import { DiagramEditorProvider, VIEW_TYPE as DIAGRAM_VIEW_TYPE, type DiagramTestApi } from "./diagram/diagram-editor.js";
 import { WorkspaceModel } from "./workspace/workspace-model.js";
 import { ModelService } from "./model-service/service.js";
@@ -15,6 +17,7 @@ import { ModelActions } from "./model-service/interactive.js";
 import { registerModelCommands } from "./model-service/commands.js";
 import { RequirementsEditor, type RequirementsTestApi } from "./requirements/editor.js";
 import { registerRequirementsCommands } from "./requirements/commands.js";
+import { showError } from "./ui-messages.js";
 
 /** Returned from `activate` so integration tests can reach the internals. */
 export interface TestApi {
@@ -32,6 +35,8 @@ export interface TestApi {
   search: { post(message: unknown): void; query(): string };
   /** The input box of New File and New Folder. */
   newEntry: NewEntryTestApi;
+  /** The UI-control driver; tests read its audit lines. */
+  ui: VsCodeUiDriver;
 }
 
 export function activate(context: vscode.ExtensionContext): TestApi {
@@ -70,7 +75,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
   model.ready
     .catch((e: unknown) => {
       log.error("loading the SysML model failed", e instanceof Error ? e : String(e));
-      void vscode.window.showErrorMessage("SysML: loading the model failed. See the SysML output channel for details.");
+      void showError("SysML: loading the model failed. See the SysML output channel for details.");
     })
     .finally(() => {
       view.message = undefined;
@@ -79,14 +84,18 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     provider.setQuery("");
     search.setText("");
   }, (uri) => model.indexFile(uri));
+  const uiDriver = new VsCodeUiDriver({ diagrams, requirements, newEntry: () => newEntry.testApi, tree: { provider, view }, log: (m) => log.info(m), ownCommands: ((context.extension.packageJSON as { contributes?: { commands?: { command: string }[] } }).contributes?.commands ?? []).map((c) => c.command) });
+  agent.ui = uiDriver;
   const search = new SearchViewProvider(context.extensionUri, (text) => provider.setQuery(text), () => provider.query);
 
   context.subscriptions.push(
     log,
     model,
     agent,
+    uiDriver,
     provider,
     view,
+    keepSelectionAcrossRefresh(model.index, view, provider, (m) => log.warn(m)),
     view.onDidExpandElement((e) => provider.setExpanded(e.element, true)),
     view.onDidCollapseElement((e) => provider.setExpanded(e.element, false)),
     vscode.window.registerWebviewViewProvider(SEARCH_VIEW_ID, search, { webviewOptions: { retainContextWhenHidden: true } }),
@@ -101,8 +110,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: true,
     }),
-    vscode.commands.registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
-    vscode.commands.registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
+    registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
+    registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
       let filter: TreeFilter | undefined = arg === "elements" || arg === "diagrams" || arg === "all" ? arg : undefined;
       if (filter === undefined) {
         const items: { label: string; description?: string; filter: TreeFilter }[] = [
@@ -111,18 +120,18 @@ export function activate(context: vscode.ExtensionContext): TestApi {
           { label: "All", filter: "all" },
         ];
         for (const i of items) if (i.filter === provider.filter) i.description = "current";
-        filter = (await vscode.window.showQuickPick(items, { placeHolder: "Show in the SysML Model view" }))?.filter;
+        filter = (await diagrams.ui.pick(items, { placeHolder: "Show in the SysML Model view", title: "Show in the SysML Model view" }))?.filter;
       }
       if (filter) await provider.setFilter(filter);
     }),
-    vscode.commands.registerCommand("sysml.tree.clearSearch", () => {
+    registerCommand("sysml.tree.clearSearch", () => {
       provider.setQuery("");
       search.setText("");
     }),
     { dispose: () => newEntry.dispose() },
-    vscode.commands.registerCommand("sysml.tree.newFile", (node?: ModelNode) => newEntry.start("file", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
-    vscode.commands.registerCommand("sysml.tree.newFolder", (node?: ModelNode) => newEntry.start("folder", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
-    vscode.commands.registerCommand("sysml.tree.refresh", async () => {
+    registerCommand("sysml.tree.newFile", (node?: ModelNode) => newEntry.start("file", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
+    registerCommand("sysml.tree.newFolder", (node?: ModelNode) => newEntry.start("folder", node && isFolderNode(node) ? node.uri : newEntryTarget(provider.roots, view.selection))),
+    registerCommand("sysml.tree.refresh", async () => {
       await model.rescan();
       await provider.refreshAll();
     }),
@@ -159,7 +168,8 @@ export function activate(context: vscode.ExtensionContext): TestApi {
     },
     setExpanded: (n: ModelNode, e: boolean) => provider.setExpanded(n, e),
   };
-  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi };
+  return { model, provider: testProvider, view, agent, diagram: diagrams.testApi, dnd, edit, requirements: requirements.testApi, search: { post: (m) => search.handle(m), query: () => provider.query }, newEntry: newEntry.testApi, ui: uiDriver };
 }
 
 export function deactivate(): void {}
+

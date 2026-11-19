@@ -1,0 +1,72 @@
+.TH SYSML 1 "" "sysml 0.3.0" "User Commands"
+.SH NAME
+sysml \- command line tool for the SysML Editor
+.SH SYNOPSIS
+.B sysml
+.I command
+.RI [ options ]
+.br
+.B sysml
+.BR \-h " | " \-\-help
+.br
+.B sysml
+.BR \-V " | " \-\-version
+.SH DESCRIPTION
+.B sysml
+installs the Claude agent skills that ship with the SysML Editor VS Code extension.
+.SH COMMANDS
+.TP
+.B skills
+Install the skills sysml-modeling, sysml-tutor and sysml-ui-testing.
+.TP
+.BI help " command"
+Show help for a command.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show help and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SS sysml skills [options]
+Copies the skills into a Claude skills folder. A skill that is already installed and identical is skipped. A skill that differs is refused unless
+.B \-f
+is given.
+.TP
+.BR \-p ", " \-\-project
+Install into ./.claude/skills instead of ~/.claude/skills.
+.TP
+.BR \-d ", " \-\-dir =\fIDIR\fR
+Install into DIR (each skill becomes DIR/<name>).
+.TP
+.BR \-f ", " \-\-force
+Overwrite skills that differ from the bundled ones.
+.TP
+.BR \-n ", " \-\-dry\-run
+Show what would be done without changing anything.
+.TP
+.BR \-q ", " \-\-quiet
+Print nothing, not even with \-v.
+.TP
+.BR \-v ", " \-\-verbose
+Print one line per skill.
+.TP
+.B \-\-
+End of options.
+.SH EXAMPLES
+.nf
+sysml skills                       Install for your user
+sysml skills \-p                    Install into the current project
+sysml skills \-pf                   Project install, overwriting changed skills
+sysml skills \-n \-v                 Show what would happen
+sysml skills \-d ~/work/skills      Install into a custom folder
+sysml skills \-\-dir=./skills \-v     Same, with the long option
+.fi
+.SH EXIT STATUS
+0 on success, 1 on failure, 2 on a usage error. Errors are printed to standard error as "sysml: <message>", followed by the help page of the command. Nothing is printed on success unless \-v is given. Colour is used only on a terminal and never when NO_COLOR is set.
+.SH FILES
+.TP
+.I ~/.claude/skills
+Default install folder.
+.SH SEE ALSO
+https://github.com/GarrettGruss/sysml-editor

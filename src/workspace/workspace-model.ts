@@ -119,6 +119,7 @@ export class WorkspaceModel implements vscode.Disposable {
       if (delay) await new Promise<void>((r) => { const t = setTimeout(r, delay); this.subs.push({ dispose: () => clearTimeout(t) }); });
       if (this.disposed) return;
       try {
+        if (!((await vscode.workspace.fs.stat(uri)).type & vscode.FileType.Directory)) return; // a created file, not a folder
         await this.loadFolderFiles(uri, 0);
       } catch {
         return; // vanished again, or not readable

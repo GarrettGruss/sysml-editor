@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ModelIndex } from "../model/index.js";
-import { callTool, toolDefinitions, type ToolContext } from "../agent-tools/index.js";
+import { callTool, toolDefinitions, type ToolContext, type UiDriver } from "../agent-tools/index.js";
 import { FakeDiagrams, fixtureDiagram, fixtureText } from "../agent-tools/test-support.js";
 import { FakeHost } from "../model-service/fake-host.js";
 import { ModelService } from "../model-service/service.js";
@@ -26,7 +26,30 @@ diagrams.files.set("ports-general.sysmld", fixtureDiagram("ports-general.sysmld"
 const host = new FakeHost(index);
 host.buffers.set(ROOT + "m.sysml", M_TEXT);
 host.disk.set(ROOT + "m.sysml", M_TEXT);
+const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64");
+/** A driver that is on and does nothing, so the UI-control tools run over MCP like any other. */
+const uiDriver: UiDriver = {
+  gate: () => ({ enabled: true, tutor: false, trusted: true }),
+  workspaceRoots: () => ["/w"],
+  ownCommands: () => [],
+  audit: () => {},
+  runCommand: async () => ({ ok: true, completed: true, prompts: [] }),
+  prompts: () => [],
+  answer: async () => ({ ok: true, remaining: [] }),
+  state: async () => ({ selection: [], menus: [], undo: [], messages: [], prompts: [], navigation: [], clipboard: "none" }),
+  diagramGesture: async (path) => ({ path, selected: [], menu: [], nodes: [], edgeCount: 0, descriptions: true, inlineEditor: false, quickBar: [], zoom: 1, clipboard: "none" }),
+  requirements: async () => ({ view: "document", scopeName: "P", outline: [], items: [], matrixRows: [], pendingEdits: [], errors: [] }),
+  treeList: async () => [],
+  treeNode: async () => undefined,
+  treeSelect: async () => ({ ok: true }),
+  treeCollapseAll: async () => {},
+  treeCommand: async () => ({ ok: true, completed: true, prompts: [] }),
+  screenshot: async () => PNG_B64,
+  highlight: async () => ({ ok: true, drawn: false }),
+  waitForUser: async () => undefined,
+};
 const ctx: ToolContext = {
+  ui: uiDriver,
   diagrams,
   edits: { service: new ModelService(host), isTrusted: () => true, diagramUri: async (p) => ROOT + p },
   index,
@@ -45,6 +68,8 @@ const INPUTS: Record<string, unknown> = {
   sysml_add_to_diagram: { path: "ports-general.sysmld", elements: ["Ports::Power"] },
   sysml_remove_from_diagram: { path: "ports-general.sysmld", ids: ["n3"] },
   sysml_layout_diagram: { path: "ports-general.sysmld" },
+  sysml_apply_diagram_aspect: { path: "ports-general.sysmld", action: "clear" },
+  sysml_show_hide_diagram_members: { path: "ports-general.sysmld", node: "n4", show: ["motor"] },
   sysml_get_editor_context: {},
   sysml_create_element: { owner: "P::Car", kind: "part", name: "wheel", type: "Engine" },
   sysml_delete_element: { element: "P::Car::engine" },
@@ -55,6 +80,15 @@ const INPUTS: Record<string, unknown> = {
   sysml_read_verification_matrix: { package: "P" },
   sysml_set_transition: { element: "P::S::t1", trigger: "Go", guard: "ready" },
   sysml_create_requirement: { owner: "P", name: "massLimit", id: "R1", documentation: "The mass shall be low." },
+  sysml_ui_command: { command: "undo" },
+  sysml_ui_answer: { cancel: true },
+  sysml_ui_state: {},
+  sysml_ui_diagram: { path: "/w/a.sysmld", gesture: { kind: "flush" } },
+  sysml_ui_requirements: { package: "P", action: "observe" },
+  sysml_ui_tree: { op: "list" },
+  sysml_ui_screenshot: { path: "/w/a.sysmld" },
+  sysml_ui_highlight: { chrome: "modelTree", text: "Here is the tree." },
+  sysml_ui_wait_for_user: { timeoutSeconds: 1 },
 };
 /** More inputs of tools above: the relationship kinds of the requirements editor, over both channels. */
 const MORE: [string, unknown][] = [
@@ -148,7 +182,8 @@ describe("MCP server over HTTP", () => {
       const r = await client.callTool({ name, arguments: input as Record<string, unknown> });
       reset();
       const expected = await callTool(name, input, ctx);
-      expect(r.content).toEqual([{ type: "text", text: expected.text }]);
+      expect((r.content as unknown[])[0]).toEqual({ type: "text", text: expected.text });
+      expect((r.content as unknown[]).length).toBe(expected.image ? 2 : 1);
       expect(r.isError).toBeUndefined();
     }
     await client.close();

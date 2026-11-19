@@ -1,5 +1,6 @@
 /** The VS Code side of the diagram commands: tree actions, "New Diagram…", pickers and the diagram file watcher. */
 import * as vscode from "vscode";
+import { registerCommand } from "../command-events.js";
 import type { Element } from "../model/index.js";
 import { isLibraryUri } from "../model/index.js";
 import type { ModelNode } from "../tree/tree-model.js";
@@ -9,12 +10,14 @@ import { createDiagram, diagramKindsFor } from "./create.js";
 import type { DiagramEditorProvider } from "./diagram-editor.js";
 import { VIEW_TYPE } from "./diagram-editor.js";
 import { DiagramFileIndex } from "./diagram-index.js";
+import type { AlignCommand, NodeCommand } from "./protocol.js";
 import { readSettled } from "./read-settled.js";
 import { serializeDiagram, type DiagramDocument, type DiagramKind } from "./format.js";
 import { KIND_LABELS, defaultDiagramFileName, fileRoots, listElements, uniqueFileName } from "./new-diagram.js";
 import { uriKey } from "../workspace/uri-key.js";
 import { makeSourceMapper } from "./resolve.js";
 import { makeIndexFilter } from "../workspace/exclude.js";
+import { showInfo, showWarning } from "../ui-messages.js";
 
 const decoder = new TextDecoder();
 const exists = async (uri: vscode.Uri) => vscode.workspace.fs.stat(uri).then(() => true, () => false);
@@ -133,7 +136,7 @@ export async function newDiagram(deps: DiagramCommandDeps, arg?: ModelNode | vsc
   if (fileUri !== undefined) {
     const found = fileRoots(deps.model.index, fileUri);
     if (!found.ok) {
-      void vscode.window.showWarningMessage(`New Diagram: ${found.reason}`);
+      void showWarning(`New Diagram: ${found.reason}`);
       return undefined;
     }
     element = found.roots.length === 1
@@ -142,7 +145,7 @@ export async function newDiagram(deps: DiagramCommandDeps, arg?: ModelNode | vsc
   } else element = arg && !(arg instanceof vscode.Uri) ? resolveNode(deps.model.index, arg) : await pickElement(deps, "New Diagram from Element");
   if (!element) return undefined;
   if (element.qualifiedName === undefined) {
-    void vscode.window.showWarningMessage("A diagram needs a named element as its root.");
+    void showWarning("A diagram needs a named element as its root.");
     return undefined;
   }
   const kinds = diagramKindsFor(element).map((k) => ({ label: KIND_LABELS[k].label, detail: KIND_LABELS[k].detail, diagramKind: k }));
@@ -151,7 +154,7 @@ export async function newDiagram(deps: DiagramCommandDeps, arg?: ModelNode | vsc
 
   const target = diagramTargetFolder(element);
   if (!target) {
-    void vscode.window.showWarningMessage("Open a folder to create a diagram file.");
+    void showWarning("Open a folder to create a diagram file.");
     return undefined;
   }
   const { dir, folder } = target;
@@ -176,7 +179,7 @@ export async function showInDiagram(deps: DiagramCommandDeps, node?: ModelNode):
   const sourceOf = (uri: string) => makeSourceMapper(vscode.workspace.getWorkspaceFolder(vscode.Uri.parse(uri))?.uri.toString());
   const hits = deps.files.index.showing(element, deps.model.index, sourceOf, deps.diagrams.openDocuments());
   if (!hits.length) {
-    void vscode.window.showInformationMessage(`No diagram shows ${element.qualifiedName ?? element.name ?? "this element"}.`);
+    void showInfo(`No diagram shows ${element.qualifiedName ?? element.name ?? "this element"}.`);
     return;
   }
   const items = hits.map((h) => ({ label: vscode.workspace.asRelativePath(vscode.Uri.parse(h.uri)), hit: h }));
@@ -189,7 +192,7 @@ export async function showInDiagram(deps: DiagramCommandDeps, node?: ModelNode):
 export function addToActiveDiagram(deps: DiagramCommandDeps, clicked?: ModelNode, selected?: readonly ModelNode[]): void {
   const doc = deps.diagrams.activeDocument();
   if (!doc) {
-    void vscode.window.showInformationMessage("Open a diagram first: Add to Diagram needs a diagram editor to be active.");
+    void showInfo("Open a diagram first: Add to Diagram needs a diagram editor to be active.");
     return;
   }
   const els = elementsOf(deps, clicked, selected);
@@ -199,11 +202,61 @@ export function addToActiveDiagram(deps: DiagramCommandDeps, clicked?: ModelNode
 export function registerDiagramCommands(deps: DiagramCommandDeps): vscode.Disposable[] {
   const active = () => deps.diagrams.activeDocument();
   return [
-    vscode.commands.registerCommand("sysml.newDiagram", (node?: ModelNode | vscode.Uri) => newDiagram(deps, node)),
-    vscode.commands.registerCommand("sysml.showInDiagram", (node?: ModelNode) => showInDiagram(deps, node)),
-    vscode.commands.registerCommand("sysml.addToActiveDiagram", (node?: ModelNode, selected?: ModelNode[]) => addToActiveDiagram(deps, node, selected)),
-    vscode.commands.registerCommand("sysml.diagram.autoLayout", () => {
-      if (!deps.diagrams.runCommand(active(), "autoLayout")) void vscode.window.showInformationMessage("Open a diagram first: Auto-layout needs a diagram editor to be active.");
+    registerCommand("sysml.newDiagram", (node?: ModelNode | vscode.Uri) => newDiagram(deps, node)),
+    registerCommand("sysml.showInDiagram", (node?: ModelNode) => showInDiagram(deps, node)),
+    registerCommand("sysml.addToActiveDiagram", (node?: ModelNode, selected?: ModelNode[]) => addToActiveDiagram(deps, node, selected)),
+    registerCommand("sysml.diagram.autoLayout", () => {
+      if (!deps.diagrams.runCommand(active(), "autoLayout")) void showInfo("Open a diagram first: Auto-layout needs a diagram editor to be active.");
     }),
+    ...ALIGN_COMMANDS.map(([name, command]) =>
+      registerCommand(`sysml.diagram.${name}`, () => {
+        if (!deps.diagrams.runCommand(active(), command)) void showInfo("Open a diagram first.");
+      })),
+    registerCommand("sysml.diagram.back", () => deps.diagrams.navigate(-1)),
+    registerCommand("sysml.diagram.forward", () => deps.diagrams.navigate(1)),
+    registerCommand("sysml.diagram.saveImage", () => {
+      const doc = active();
+      if (!doc) { void showInfo("Open a diagram first."); return; }
+      return deps.diagrams.saveImage(doc);
+    }),
+    registerCommand("sysml.diagram.copyImage", () => {
+      const doc = active();
+      if (!doc) { void showInfo("Open a diagram first."); return; }
+      return deps.diagrams.copyImage(doc);
+    }),
+    registerCommand("sysml.diagram.toggleLegend", () => {
+      const doc = active();
+      if (!doc) { void showInfo("Open a diagram first."); return; }
+      deps.diagrams.toggleLegend(doc);
+    }),
+    ...ASPECT_COMMANDS.map(([name, command]) =>
+      registerCommand(`sysml.diagram.${name}`, () => {
+        const doc = active();
+        if (!doc) { void showInfo("Open a diagram first."); return; }
+        return deps.diagrams.aspectCommand(doc, command);
+      })),
+    ...NODE_COMMANDS.map(([name, command]) =>
+      registerCommand(`sysml.diagram.${name}`, () => {
+        const doc = active();
+        if (!doc) { void showInfo("Open a diagram first."); return; }
+        return deps.diagrams.nodeCommand(doc, command);
+      })),
   ];
 }
+
+const NODE_COMMANDS: readonly (readonly [string, NodeCommand])[] = [
+  ["showHideParts", "showHideMembers"],
+  ["displayRelated", "displayRelated"],
+  ["copyNodes", "copy"],
+  ["pasteNodes", "paste"],
+];
+
+const ALIGN_COMMANDS: readonly (readonly [string, AlignCommand])[] = [
+  ["alignLeft", "alignLeft"], ["alignRight", "alignRight"], ["alignTop", "alignTop"], ["alignBottom", "alignBottom"],
+  ["alignCenter", "alignCenter"], ["alignMiddle", "alignMiddle"],
+  ["distributeHorizontally", "distributeHorizontal"], ["distributeVertically", "distributeVertical"],
+];
+
+const ASPECT_COMMANDS: readonly (readonly [string, "save" | "apply" | "clear" | "delete"])[] = [
+  ["saveAspect", "save"], ["applyAspect", "apply"], ["clearAspect", "clear"], ["deleteAspect", "delete"],
+];

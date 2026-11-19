@@ -13,6 +13,7 @@ import { laidOutLabel, labelHandleBoxes, LABEL_LINE, type LabelLayout } from "./
 import { edgeRoute, placeLabel, routeFits } from "./routing.js";
 import { labelSize, loopSidesFor, planSelfLoops, type SelfLoop } from "./loops.js";
 import { repairRoute, routeHandles } from "./route-edit.js";
+import { legendEntries } from "./legend.js";
 
 export type Role = "bg" | "node" | "line" | "text" | "subtext" | "warn" | "edge" | "sel" | "inherited";
 export type Palette = Record<Role, string>;
@@ -154,7 +155,7 @@ function drawPortLabel(n: VmNode, b: Box, owner: Box, o: SvgOptions): string {
   return text(o, x, b.y + b.h / 2 + 3, n.label, "small", "text", left ? "start" : "end");
 }
 
-const DASHED = new Set(["typing", "satisfy", "verify", "derivation", "flow", "include"]);
+const DASHED = new Set(["typing", "satisfy", "verify", "derivation", "flow", "include", "dependency"]);
 
 function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, lines: string[], selected = false): string {
   const first = pts[0]!;
@@ -169,7 +170,7 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, l
     case "composition": g += poly(diamondPoints(first, second, 16, 5), "edge"); break;
     case "specialization": g += poly(headPoints(last, before, 14, 7), "bg"); break;
     case "message": g += poly(headPoints(last, before, 10, 4), "edge"); break;
-    case "typing": case "satisfy": case "verify": case "derivation": case "succession": case "transition": case "flow": case "include": {
+    case "typing": case "dependency": case "satisfy": case "verify": case "derivation": case "succession": case "transition": case "flow": case "include": {
       const [t, a, b] = headPoints(last, before, 10, 5);
       g += `<polyline points="${f(a.x)},${f(a.y)} ${f(t.x)},${f(t.y)} ${f(b.x)},${f(b.y)}"${paint(o, "none", roleLine)}/>`;
       break;
@@ -205,6 +206,34 @@ function depth(vm: ViewModel): Map<string, number> {
 }
 
 /** Draw the whole diagram from boxes relative to their parents. */
+const LEGEND_ROW = 22;
+const LEGEND_SYMBOL = 30;
+
+/** The legend box with its top-left at (x, y): a symbol and a name for each node kind and line kind drawn. */
+function drawLegend(vm: ViewModel, x: number, y: number, o: SvgOptions, measure: Measure): { svg: string; box: Box } | undefined {
+  const { nodes, edges } = legendEntries(vm);
+  const rows = nodes.length + edges.length;
+  if (!rows) return undefined;
+  const textW = Math.max(measure("Legend", "bold"), ...nodes.map((n) => measure(n.label, "normal")), ...edges.map((e) => measure(e.label, "normal")));
+  const w = Math.ceil(LEGEND_SYMBOL + textW + 36);
+  const h = 30 + rows * LEGEND_ROW;
+  let g = `<g data-legend="true" transform="translate(${f(x)} ${f(y)})"><rect width="${w}" height="${h}" rx="4"${paint(o, "bg", "line")}/>`;
+  g += text(o, 10, 19, "Legend", "bold", "text");
+  let row = 0;
+  const at = () => 30 + row++ * LEGEND_ROW;
+  for (const n of nodes) {
+    const ry = at();
+    const rx = n.shape === "usage" || n.shape === "action" ? ' rx="5"' : "";
+    g += `<g data-legend-node="${esc(n.label)}"><rect x="10" y="${ry - 8}" width="${LEGEND_SYMBOL - 6}" height="14"${rx}${paint(o, "node", "line")}/>${text(o, LEGEND_SYMBOL + 18, ry + 4, n.label, "normal", "text")}</g>`;
+  }
+  for (const e of edges) {
+    const ry = at();
+    const fake: VmEdge = { id: "legend", source: "", target: "", style: e.style, derived: false, resolved: true };
+    g += `<g data-legend-edge="${esc(e.label)}">${drawEdge(fake, [{ x: 10, y: ry - 1 }, { x: LEGEND_SYMBOL + 4, y: ry - 1 }], o, undefined, [])}${text(o, LEGEND_SYMBOL + 18, ry + 4, e.label, "normal", "text")}</g>`;
+  }
+  return { svg: g + "</g>", box: { x, y, w, h } };
+}
+
 export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: Measure, o: SvgOptions = {}, extras: BuildExtras = {}): SvgResult {
   const abs = absoluteBoxes(vm, rel);
   const d = depth(vm);
@@ -221,7 +250,8 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const n = byId.get(id);
     const box = abs.get(id)!;
     const owner = n?.attachedTo !== undefined ? abs.get(n.attachedTo) : undefined;
-    return { box, ...(owner ? { owner } : {}) };
+    const headerH = n && !owner && n.compartments?.length ? describeBox(n, measure).headerH : undefined;
+    return { box, ...(owner ? { owner } : {}), ...(headerH !== undefined ? { headerH } : {}) };
   };
   // Route every edge first, in document order: a later edge keeps off the lines of the earlier ones.
   const drawn: { e: VmEdge; pts: Pt[]; ends: Box[] }[] = [];
@@ -324,7 +354,14 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     if (owner) out += drawPortLabel(n, b, owner, o);
   }
   for (const d of drawn) out += drawEdgeLabel(d.e, o, labels.get(d.e.id), labelLines.get(d.e.id) ?? []);
-  return { content: out, bounds: boundsOf([...abs.values(), ...labels.values()], 0), routes, labels, labelLines, laidOut };
+  const shapes = [...abs.values(), ...labels.values()];
+  if (vm.legend) {
+    // Right of the drawing, level with its top; part of the content so exports carry it (D49).
+    const b = boundsOf(shapes, 0);
+    const legend = drawLegend(vm, shapes.length ? b.x + b.w + 32 : 0, shapes.length ? b.y : 0, o, measure);
+    if (legend) { out += legend.svg; shapes.push(legend.box); }
+  }
+  return { content: out, bounds: boundsOf(shapes, 0), routes, labels, labelLines, laidOut };
 }
 
 /** Selection outlines and resize handles (single selected non-port node), and the rubber band. */

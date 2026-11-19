@@ -262,7 +262,7 @@ export interface InteractionHost {
 }
 
 type Gesture =
-  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; plan?: Plan; drop?: DropTarget; dropKey?: string; armed?: boolean; timer?: unknown }
+  | { kind: "move"; start: Pt; ids: string[]; moved: boolean; collapseTo?: string; plan?: Plan; drop?: DropTarget; dropKey?: string; armed?: boolean; timer?: unknown }
   | { kind: "resize"; start: Pt; id: string; handle: Handle; plan?: Plan }
   | { kind: "band"; start: Pt; cur: Pt; add: boolean; base: string[] }
   | { kind: "pan"; sx: number; sy: number; moved: boolean; clear: boolean };
@@ -339,7 +339,9 @@ export class Interaction {
       this.setSelection(next);
       if (!next.has(hit)) return;
     } else if (!this.sel.has(hit)) this.setSelection([hit]);
-    this.g = { kind: "move", start: e, ids: [...this.sel], moved: false };
+    // A plain click on a node of a multi-selection selects only it, unless the press turns into a drag of the group.
+    const collapseTo = !e.shift && !e.mod && this.sel.size > 1 ? hit : undefined;
+    this.g = { kind: "move", start: e, ids: [...this.sel], moved: false, ...(collapseTo !== undefined ? { collapseTo } : {}) };
   }
 
   pointerMove(e: PointerInput): void {
@@ -393,6 +395,7 @@ export class Interaction {
       return;
     }
     if (g.kind === "move" && g.timer !== undefined) this.host.clearTimer(g.timer);
+    if (g.kind === "move" && !g.moved && g.collapseTo !== undefined) this.setSelection([g.collapseTo]);
     if (g.kind === "move" && g.drop && g.armed) {
       // Nesting is a model edit: the gesture ends in the host, which moves the declaration or refuses.
       this.host.onDropTarget?.(undefined);
@@ -423,7 +426,7 @@ export class Interaction {
     return true;
   }
 
-  private commit(plan: Plan, label: "Move" | "Resize" | "Nudge"): void {
+  private commit(plan: Plan, label: "Move" | "Resize" | "Nudge" | "Align"): void {
     const boxes: BoxPatch[] = [];
     for (const [id, p] of plan) {
       const it = this.scene.get(id);
@@ -432,6 +435,14 @@ export class Interaction {
       if (!same) boxes.push({ id, x: p.x, y: p.y, ...(p.w !== undefined ? { w: p.w } : {}), ...(p.h !== undefined ? { h: p.h } : {}) });
     }
     if (boxes.length) this.host.onEdit({ kind: "layout", label, boxes });
+  }
+
+  /** Align or distribute the selection: one layout edit, so one undo step. */
+  arrange(plan: (scene: Scene, ids: string[]) => Plan): void {
+    this.flushNudge();
+    const p = plan(this.scene, [...this.sel]);
+    this.host.onPreview(p.size ? applyPlan(this.scene, p) : undefined, undefined);
+    this.commit(p, "Align");
   }
 
   /** Post a pending nudge now (a later action, focus loss or the end of the coalescing window). */

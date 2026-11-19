@@ -1,6 +1,7 @@
 /** Messages between the extension host and the requirements editor webview, and the view models. No `vscode`, no DOM. */
 import type { TocEntry } from "./document-model.js";
 import type { MatrixVM } from "./matrix-shape.js";
+import type { RequirementsGesture } from "../ui-gestures.js";
 
 export type RequirementsScope = { kind: "package"; qualifiedName: string } | { kind: "file"; uri: string };
 /** "matrix" is the verification matrix, the tabular view; "table" is the older editing table, no longer offered as a tab. */
@@ -141,13 +142,7 @@ export type Intent =
   /** Write the matrix as CSV or Markdown to a file the user chooses. */
   | { type: "exportMatrix"; format: "csv" | "markdown" };
 
-export type Gesture =
-  | { kind: "click"; selector: string }
-  | { kind: "input"; selector: string; value: string; event?: "change" | "input" }
-  | { kind: "dragToc"; fromQn: string; ontoQn: string; position: "before" | "after" }
-  | { kind: "key"; selector: string; key: string; alt?: boolean }
-  /** A mouse or pointer event at a point of an element (`at`: where in its box), for the palette, the ghost and dragging. */
-  | { kind: "mouse"; type: "contextmenu" | "pointermove" | "pointerdown" | "pointerup" | "click"; selector: string; at?: "center" | "top" | "bottom" | "left"; dy?: number };
+export type Gesture = RequirementsGesture;
 
 export type HostToWebview =
   | { type: "render"; state: RequirementsState; scope: RequirementsScope; view?: ViewMode; generation: number }
@@ -155,6 +150,9 @@ export type HostToWebview =
   | { type: "getMetrics"; requestId: number }
   | { type: "exportPng"; requestId: number }
   | { type: "testGesture"; requestId: number; gesture: Gesture }
+  /** The tutor: spotlight the element a selector finds with a callout; answered with a `gestureResult`. `text` is plain text. */
+  | { type: "highlight"; requestId: number; selector: string; text: string }
+  | { type: "clearHighlights" }
   | { type: "setView"; view: ViewMode }
   /** Test only: force the width of the page (px; null restores the window width), re-run the layout; answered with a gestureResult. */
   | { type: "testWidth"; requestId: number; width: number | null }
@@ -166,6 +164,8 @@ export interface RequirementsMetrics {
   theme: "light" | "dark";
   generation: number;
   scopeName: string;
+  /** The tutor callout text while a highlight is shown. */
+  highlight?: string;
   table: {
     rows: { qn: string; cells: { id: string; name: string; text: string; owner: string; satisfy: string; verify: string }; selected: boolean; unsatisfied: boolean; unverified: boolean }[];
     selected?: string;

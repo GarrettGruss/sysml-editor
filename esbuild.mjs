@@ -44,3 +44,6 @@ await build({
   entryPoints: ["src/webview/search/main.ts"], outfile: "dist/webview/search.js",
 });
 cpSync("src/webview/search/search.css", "dist/webview/search.css");
+
+// Agent skills ship in the VSIX under dist/skills (src/ is never packaged).
+cpSync("src/skills", "dist/skills", { recursive: true, filter: (p) => !p.endsWith(".test.ts") });

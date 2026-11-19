@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { defaultName, effectiveName, validateName, type NewEntryKind } from "./new-entry.js";
 import { folderNode, type ModelNode } from "./tree-model.js";
 import type { ModelTreeProvider } from "./tree-provider.js";
+import { showError, showInfo, showWarning } from "../ui-messages.js";
 
 /** What integration tests see and drive of the open input box. */
 export interface NewEntryTestApi {
@@ -33,12 +34,12 @@ export class NewEntryFlow {
 
   async start(kind: NewEntryKind, folderKey: string | undefined): Promise<void> {
     if (!this.trusted()) {
-      void vscode.window.showWarningMessage("New File and New Folder are not available in an untrusted workspace.");
+      void showWarning("New File and New Folder are not available in an untrusted workspace.");
       return;
     }
     if (this.provider.filter === "diagrams") return;
     if (!folderKey) {
-      void vscode.window.showInformationMessage("SysML: open a folder first.");
+      void showInfo("SysML: open a folder first.");
       return;
     }
     this.close();
@@ -100,7 +101,7 @@ export class NewEntryFlow {
       else await vscode.workspace.fs.createDirectory(uri);
     } catch (e) {
       this.finish(cur);
-      void vscode.window.showErrorMessage(`SysML: could not create ${name}: ${e instanceof Error ? e.message : String(e)}`);
+      void showError(`SysML: could not create ${name}: ${e instanceof Error ? e.message : String(e)}`);
       return;
     }
     if (cur.kind === "file") await this.indexFile(uri).catch(() => {});

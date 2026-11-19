@@ -4,6 +4,7 @@ out
 .vscode-test
 *.vsix
 *.tgz
+cli/dist
 coverage
 *.tsbuildinfo
 .env
@@ -15,3 +16,4 @@ src/parser/generated
 
 # Files created and removed by the integration tests
 test/fixtures/workspace-basic/tmp-*
+docs/reference/cameo-user-guide/

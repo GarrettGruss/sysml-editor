@@ -2,6 +2,7 @@ import type { Element, ModelIndex } from "../model/index.js";
 import type { DiagramDocument, DiagramProblem } from "../diagram/format.js";
 import type { SourceMapper } from "../diagram/resolve.js";
 import type { ModelService } from "../model-service/service.js";
+import type { UiDriver } from "./ui-driver.js";
 
 /** What a tool handler can use. Transport-free: adapters build one of these. */
 export interface ToolContext {
@@ -14,6 +15,8 @@ export interface ToolContext {
   diagrams?: DiagramService;
   /** The model-changing operations; implemented by the VS Code layer. Absent when editing is not available. */
   edits?: EditContext;
+  /** The UI-control driver; implemented by the VS Code layer. Absent when UI control is not available. */
+  ui?: UiDriver;
 }
 
 /** What the edit tools need: the shared `ModelService`, the trust state and the mapping of diagram paths. */
@@ -45,7 +48,7 @@ export interface DiagramContent {
   sourceOf: SourceMapper;
 }
 
-export type DiagramImage = { ok: true; png: Uint8Array } | { ok: false; reason: string };
+export type DiagramImage = { ok: true; png: Uint8Array; svg?: undefined } | { ok: true; svg: string; png?: undefined } | { ok: false; reason: string };
 
 /** How a write reached the diagram: as an undoable, unsaved edit of the open editor, or on disk. */
 export type DiagramWrite = "editor" | "file" | "none";
@@ -73,8 +76,8 @@ export interface DiagramService {
   isTrusted(): boolean;
   list(): Promise<DiagramFileInfo[]>;
   read(path: string): Promise<DiagramContent>;
-  /** A PNG in the fixed light theme, rendered by the diagram webview; never throws for a rendering failure. */
-  renderImage(path: string): Promise<DiagramImage>;
+  /** A PNG (default) or the SVG text in the fixed light theme, rendered by the diagram webview; never throws for a rendering failure. */
+  renderImage(path: string, format?: "png" | "svg"): Promise<DiagramImage>;
   /** Write a new diagram file, never overwriting; `path` undefined means beside the root's source file. */
   create(request: { path?: string; root: Element; make(sourceOf: SourceMapper): DiagramDocument }): Promise<DiagramWriteResult>;
   /** One edit: `change` returns the new document, or undefined for no change. Open diagram: undoable and unsaved; otherwise the file. */

@@ -669,7 +669,10 @@ export class ModelTreeProvider implements vscode.TreeDataProvider<ModelNode>, vs
   async revealNode(view: vscode.TreeView<ModelNode>, node: ModelNode, log?: (m: string) => void, follow = false): Promise<void> {
     if (!follow) this.lastExplicitReveal = Date.now();
     const say = log ?? ((m: string) => console.warn(m));
-    if (!this.isShown(node)) return;
+    if (!this.isShown(node)) {
+      say(`SysML tree: ${node.id} is hidden by the filter "${this.queryValue}"`);
+      return;
+    }
     try {
       await view.reveal(node, { select: true, focus: false, expand: false });
     } catch (e) {
@@ -853,5 +856,46 @@ export function registerCursorSync(index: ModelIndex, view: vscode.TreeView<Mode
   return vscode.Disposable.from(
     vscode.window.onDidChangeTextEditorSelection((e) => follow(e.textEditor)),
     vscode.window.onDidChangeActiveTextEditor((e) => follow(e, true)),
+  );
+}
+
+/**
+ * A refresh replaces tree items, and VS Code then drops a selection on them although the elements still
+ * exist (a re-index of an unchanged file, #77). Select them again when a refresh, not the user, cleared it.
+ */
+export function keepSelectionAcrossRefresh(index: ModelIndex, view: vscode.TreeView<ModelNode>, provider: ModelTreeProvider, log: (m: string) => void): vscode.Disposable {
+  let last: readonly ModelNode[] = [];
+  let lost: readonly ModelNode[] = [];
+  let refreshedAt = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Reveal once refreshes stop (a reveal during one is dropped too); check again after it.
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      const again = lost.filter((n) => isFolderNode(n) || isFileNode(n) || isDiagramNode(n) || resolveNode(index, n));
+      if (!again.length || view.selection.length) { lost = []; return; }
+      void (async () => {
+        for (const n of again) await provider.revealNode(view, n, log, true);
+        if (!view.selection.length && Date.now() - refreshedAt < 1000) schedule();
+        else lost = [];
+      })();
+    }, 300);
+  };
+  return vscode.Disposable.from(
+    provider.onDidChangeTreeData(() => {
+      refreshedAt = Date.now();
+      if (lost.length) schedule();
+    }),
+    view.onDidChangeSelection((e) => {
+      if (e.selection.length === 0 && last.length && Date.now() - refreshedAt < 1000) {
+        lost = last;
+        schedule();
+        return;
+      }
+      lost = [];
+      last = e.selection;
+    }),
+    { dispose: () => { if (timer) clearTimeout(timer); } },
   );
 }

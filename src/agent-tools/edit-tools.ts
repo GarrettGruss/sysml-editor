@@ -30,7 +30,7 @@ export function dottedPath(text: string): string[] {
 const json = (v: unknown) => ({ text: JSON.stringify(v, null, 2) });
 
 /** The kinds `sysml_create_relationship` accepts (also the palette kinds that are not creatable elements). */
-export const RELATIONSHIP_KINDS = ["connection", "satisfy", "verify", "derivation", "succession", "transition", "message"] as readonly string[];
+export const RELATIONSHIP_KINDS = ["connection", "specialization", "dependency", "satisfy", "verify", "derivation", "succession", "transition", "message"] as readonly string[];
 
 export function editing(ctx: ToolContext): EditContext {
   if (!ctx.edits) throw new ToolError("Model editing is not available in this session.");
@@ -280,20 +280,22 @@ const createRelationship: ToolDefinition = {
   name: "sysml_create_relationship",
   description:
     "Create a relationship statement in the model. `kind: \"connection\"` adds `connect <source> to <target>;` to `owner` (the element that contains both ends, e.g. the part def or usage that owns the two parts); `source` and `target` are qualified names of the connected parts or ports, written as feature chains relative to the owner. " +
+    "`kind: \"specialization\"` writes `:> <target>` on the declaration of the definition `source` (`part def Frigate :> Ship`); `source` and `target` are qualified names of two definitions of the same kind; a different kind, itself, an existing specialization, a cycle and an inherited or library source are refused with the reason. " +
+    "`kind: \"dependency\"` adds `dependency from <source> to <target>;` to `owner` (default: the package that holds `source`); `source` is the client and `target` the supplier, both qualified names. " +
     "`kind: \"satisfy\"` adds `satisfy <requirement> by <by>;` to `owner` (default: the package that holds `by`); `requirement` and `by` are qualified names. Names are written so they resolve from the owner; an import is added when needed. " +
     "`kind: \"verify\"` adds `verify <requirement>;` to the objective of a verification case (SysML v2 allows verify only there): give `verificationCase` (qualified name of an existing verification case; its objective is created when missing) or `newVerificationCase` (a name; a new `verification` containing the objective is created in `owner`, default the package of the requirement). " +
     "`kind: \"derivation\"` adds `#derivation connection { end #original ::> <original>; end #derive ::> <derived>; ... }` (derivation is not a keyword) to `owner` (default: the package of the first derived requirement) and `private import RequirementDerivation::*;` when missing; `original` and `derived` (a list) are qualified names of requirements. " +
     "`kind: \"succession\"` adds `first <source> then <target>;` (with `guard`: `first <source> if <guard> then <target>;`) to `owner`, an action or action definition, after the two nodes; `source` and `target` are member names or qualified names of its actions or control nodes, or `start` and `done`; a succession that already exists is refused. " +
     "`kind: \"transition\"` adds `transition first <source> [accept <trigger>] [if <guard>] [do <effect>] then <target>;` to `owner`, a state or state definition; `source` and `target` are its states (`trigger`, `guard` and `effect` are source text, parsed before anything is changed and refused with the syntax error when invalid). " +
     "`kind: \"message\"` adds `message [name] [of <itemType>] from <from> to <to>;` to `owner`, an occurrence, part or interaction, written as `then message ...;` right after its last message so it comes last in time order; `from` and `to` are names of the parts taking part. " +
-    "With `diagram`, the new edge is also placed on that diagram when both ends are shown. Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
+    "With `diagram`, the new edge is also placed on that diagram when both ends are shown; a specialization is a derived edge, drawn automatically when both definitions are on the diagram (the result reports `placed: true, derivedEdge: true`). Applied directly, saved, one undo step. Refused for files with syntax errors and in an untrusted workspace. Returns JSON with the files changed.",
   inputSchema: {
     type: "object",
     properties: {
-      kind: { type: "string", enum: [...RELATIONSHIP_KINDS], description: "connection, satisfy, verify, derivation, succession, transition or message." },
+      kind: { type: "string", enum: [...RELATIONSHIP_KINDS], description: "connection, specialization, dependency, satisfy, verify, derivation, succession, transition or message." },
       owner: { type: "string", description: "Qualified name of the element that receives the statement. Required for a connection." },
-      source: { type: "string", description: "connection: qualified name of the first end." },
-      target: { type: "string", description: "connection: qualified name of the second end." },
+      source: { type: "string", description: "connection or dependency: qualified name of the first end; specialization: the specializing definition." },
+      target: { type: "string", description: "connection or dependency: qualified name of the second end; specialization: the definition specialized." },
       requirement: { type: "string", description: "satisfy: qualified name of the requirement." },
       by: { type: "string", description: "satisfy: qualified name of the satisfying element." },
       verificationCase: { type: "string", description: "verify: qualified name of an existing verification case (def or usage)." },
@@ -348,6 +350,21 @@ const createRelationship: ToolDefinition = {
       const spec = { ...(typeof input.name === "string" && input.name !== "" ? { name: input.name } : {}), ...(typeof input.itemType === "string" && input.itemType !== "" ? { itemType: input.itemType } : {}) };
       const r = ok(await ed.service.addMessage(owner.element, need("from"), need("to"), spec, origin));
       return summary(ctx, r, { created: { kind: "message", owner: input.owner, from: input.from, to: input.to, ...spec }, ...placementNote(ctx, r, target) });
+    }
+    if (input.kind === "specialization" || input.kind === "dependency") {
+      const a = relationshipEnd(ctx, ed, need("source"), "source");
+      const b = relationshipEnd(ctx, ed, need("target"), "target");
+      if (input.kind === "specialization") {
+        const refusal = ed.service.refuseIfInherited(a, "specialized");
+        if (refusal) throw refused(refusal);
+        const r = ok(await ed.service.specialize(a.element, b.element, origin));
+        // A specialization is drawn as a derived edge whenever both definitions are on the diagram; nothing is stored in the layout.
+        const derived = target ? { diagram: { path: target.path, placed: true, derivedEdge: true, note: "The specialization is drawn automatically as a derived edge when both definitions are on this diagram; nothing is stored in the diagram file." } } : {};
+        return summary(ctx, r, { created: { kind: "specialization", source: input.source, target: input.target }, ...derived });
+      }
+      const ownerEl = typeof input.owner === "string" && input.owner !== "" ? locate(ctx, ed, input.owner, "owner element").element : undefined;
+      const r = ok(await ed.service.dependency(a.element, b.element, ownerEl, origin));
+      return summary(ctx, r, { created: { kind: "dependency", source: input.source, target: input.target }, ...placementNote(ctx, r, target) });
     }
     if (input.kind === "connection") {
       const owner = locate(ctx, ed, need("owner"), "owner element");

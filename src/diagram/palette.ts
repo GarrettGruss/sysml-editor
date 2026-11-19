@@ -11,7 +11,7 @@ export interface PaletteItem {
 const item = (kind: string, label?: string): PaletteItem => ({ kind, label: label ?? kind.charAt(0).toUpperCase() + kind.slice(1) });
 
 // Every palette kind comes from the one list of kinds the model service accepts (`ALL_KINDS`).
-const GENERAL: PaletteItem[] = ALL_KINDS.filter((k) => k !== "package" && !k.startsWith("requirement") && !k.startsWith("verification") && !k.startsWith("state")).map((k) => item(k));
+const GENERAL: PaletteItem[] = ALL_KINDS.filter((k) => k !== "package" && !k.startsWith("requirement") && !k.startsWith("verification") && !k.startsWith("state")).map((k) => item(k)).concat([item("specialization", "Specialization"), item("dependency", "Dependency")]);
 const INTERCONNECTION: PaletteItem[] = [...USAGE_KINDS.filter((k) => k === "part" || k === "port" || k === "attribute").map((k) => item(k)), item("connection", "Connection")];
 // The relationship tools go through the same model operations as the requirements editor (click the source, then the target).
 const REQUIREMENTS: PaletteItem[] = [
@@ -27,7 +27,7 @@ const STATE_TRANSITION: PaletteItem[] = [item("state", "State"), item("transitio
 const SEQUENCE: PaletteItem[] = [item("message", "Message")];
 
 /** Palette kinds that are relationship tools (click the source, then the target) rather than elements to create. */
-export const CONNECT_TOOLS: ReadonlySet<string> = new Set(["connection", "satisfy", "verify", "derivation", "succession", "transition", "message", "flow"]);
+export const CONNECT_TOOLS: ReadonlySet<string> = new Set(["connection", "specialization", "dependency", "satisfy", "verify", "derivation", "succession", "transition", "message", "flow"]);
 
 export function paletteFor(kind: DiagramKind): PaletteItem[] {
   switch (kind) {

@@ -6,7 +6,7 @@ import * as vscode from "vscode";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { planChannels, type ChannelPlan } from "./agent-channels.js";
-import { callTool, toolDefinitions, type DiagramService, type EditContext, type ToolContext, type ToolResult } from "./agent-tools/index.js";
+import { callTool, toolDefinitions, type DiagramService, type EditContext, type ToolContext, type ToolResult, type UiDriver } from "./agent-tools/index.js";
 import { fsPathToToolPath, type FolderInfo } from "./agent-paths.js";
 import { McpServerController } from "./mcp/server-controller.js";
 import { startMcpServer } from "./mcp/server.js";
@@ -24,6 +24,8 @@ export class AgentIntegration implements vscode.Disposable {
   private readonly subs: vscode.Disposable[] = [];
   private queue: Promise<void> = Promise.resolve();
   private disposed = false;
+  /** The UI-control driver (set by the extension once the editors exist). */
+  ui?: UiDriver;
 
   constructor(
     private readonly model: WorkspaceModel,
@@ -74,6 +76,7 @@ export class AgentIntegration implements vscode.Disposable {
       pathToUri: (p) => this.model.index.uris().find((u) => uriToPath(u) === p),
       ...(this.diagrams ? { diagrams: this.diagrams } : {}),
       ...(this.edits ? { edits: this.edits } : {}),
+      ...(this.ui ? { ui: this.ui } : {}),
     };
   }
 
