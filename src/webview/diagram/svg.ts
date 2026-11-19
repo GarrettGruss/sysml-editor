@@ -11,6 +11,7 @@ import {
 import { HANDLES, handleBoxes } from "./interaction.js";
 import { laidOutLabel, labelHandleBoxes, LABEL_LINE, type LabelLayout } from "./labels.js";
 import { edgeRoute, placeLabel, routeFits } from "./routing.js";
+import { sequenceFrames } from "./sequence-layout.js";
 import { labelSize, loopSidesFor, planSelfLoops, type SelfLoop } from "./loops.js";
 import { repairRoute, routeHandles } from "./route-edit.js";
 import { legendEntries } from "./legend.js";
@@ -155,6 +156,22 @@ function drawPortLabel(n: VmNode, b: Box, owner: Box, o: SvgOptions): string {
   return text(o, x, b.y + b.h / 2 + 3, n.label, "small", "text", left ? "start" : "end");
 }
 
+/** Offsets a route by `n` fan steps perpendicular to its first segment; ends stay on their boxes. */
+export function fanRoute(pts: Pt[], n: number, src: Box, tgt: Box, step = 12): Pt[] {
+  if (pts.length < 2) return pts;
+  const a = pts[0]!, b = pts[1]!;
+  const horizontal = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
+  const d = (n % 2 === 1 ? 1 : -1) * Math.ceil(n / 2) * step;
+  const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo + 4), hi - 4);
+  const out = pts.map((p, i) => {
+    const q = horizontal ? { x: p.x, y: p.y + d } : { x: p.x + d, y: p.y };
+    const box = i === 0 ? src : i === pts.length - 1 ? tgt : undefined;
+    if (box) { if (horizontal) q.y = clamp(q.y, box.y, box.y + box.h); else q.x = clamp(q.x, box.x, box.x + box.w); }
+    return q;
+  });
+  return out;
+}
+
 const DASHED = new Set(["typing", "satisfy", "verify", "derivation", "flow", "include", "dependency"]);
 
 function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, lines: string[], selected = false): string {
@@ -162,9 +179,9 @@ function drawEdge(e: VmEdge, pts: Pt[], o: SvgOptions, label: Box | undefined, l
   const second = pts[1] ?? first;
   const last = pts[pts.length - 1]!;
   const before = pts[pts.length - 2] ?? first;
-  const dashed = DASHED.has(e.style) || !e.resolved;
+  const dashed = DASHED.has(e.style) || !e.resolved || e.reply === true;
   const roleLine: Role = e.resolved ? "edge" : "warn";
-  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"${e.order !== undefined ? ` data-order="${e.order}"` : ""}${e.unordered ? ' data-unordered="true"' : ""}${selected ? ' data-selected="true"' : ""}>${selected ? `<polyline data-highlight="true" points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="8" stroke-opacity="0.35" stroke-linecap="round" stroke-linejoin="round"${paint(o, "none", "sel")}/>` : ""}<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
+  let g = `<g data-edge="${esc(e.id)}" data-style="${e.style}"${e.order !== undefined ? ` data-order="${e.order}"` : ""}${e.unordered ? ' data-unordered="true"' : ""}${e.reply ? ' data-reply="true"' : ""}${selected ? ' data-selected="true"' : ""}>${selected ? `<polyline data-highlight="true" points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}" stroke-width="8" stroke-opacity="0.35" stroke-linecap="round" stroke-linejoin="round"${paint(o, "none", "sel")}/>` : ""}<polyline points="${pts.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${dashed ? ' stroke-dasharray="6 4"' : ""}${paint(o, "none", roleLine)}/>`;
   const poly = (ps: Pt[], fill: Role | "none") => `<polygon points="${ps.map((p) => `${f(p.x)},${f(p.y)}`).join(" ")}"${paint(o, fill, roleLine)}/>`;
   switch (e.style) {
     case "composition": g += poly(diamondPoints(first, second, 16, 5), "edge"); break;
@@ -298,7 +315,10 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     // A stored route that no longer fits (an end moved or was resized) keeps its interior bends where it can.
     const stored = extras.overrides?.get(e.id)?.points ?? extras.routes?.get(e.id) ?? e.points;
     const kept = stored && !routeFits(stored as Pt[], s, t) ? repairRoute(stored, s, t) : undefined;
-    const pts = edgeRoute(endOf(e.source), endOf(e.target), kept ?? stored, obstacles, drawn.map((d) => d.pts));
+    let pts = edgeRoute(endOf(e.source), endOf(e.target), kept ?? stored, obstacles, drawn.map((d) => d.pts));
+    // Edges between the same two ends are fanned: the n-th is offset 12 px sideways (D74).
+    const twin = drawn.filter((d) => !d.e.fixed && d.e.source !== d.e.target && ((d.e.source === e.source && d.e.target === e.target) || (d.e.source === e.target && d.e.target === e.source))).length;
+    if (twin > 0 && !extras.overrides?.get(e.id)?.points && !e.points) pts = fanRoute(pts, twin, s, t);
     routes.set(e.id, pts);
     drawn.push({ e, pts, ends: [s, t] });
   }
@@ -344,6 +364,16 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     const size = labelSize(d.e.label, measure);
     labels.set(d.e.id, placeLabel(d.pts, size.w, size.h, d.ends, { nodes: allNodes, containers, routes: others, labels: [...labels.values()] }));
     labelLines.set(d.e.id, size.lines);
+  }
+  // Alternatives of a sequence view: a frame under the messages, an `alt` tab, guards, and dashed `else` dividers (D75).
+  for (const fr of sequenceFrames(vm, routes)) {
+    out += `<g data-fragment="${fr.kind}"><rect x="${f(fr.x)}" y="${f(fr.y)}" width="${f(fr.w)}" height="${f(fr.h)}"${paint(o, "none", "edge")}/>`;
+    out += `<rect x="${f(fr.x)}" y="${f(fr.y)}" width="34" height="16"${paint(o, "bg", "edge")}/>` + text(o, fr.x + 6, fr.y + 12, fr.kind, "small", "text");
+    fr.branches.forEach((b, i) => {
+      if (i > 0) out += `<line data-fragment-divider="true" x1="${f(fr.x)}" y1="${f(b.y)}" x2="${f(fr.x + fr.w)}" y2="${f(b.y)}" stroke-dasharray="6 4"${paint(o, "none", "edge")}/>`;
+      out += text(o, fr.x + (i === 0 ? 42 : 6), b.y + (i === 0 ? 12 : 14), b.guard, "small", "text");
+    });
+    out += "</g>";
   }
   for (const d of drawn) out += drawEdge(d.e, d.pts, o, labels.get(d.e.id), labelLines.get(d.e.id) ?? [], selected.has(d.e.id));
   for (const n of order) {

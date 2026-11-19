@@ -96,6 +96,8 @@ export interface VmEdge {
   /** Messages: position in time order, and whether the model leaves the order against another message open. */
   order?: number;
   unordered?: boolean;
+  /** Messages: a reply to an earlier message in the opposite direction (drawn dashed). */
+  reply?: boolean;
   /** What the properties panel edits for a selected transition, as source text. */
   transition?: TransitionProps;
   /** The edge's element cannot be edited (library, inherited, implied by the language, read-only file). */
@@ -122,6 +124,14 @@ export interface ViewModel {
   descriptions?: boolean;
   /** Whether the diagram draws a legend of the kinds drawn (diagram style, D49). */
   legend?: boolean;
+  /** Sequence views: alternatives over message rows (D75). */
+  fragments?: SeqFragment[];
+}
+
+/** An `alt` frame: each branch is a guard and the ids of its message edges. */
+export interface SeqFragment {
+  kind: "alt";
+  branches: { guard: string; edges: string[] }[];
 }
 
 /** Whether the diagram style shows descriptions. */
@@ -205,7 +215,7 @@ function compartmentsOf(e: Element, shown: Set<Element>, index: ModelIndex, with
 const EDGE_STYLES: Record<string, EdgeStyle> = {
   succession: "succession", transition: "transition", flow: "flow", message: "message",
   connect: "connection", connection: "connection", satisfy: "satisfy", "satisfy requirement": "satisfy",
-  verify: "verify", "verify requirement": "verify", dependency: "dependency",
+  verify: "verify", "verify requirement": "verify", dependency: "dependency", interface: "connection",
 };
 
 function edgeStyleOf(kind: string): EdgeStyle {
@@ -237,9 +247,41 @@ function behaviorEdge(index: ModelIndex, el: Element): Partial<VmEdge> {
     const m = interactionOf(index, owner).messages.find((x) => x.statement === el);
     if (!m) return {};
     const name = [m.name, m.itemType].filter((x) => x !== undefined).join(" : ");
-    return { fixed: true, order: m.order, unordered: m.unordered, label: name || "message" };
+    const reply = interactionOf(index, owner).messages.some((x) => x.order < m.order && x.fromParticipant === m.toParticipant && x.toParticipant === m.fromParticipant);
+    return { fixed: true, order: m.order, unordered: m.unordered, label: name || "message", ...(reply ? { reply: true } : {}) };
   }
   return {};
+}
+
+/**
+ * Alternatives of a sequence view (D75): a message that is followed (`first m then a; first m then b;`) by two or more messages
+ * the model leaves unordered against each other makes one `alt` frame, one branch per follower. Anything else is not a fragment.
+ */
+function sequenceFragments(edges: VmEdge[], resolution: Resolution, doc: DiagramDocument): SeqFragment[] {
+  const root = doc.nodes.find((n) => n.ref === doc.root);
+  const owner = root ? resolution.get(root.id) : undefined;
+  if (!owner) return [];
+  const byName = new Map<string, VmEdge>();
+  for (const e of edges) {
+    const el = resolution.get(e.id);
+    if (el?.kind === "message" && el.name !== undefined && e.order !== undefined && el.owner === owner) byName.set(el.name, e);
+  }
+  const unq = (s: string): string => s.replace(/^'|'$/g, "");
+  const followers = new Map<string, string[]>();
+  for (const m of owner.members) {
+    if (m.kind !== "succession" || m.ends.length !== 2) continue;
+    const a = unq(m.ends[0]!), b = unq(m.ends[1]!);
+    if (byName.has(a) && byName.has(b)) followers.set(a, [...(followers.get(a) ?? []), b]);
+  }
+  const used = new Set<string>();
+  const out: SeqFragment[] = [];
+  for (const next of followers.values()) {
+    const names = next.filter((n, i) => next.indexOf(n) === i && !used.has(n) && byName.get(n)!.unordered);
+    if (names.length < 2) continue;
+    names.forEach((n) => used.add(n));
+    out.push({ kind: "alt", branches: names.map((n, i) => ({ guard: i === 0 ? `[${n}]` : "[else]", edges: [byName.get(n)!.id] })) });
+  }
+  return out;
 }
 
 /**
@@ -424,7 +466,7 @@ export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution,
         if (rel.kind === "derivation") { style = "derivation"; label = "«derive»"; }
       }
       if (style === "satisfy" || style === "verify") label = `«${style}»`;
-      else if (style === "generic" && el.name) label = el.name;
+      else if ((style === "generic" || el.kind === "interface") && el.name) label = el.name;
     }
     const out: VmEdge = { id: e.id, source, target, style, derived: false, resolved: !!el };
     if (el) {
@@ -491,5 +533,6 @@ export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution,
       }
     }
   }
-  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc), ...(showsLegend(doc) ? { legend: true } : {}) };
+  const fragments = doc.kind === "sequence" ? sequenceFragments(edges, resolution, doc) : [];
+  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc), ...(showsLegend(doc) ? { legend: true } : {}), ...(fragments.length ? { fragments } : {}) };
 }
