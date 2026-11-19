@@ -6,6 +6,8 @@ import type { DiagramDocument, DiagramNode } from "./format.js";
 
 export const showsLegend = (doc: Pick<DiagramDocument, "style">): boolean => doc.style?.legend === true;
 
+export const showsContainment = (doc: Pick<DiagramDocument, "style">): boolean => doc.style?.containment === true;
+
 /** Compartment titles hidden on a node. */
 export function hiddenCompartments(n: Pick<DiagramNode, "style">): string[] {
   const h = n.style?.hiddenCompartments;

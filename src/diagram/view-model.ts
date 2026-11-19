@@ -9,7 +9,7 @@ import { endElement, relationOf } from "./relations.js";
 import { nestFamily } from "../edit/nest.js";
 import { unescapeTerminator } from "../edit/comment.js";
 import { DOC_SHAPES } from "./authoring.js";
-import { hiddenCompartments, showsLegend, visibleDocument } from "./style.js";
+import { hiddenCompartments, showsContainment, showsLegend, visibleDocument } from "./style.js";
 
 export type ShapeKind =
   | "definition" | "usage" | "package" | "requirement" | "port" | "unresolved"
@@ -122,6 +122,8 @@ export interface ViewModel {
   descriptions?: boolean;
   /** Whether the diagram draws a legend of the kinds drawn (diagram style, D49). */
   legend?: boolean;
+  /** Whether the Requirements View draws containment edges for owned requirements (D73). */
+  containment?: boolean;
 }
 
 /** Whether the diagram style shows descriptions. */
@@ -444,7 +446,8 @@ export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution,
     edges.push(out);
   }
 
-  if (general) {
+  const containment = doc.kind === "requirements" && showsContainment(doc);
+  if (general || containment) {
     const have = new Set(edges.map((e) => `${e.style}\u0000${e.source}\u0000${e.target}`));
     const add = (style: EdgeStyle, source: string, target: string, label?: string) => {
       const key = `${style}\u0000${source}\u0000${target}`;
@@ -452,7 +455,16 @@ export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution,
       have.add(key);
       edges.push({ id: `d:${style}:${source}:${target}`, source, target, style, derived: true, resolved: true, ...(label ? { label } : {}) });
     };
-    for (const [el, id] of nodeOfElement) {
+    if (containment) {
+      // D73: owned requirement usages drawn as separate nodes get a composition edge from their owner.
+      for (const [el, id] of nodeOfElement) {
+        const owner = el.owner ? nodeOfElement.get(el.owner) : undefined;
+        if (el.isUsage && owner !== undefined && byId.get(id)?.parent !== owner && el.kind.includes("requirement") && el.owner!.kind.includes("requirement")) {
+          add("composition", owner, id, el.name ? el.name + (el.multiplicity ? ` ${el.multiplicity}` : "") : undefined);
+        }
+      }
+    }
+    for (const [el, id] of general ? nodeOfElement : []) {
       const nodeParent = byId.get(id)?.parent;
       if (el.isUsage && el.owner?.isDefinition) {
         const owner = nodeOfElement.get(el.owner);
@@ -468,6 +480,15 @@ export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution,
       }
       if (USE_CASE_KINDS.has(el.kind) || el.kind === "use case") {
         // `include use case x : X;`, `include x;`: the included use case is the typed definition, or the usage named.
+        // D72: an `actor` usage that is not a node stands for its definition, shared by every use case that has the actor.
+        for (const m of el.members) {
+          if (m.kind !== "actor" || !m.isUsage || nodeOfElement.has(m)) continue;
+          for (const ty of m.typeNames) {
+            const t = index.resolve(ty, m);
+            const tid = t ? nodeOfElement.get(t) : undefined;
+            if (tid !== undefined) add("association", id, tid);
+          }
+        }
         for (const inc of el.members.filter((m) => m.kind === "include use case" || m.kind === "include")) {
           const targets = [...inc.typeNames.map((t) => index.resolve(t, inc)), ...inc.ends.map((t) => index.resolve(t.replace(/\s+/g, "").split(".")[0]!, inc)), nodeOfElement.has(inc) ? inc : undefined];
           for (const t of targets) {
@@ -491,5 +512,5 @@ export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution,
       }
     }
   }
-  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc), ...(showsLegend(doc) ? { legend: true } : {}) };
+  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc), ...(showsLegend(doc) ? { legend: true } : {}), ...(showsContainment(doc) ? { containment: true } : {}) };
 }

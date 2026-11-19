@@ -53,7 +53,7 @@ export type DiagramEdit =
   | { kind: "layout"; label: "Move" | "Resize" | "Nudge" | "Align"; boxes: BoxPatch[]; routes?: EdgePoints[]; drop?: string[] }
   | { kind: "autoLayout"; boxes: NodeBox[]; edges: EdgePoints[] }
   /** The per-diagram style (D35): show or hide the descriptions (first `doc`) on the nodes. Layout only; the `.sysml` text is untouched. */
-  | { kind: "style"; descriptions?: boolean; /** The legend of the kinds drawn (D49). */ legend?: boolean }
+  | { kind: "style"; descriptions?: boolean; /** The legend of the kinds drawn (D49). */ legend?: boolean; containment?: boolean }
   /** Show or hide compartments of one node (D49); `hidden` lists the titles that are hidden. Diagram style only. */
   | { kind: "compartments"; id: string; hidden: string[] }
   /** A hand-edited route or label layout of lines. */

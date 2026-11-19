@@ -10,9 +10,9 @@ Three groups can run in parallel; each group touches disjoint files.
 
 ## B. Derived edges (#89, #92). Files: `src/diagram/view-model.ts`, `src/diagram/view-model.test.ts`, `src/diagram/style.ts` (the `containment` key only), toolbar checkbox in `src/webview/diagram/main.ts`
 
-- [ ] B.1 Association from use case to the actor definition when the usage is not shown (D72); test the Operator/StartJob/StopJob example gives two edges and one actor node
-- [ ] B.2 Derived containment edges in the Requirements View under `style.containment` (D73); test the `top` example gives two edges, and none when the style is off or the child is nested
-- [ ] B.3 Toolbar checkbox for `containment`; test the setting round trip
+- [x] B.1 Association from use case to the actor definition when the usage is not shown (D72); test the Operator/StartJob/StopJob example gives two edges and one actor node
+- [x] B.2 Derived containment edges in the Requirements View under `style.containment` (D73); test the `top` example gives two edges, and none when the style is off or the child is nested
+- [x] B.3 Toolbar checkbox for `containment`; test the setting round trip
 
 ## C. Edges and sequence (#93, #88). Files: `src/diagram/view-model.ts` (the `EDGE_STYLES` line and the sequence derivation only), `src/webview/diagram/routing.ts`, `src/webview/diagram/sequence-layout.ts`, `src/webview/diagram/svg.ts`, matching tests
 

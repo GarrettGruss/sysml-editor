@@ -194,9 +194,10 @@ export function materializePins(doc: DiagramDocument, patches: readonly BoxPatch
  * showing removes the key); `legend` turns the legend on (`style.legend: true`). An empty `style` is removed. Layout only.
  * Undefined when nothing changes.
  */
-export function applyDiagramStyle(doc: DiagramDocument, patch: { descriptions?: boolean; legend?: boolean }): DiagramDocument | undefined {
+export function applyDiagramStyle(doc: DiagramDocument, patch: { descriptions?: boolean; legend?: boolean; containment?: boolean }): DiagramDocument | undefined {
   const d = typeof patch?.descriptions === "boolean" ? patch.descriptions : undefined;
   const l = typeof patch?.legend === "boolean" ? patch.legend : undefined;
+  const c = typeof patch?.containment === "boolean" ? patch.containment : undefined;
   const { style: old, ...rest } = doc;
   let style: Record<string, unknown> = { ...old };
   if (d !== undefined && d !== (doc.style?.descriptions !== false)) {
@@ -206,6 +207,10 @@ export function applyDiagramStyle(doc: DiagramDocument, patch: { descriptions?: 
   if (l !== undefined && l !== (doc.style?.legend === true)) {
     if (l) style.legend = true;
     else delete style.legend;
+  }
+  if (c !== undefined && c !== (doc.style?.containment === true)) {
+    if (c) style.containment = true;
+    else delete style.containment;
   }
   if (JSON.stringify(style) === JSON.stringify(old ?? {})) return undefined;
   return Object.keys(style).length ? { ...rest, style } : (rest as DiagramDocument);
