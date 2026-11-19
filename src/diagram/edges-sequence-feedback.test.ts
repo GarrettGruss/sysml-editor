@@ -39,6 +39,13 @@ describe("interface edges (D74)", () => {
   });
 });
 
+describe("parallel transitions", () => {
+  it("are not fanned through their end nodes", async () => {
+    const r = await build("package P { part def M { state s { entry; then a; state a; state b; transition t1 first a accept X then b; transition t2 first a accept Y then b; } } }", "P::M::s", "stateTransition");
+    expect(r.edges.edgesThroughEndNodes).toBe(0);
+  });
+});
+
 describe("sequence alternatives and replies (D75)", () => {
   it("draws replies dashed and the ok/error alternatives as one alt frame with two guards", async () => {
     const r = await build(SEQ, "P::RequestSequence", "sequence");

@@ -10,7 +10,7 @@ import {
 } from "./geometry.js";
 import { HANDLES, handleBoxes } from "./interaction.js";
 import { laidOutLabel, labelHandleBoxes, LABEL_LINE, type LabelLayout } from "./labels.js";
-import { edgeRoute, placeLabel, routeFits } from "./routing.js";
+import { edgeRoute, placeLabel, routeFits, routeThroughBox } from "./routing.js";
 import { sequenceFrames } from "./sequence-layout.js";
 import { labelSize, loopSidesFor, planSelfLoops, type SelfLoop } from "./loops.js";
 import { repairRoute, routeHandles } from "./route-edit.js";
@@ -318,7 +318,10 @@ export function buildSvg(vm: ViewModel, rel: ReadonlyMap<string, Box>, measure: 
     let pts = edgeRoute(endOf(e.source), endOf(e.target), kept ?? stored, obstacles, drawn.map((d) => d.pts));
     // Edges between the same two ends are fanned: the n-th is offset 12 px sideways (D74).
     const twin = drawn.filter((d) => !d.e.fixed && d.e.source !== d.e.target && ((d.e.source === e.source && d.e.target === e.target) || (d.e.source === e.target && d.e.target === e.source))).length;
-    if (twin > 0 && !extras.overrides?.get(e.id)?.points && !e.points) pts = fanRoute(pts, twin, s, t);
+    if (twin > 0 && e.style === "connection" && !extras.overrides?.get(e.id)?.points && !e.points) {
+      const fanned = fanRoute(pts, twin, s, t);
+      if (routeFits(fanned, s, t) && !obstacles.some((o) => routeThroughBox(fanned, o))) pts = fanned;
+    }
     routes.set(e.id, pts);
     drawn.push({ e, pts, ends: [s, t] });
   }
