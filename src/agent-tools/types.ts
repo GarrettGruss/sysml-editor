@@ -17,6 +17,17 @@ export interface ToolContext {
   edits?: EditContext;
   /** The UI-control driver; implemented by the VS Code layer. Absent when UI control is not available. */
   ui?: UiDriver;
+  /** The workspace files the DoDAF generator writes; implemented by the VS Code layer. Absent when not available. */
+  dodaf?: DodafFiles;
+}
+
+/** Workspace file access for the DoDAF generator. Paths are workspace-relative with forward slashes; implementations refuse any path that resolves outside the workspace. */
+export interface DodafFiles {
+  /** False in an untrusted workspace: the generator refuses. */
+  isTrusted(): boolean;
+  writeText(path: string, text: string): Promise<void>;
+  writeBytes(path: string, bytes: Uint8Array): Promise<void>;
+  readBytes(path: string): Promise<Uint8Array>;
 }
 
 /** What the edit tools need: the shared `ModelService`, the trust state and the mapping of diagram paths. */

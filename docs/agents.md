@@ -15,6 +15,7 @@ VS Code is open on that workspace.
 | `sysml_list_diagrams` | List the `.sysmld` diagram files with kind, root element, node count, whether each parses and whether it is open in an editor. |
 | `sysml_read_diagram` | One diagram as JSON (kind, root, nodes and edges with resolved names, kinds and types, containment, positions, unresolved references). `includeImage: true` adds a PNG. |
 | `sysml_create_diagram` | Create a diagram of a given kind for a root element (optionally only some members) and return its path and description. |
+| `sysml_dodaf_generate` | Generate a DoDAF 2.02 document (`root`, `folder` default `docs/dodaf`, `views`, `format` svg or png, `plan`): table views as Markdown, diagram views created beside the root (never overwriting a `.sysmld`) and exported as images; `plan: true` writes nothing. Reports gaps and missing annotations. Refused in untrusted workspaces. |
 | `sysml_add_to_diagram` | Add elements (qualified names) to a diagram. |
 | `sysml_remove_from_diagram` | Remove nodes or edges (ids from `sysml_read_diagram`) from a diagram. |
 | `sysml_layout_diagram` | Arrange a diagram again (automatic layout). |

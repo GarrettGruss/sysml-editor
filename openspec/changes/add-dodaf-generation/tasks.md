@@ -24,10 +24,10 @@ Groups A to C can run in parallel after A.1; D needs A to C; E and F need D.
 
 ## D. Generator tool and command. Files: `src/agent-tools/dodaf-tools.ts`, `manifest.ts`, `index.ts`, `src/extension.ts`, `docs/agents.md`, tests
 
-- [ ] D.1 Executor creating missing diagrams, reusing existing ones, requesting images (D80, D82, D83); test with a fake diagram port that existing files are not rewritten and that no view means skipped sections
-- [ ] D.2 Tool `sysml_dodaf_generate` (`root`, `folder`, `views`, `format`, `plan`) and manifest entry; test schema, `plan: true` writes nothing, and the report lists gaps
-- [ ] D.3 Command `SysML: Generate DoDAF Document` with root and folder pickers; test the picker flow through the command seam
-- [ ] D.4 OV-1 graphic link and copy (D81); test the image lands in `images/`
+- [x] D.1 Executor creating missing diagrams, reusing existing ones, requesting images (D80, D82, D83); test with a fake diagram port that existing files are not rewritten and that no view means skipped sections
+- [x] D.2 Tool `sysml_dodaf_generate` (`root`, `folder`, `views`, `format`, `plan`) and manifest entry; test schema, `plan: true` writes nothing, and the report lists gaps
+- [x] D.3 Command `SysML: Generate DoDAF Document` with root and folder pickers; test the picker flow through the command seam
+- [x] D.4 OV-1 graphic link and copy (D81); test the image lands in `images/`
 
 ## E. Skill. Files: `src/skills/sysml-dodaf/SKILL.md`, `src/skills/skills.test.ts`
 

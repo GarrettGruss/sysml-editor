@@ -8,6 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { planChannels, type ChannelPlan } from "./agent-channels.js";
 import { callTool, toolDefinitions, type DiagramService, type EditContext, type ToolContext, type ToolResult, type UiDriver } from "./agent-tools/index.js";
 import { fsPathToToolPath, type FolderInfo } from "./agent-paths.js";
+import { workspaceFiles } from "./dodaf/workspace-files.js";
 import { McpServerController } from "./mcp/server-controller.js";
 import { startMcpServer } from "./mcp/server.js";
 import type { WorkspaceModel } from "./workspace/workspace-model.js";
@@ -77,7 +78,13 @@ export class AgentIntegration implements vscode.Disposable {
       ...(this.diagrams ? { diagrams: this.diagrams } : {}),
       ...(this.edits ? { edits: this.edits } : {}),
       ...(this.ui ? { ui: this.ui } : {}),
+      dodaf: workspaceFiles(() => this.folders.map((f) => f.fsPath), () => vscode.workspace.isTrusted),
     };
+  }
+
+  /** Run a tool in-process, as the agent channels do (used by commands that share a tool). */
+  call(name: string, input: object): Promise<ToolResult> {
+    return callTool(name, input, this.context());
   }
 
   /** (Re)apply `sysml.agent.channels`. Calls are serialised. */
