@@ -11,11 +11,11 @@ Groups A to C can run in parallel after A.1; D needs A to C; E and F need D.
 
 ## B. Tables. Files: `src/dodaf/tables/*.ts`, `render.ts`, tests
 
-- [ ] B.1 Renderer for Markdown and CSV with escaping; test pipes and newlines in cells
-- [ ] B.2 AV-1, AV-2, CV-1 (D78); test the example rows and the missing-definition gap
-- [ ] B.3 OV-4 and OV-5a trees; test indentation and a cycle-safe walk
-- [ ] B.4 SV-5a matrix and its gaps; test a marked cell and an empty row
-- [ ] B.5 StdV-1 and DIV-2; test citations and attribute multiplicity
+- [x] B.1 Renderer for Markdown and CSV with escaping; test pipes and newlines in cells
+- [x] B.2 AV-1, AV-2, CV-1 (D78); test the example rows and the missing-definition gap
+- [x] B.3 OV-4 and OV-5a trees; test indentation and a cycle-safe walk
+- [x] B.4 SV-5a matrix and its gaps; test a marked cell and an empty row
+- [x] B.5 StdV-1 and DIV-2; test citations and attribute multiplicity
 
 ## C. Planner and writer. Files: `src/dodaf/plan.ts`, `src/dodaf/document.ts`, tests
 
