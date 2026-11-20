@@ -111,7 +111,7 @@ export function activate(context: vscode.ExtensionContext): TestApi {
       webviewOptions: { retainContextWhenHidden: true },
       supportsMultipleEditorsPerDocument: true,
     }),
-    registerDodafCommands(context.extensionUri),
+    registerDodafCommands(context.extensionUri, agent, () => model.index),
     registerCommand("sysml.goToDefinition", (node?: ModelNode) => goToDefinition(model.index, node)),
     registerCommand("sysml.tree.changeView", async (arg?: unknown) => {
       let filter: TreeFilter | undefined = arg === "elements" || arg === "diagrams" || arg === "all" ? arg : undefined;

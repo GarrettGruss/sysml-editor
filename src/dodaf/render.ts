@@ -14,9 +14,22 @@ export interface Table {
   gaps: Gap[];
 }
 
+/** Escapes model text for Markdown: no HTML, links, images or table breaks come out of it. Newlines are kept. */
+export function escapeMd(s: string): string {
+  return s
+    .replace(/\\/g, "\\\\")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/\|/g, "\\|")
+    .replace(/^!/, "\\!");
+}
+
 function mdCell(s: string): string {
   const lead = /^ */.exec(s)![0].length;
-  return "&nbsp;".repeat(lead) + s.slice(lead).replace(/\\/g, "\\\\").replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+  return "&nbsp;".repeat(lead) + escapeMd(s.slice(lead)).replace(/\r?\n/g, "<br>");
 }
 
 /** A GitHub-style Markdown table. Pipes are escaped, newlines become `<br>`, leading spaces survive as `&nbsp;`. */

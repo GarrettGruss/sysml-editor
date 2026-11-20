@@ -34,7 +34,7 @@ export function selectByMetadata(index: ModelIndex, def: string | Element): Elem
   if (!target) return [];
   const out: Element[] = [];
   const visit = (el: Element): void => {
-    if (el.kind !== "metadata" && el.kind !== "doc" && el.kind !== "import" && (el.isUsage || el.isDefinition)) {
+    if (el.kind !== "metadata" && el.kind !== "doc" && el.kind !== "import" && (el.isUsage || el.isDefinition || el.kind === "package")) {
       for (const name of annotationNames(index, el)) {
         if (index.resolve(name, el) === target) {
           out.push(el);

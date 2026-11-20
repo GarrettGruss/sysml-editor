@@ -10,6 +10,7 @@ import { behaviorTests } from "./behavior.js";
 import { interactionTests } from "./diagram-interaction.js";
 import { architectureTests } from "./architecture-tools.js";
 import { foldersTests } from "./folders.js";
+import { dodafTests } from "./dodaf.js";
 import { editingTests } from "./editing.js";
 import { requirementsTests } from "./requirements.js";
 import { requirementsAuthoringTests } from "./requirements-authoring.js";
@@ -360,7 +361,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 31; // every sysml_ tool in the manifest, including the seven UI-control tools and the two tutor tools
+  const TOOL_COUNT = 32; // every sysml_ tool in the manifest, including the seven UI-control tools, the two tutor tools and the DoDAF generator
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {
@@ -661,6 +662,7 @@ export async function run(): Promise<void> {
     ...requirementsAuthoringTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...behaviorTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     ...foldersTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
+    ...dodafTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
     // Last: it turns the user setting `sysml.agent.uiControl` on for each scenario and off again afterwards.
     ...uiAgentTests({ api, folder, ext, artifactDir, renders, tabDirty, eventually }),
   ];

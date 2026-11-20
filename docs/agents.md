@@ -15,6 +15,7 @@ VS Code is open on that workspace.
 | `sysml_list_diagrams` | List the `.sysmld` diagram files with kind, root element, node count, whether each parses and whether it is open in an editor. |
 | `sysml_read_diagram` | One diagram as JSON (kind, root, nodes and edges with resolved names, kinds and types, containment, positions, unresolved references). `includeImage: true` adds a PNG. |
 | `sysml_create_diagram` | Create a diagram of a given kind for a root element (optionally only some members) and return its path and description. |
+| `sysml_dodaf_generate` | Generate a DoDAF 2.02 document (`root`, `folder` default `docs/dodaf`, `views`, `format` svg or png, `plan`): table views as Markdown, diagram views created beside the root (never overwriting a `.sysmld`) and exported as images; `plan: true` writes nothing. Reports gaps and missing annotations. Refused in untrusted workspaces. |
 | `sysml_add_to_diagram` | Add elements (qualified names) to a diagram. |
 | `sysml_remove_from_diagram` | Remove nodes or edges (ids from `sysml_read_diagram`) from a diagram. |
 | `sysml_layout_diagram` | Arrange a diagram again (automatic layout). |
@@ -34,6 +35,10 @@ Results are JSON text. The read-only tools (`sysml_list_files`, `sysml_get_eleme
 files. The four diagram write tools (`sysml_create_diagram`, `sysml_add_to_diagram`, `sysml_remove_from_diagram`,
 `sysml_layout_diagram`) change only `.sysmld` files, never the model or any `.sysml` file; they are marked as not read-only
 (`readOnlyHint: false` over MCP, the `edits-diagram` tag in the manifest).
+
+## DoDAF generation: safety
+
+`sysml_dodaf_generate` is not read-only: it writes files. It is refused in an untrusted workspace (only `plan: true`, which writes nothing, still works). Every path it writes is workspace-relative and checked (no absolute paths, `..` segments, backslashes or NUL characters; the real path must stay inside the workspace). It writes only the Markdown document, images under `<folder>/images/`, and new `.sysmld` diagram files beside the root's source; it never changes a `.sysml` model file and never overwrites an existing `.sysmld`. The Markdown and images in the output folder are overwritten on each run, so point `folder` at a directory meant for generated output. An `@OV1Graphic { path }` picture is read from inside the workspace only and must be a png, svg, jpg or gif file.
 
 ## Diagram edits: open or closed
 
@@ -172,8 +177,8 @@ element, connecting, saving). Their steps complete when the user runs the matchi
 
 ## Skills
 
-Three Claude agent skills are kept in `src/skills/` and ship in the VSIX under `dist/skills/`: `sysml-modeling` (read and edit the model and
-diagrams), `sysml-ui-testing` (drive and test the UI, record acceptance results) and `sysml-tutor` (teach with highlights). In this
+Four Claude agent skills are kept in `src/skills/` and ship in the VSIX under `dist/skills/`: `sysml-modeling` (read and edit the model and
+diagrams), `sysml-ui-testing` (drive and test the UI, record acceptance results) `sysml-tutor` (teach with highlights) and `sysml-dodaf` (tag a model and generate a DoDAF document). In this
 repository they are linked from `.claude/skills/`. To use them in another Claude setup, copy the folders
 (`<extension path>/dist/skills/<name>`) into your own skills folder, for example `~/.claude/skills/` or a project's `.claude/skills/`.
 
