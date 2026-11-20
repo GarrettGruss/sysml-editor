@@ -137,7 +137,7 @@ export class SvgRenderer implements DiagramRenderer {
     };
     this.ia = new Interaction(ihost);
     this.scene = this.ia.scene;
-    this.tools = new Tools(host, { onModel: (i) => cb.onModel(i), suggest: (id, q) => cb.suggest(id, q), chooseTool: (t) => this.setTool(t), toggleDescriptions: (show) => cb.onEdit({ kind: "style", descriptions: show }), toggleLegend: (show) => cb.onEdit({ kind: "style", legend: show }) });
+    this.tools = new Tools(host, { onModel: (i) => cb.onModel(i), suggest: (id, q) => cb.suggest(id, q), chooseTool: (t) => this.setTool(t), toggleDescriptions: (show) => cb.onEdit({ kind: "style", descriptions: show }), toggleLegend: (show) => cb.onEdit({ kind: "style", legend: show }), toggleContainment: (show) => cb.onEdit({ kind: "style", containment: show }) });
     this.wire();
   }
 
