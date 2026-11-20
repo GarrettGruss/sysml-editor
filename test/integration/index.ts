@@ -361,7 +361,7 @@ export async function run(): Promise<void> {
     }],
   ];
 
-  const TOOL_COUNT = 31; // every sysml_ tool in the manifest, including the seven UI-control tools and the two tutor tools
+  const TOOL_COUNT = 32; // every sysml_ tool in the manifest, including the seven UI-control tools, the two tutor tools and the DoDAF generator
 
   const tests: Test[] = [
     ["the tree starts in the Elements view", async () => {
