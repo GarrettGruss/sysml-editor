@@ -21,7 +21,7 @@ async function run() {
     imageFormat: "svg",
     plan: false,
     uriToPath: (u) => (u.startsWith("file:///w/") ? u.slice(10) : undefined),
-    files: { isTrusted: () => true, writeText: async (p, t) => void out.set(p, t), writeBytes: async (p, b) => void out.set(p, b), readBytes: async () => { throw new Error("none"); } },
+    files: { isTrusted: () => true, exists: async (p) => out.has(p), writeText: async (p, t) => void out.set(p, t), writeBytes: async (p, b) => void out.set(p, b), readBytes: async () => { throw new Error("none"); } },
     diagrams: new FakeDiagrams(),
   });
   return { report, out, md: out.get("docs/dodaf/Rescue.md") as string };
