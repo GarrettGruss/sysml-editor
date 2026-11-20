@@ -176,3 +176,29 @@ describe("legend (D49)", () => {
     expect(wrapStandalone(withLegend, { palette: LIGHT_PALETTE }).svg).toContain("Legend");
   });
 });
+
+describe("layout direction and decision rank (D70, D71)", () => {
+  const n = (id: string, extra: object = {}) => ({ id, shape: "usage" as const, label: id, resolved: true, ...extra });
+  const e = (id: string, source: string, target: string) => ({ id, source, target, style: "succession" as const, derived: false, resolved: true });
+  const mk = (kind: "actionFlow" | "general", layoutDirection?: "down" | "right") => ({
+    kind, root: "r",
+    nodes: [n("a"), n("b"), n("c"), n("d1", { variant: "decide" }), n("d2", { variant: "decide" })],
+    edges: [e("1", "a", "d1"), e("2", "d1", "b"), e("3", "b", "d2"), e("4", "d2", "c")],
+    ...(layoutDirection ? { layoutDirection } : {}),
+  });
+  it("points no succession upward and puts the decisions in different layers", async () => {
+    const r = await layoutDiagram(mk("actionFlow"), elk, measure);
+    for (const [s, t] of [["a", "d1"], ["d1", "b"], ["b", "d2"], ["d2", "c"]] as [string, string][]) expect(r.boxes.get(s)!.y).toBeLessThan(r.boxes.get(t)!.y);
+    expect(r.boxes.get("d1")!.y).not.toBe(r.boxes.get("d2")!.y);
+  });
+  it("keeps the per-kind default without a style and follows the style", async () => {
+    const down = await layoutDiagram(mk("actionFlow"), elk, measure);
+    expect(down.boxes.get("b")!.y).toBeGreaterThan(down.boxes.get("a")!.y);
+    const right = await layoutDiagram(mk("general"), elk, measure);
+    expect(right.boxes.get("b")!.x).toBeGreaterThan(right.boxes.get("a")!.x);
+    const forced = await layoutDiagram(mk("general", "down"), elk, measure);
+    expect(forced.boxes.get("b")!.y).toBeGreaterThan(forced.boxes.get("a")!.y);
+    const flipped = await layoutDiagram(mk("actionFlow", "right"), elk, measure);
+    expect(flipped.boxes.get("b")!.x).toBeGreaterThan(flipped.boxes.get("a")!.x);
+  });
+});
