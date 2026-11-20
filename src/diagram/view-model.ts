@@ -9,7 +9,7 @@ import { endElement, relationOf } from "./relations.js";
 import { nestFamily } from "../edit/nest.js";
 import { unescapeTerminator } from "../edit/comment.js";
 import { DOC_SHAPES } from "./authoring.js";
-import { hiddenCompartments, showsLegend, visibleDocument } from "./style.js";
+import { hiddenCompartments, layoutDirectionOf, showsLegend, visibleDocument } from "./style.js";
 
 export type ShapeKind =
   | "definition" | "usage" | "package" | "requirement" | "port" | "unresolved"
@@ -124,6 +124,8 @@ export interface ViewModel {
   descriptions?: boolean;
   /** Whether the diagram draws a legend of the kinds drawn (diagram style, D49). */
   legend?: boolean;
+  /** Layout direction from the diagram style (D71); absent means the kind's default. */
+  layoutDirection?: "down" | "right";
   /** Sequence views: alternatives over message rows (D75). */
   fragments?: SeqFragment[];
 }
@@ -534,5 +536,5 @@ export function buildViewModel(fullDoc: DiagramDocument, resolution: Resolution,
     }
   }
   const fragments = doc.kind === "sequence" ? sequenceFragments(edges, resolution, doc) : [];
-  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc), ...(showsLegend(doc) ? { legend: true } : {}), ...(fragments.length ? { fragments } : {}) };
+  return { kind: doc.kind, root: doc.root, nodes, edges, descriptions: showsDescriptions(doc), ...(showsLegend(doc) ? { legend: true } : {}), ...(layoutDirectionOf(doc) ? { layoutDirection: layoutDirectionOf(doc)! } : {}), ...(fragments.length ? { fragments } : {}) };
 }

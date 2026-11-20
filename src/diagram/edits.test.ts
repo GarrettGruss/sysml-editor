@@ -309,3 +309,13 @@ describe("applyDiagramStyle", () => {
     expect(applyDiagramStyle(d, { descriptions: true })!.style).toEqual({ grid: 8 });
   });
 });
+
+describe("applyDiagramStyle layoutDirection", () => {
+  const base: DiagramDocument = { version: 1, kind: "general", root: "P::A", sources: [], nodes: [], edges: [] };
+  it("sets the direction as layout style and ignores bad values", () => {
+    const d = applyDiagramStyle(base, { layoutDirection: "down" })!;
+    expect(d.style).toEqual({ layoutDirection: "down" });
+    expect(applyDiagramStyle(d, { layoutDirection: "down" })).toBeUndefined();
+    expect(applyDiagramStyle(base, { layoutDirection: "up" as never })).toBeUndefined();
+  });
+});

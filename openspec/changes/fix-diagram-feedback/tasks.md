@@ -4,9 +4,9 @@ Three groups can run in parallel; each group touches disjoint files.
 
 ## A. Layout (#90, #91). Files: `src/webview/diagram/layout.ts`, `layout.test.ts`, `src/diagram/style.ts`, `docs/diagram-format.md`, toolbar in `src/webview/diagram/main.ts`
 
-- [ ] A.1 Rank decide nodes after their incoming source and use `GREEDY` cycle breaking when acyclic (D70); test with the `Review` fixture that no succession points upward and that two decisions sit in different layers
-- [ ] A.2 Add `layoutDirection` style, replace `flowsDown` with `direction(vm)`, validate the value, document it (D71); test the Vehicle example places `engine` and `wheels` below, and that an absent style keeps the per-kind default
-- [ ] A.3 Add the toolbar toggle that sets the style in memory; test the message round trip and that the style is saved only on diagram save
+- [x] A.1 Rank decide nodes after their incoming source and use `GREEDY` cycle breaking when acyclic (D70); test with the `Review` fixture that no succession points upward and that two decisions sit in different layers
+- [x] A.2 Add `layoutDirection` style, replace `flowsDown` with `direction(vm)`, validate the value, document it (D71); test the Vehicle example places `engine` and `wheels` below, and that an absent style keeps the per-kind default
+- [x] A.3 Add the toolbar toggle that sets the style in memory; test the message round trip and that the style is saved only on diagram save
 
 ## B. Derived edges (#89, #92). Files: `src/diagram/view-model.ts`, `src/diagram/view-model.test.ts`, `src/diagram/style.ts` (the `containment` key only), toolbar checkbox in `src/webview/diagram/main.ts`
 

@@ -46,7 +46,36 @@ const rank = (n: VmNode): number => (n.variant === "start" ? 0 : n.variant === "
 const hasPos = (n: VmNode) => n.geometry?.x !== undefined || n.geometry?.y !== undefined;
 
 /** Action Flow and State Transition views flow from top to bottom (design D17); the others from left to right. */
-const flowsDown = (vm: ViewModel): boolean => vm.kind === "actionFlow" || vm.kind === "stateTransition";
+const flowsDown = (vm: ViewModel): boolean => (vm.layoutDirection ?? (vm.kind === "actionFlow" || vm.kind === "stateTransition" ? "down" : "right")) === "down";
+
+/** Whether the directed edges (between ids) contain a cycle. */
+function hasCycle(ids: Iterable<string>, edges: { sources: string[]; targets: string[] }[]): boolean {
+  const out = new Map<string, string[]>();
+  for (const e of edges) out.set(e.sources[0]!, [...(out.get(e.sources[0]!) ?? []), e.targets[0]!]);
+  const state = new Map<string, 1 | 2>();
+  const visit = (n: string): boolean => {
+    if (state.get(n) === 2) return false;
+    if (state.get(n) === 1) return true;
+    state.set(n, 1);
+    for (const m of out.get(n) ?? []) if (visit(m)) return true;
+    state.set(n, 2);
+    return false;
+  };
+  for (const i of ids) if (visit(i)) return true;
+  return false;
+}
+
+/** Loose nodes in model order with start first and done last; a decision node follows its incoming source (D70). */
+function orderLoose(loose: VmNode[], edges: { sources: string[]; targets: string[] }[]): VmNode[] {
+  const sorted = [...loose].sort((a, b) => rank(a) - rank(b));
+  for (const d of loose.filter((n) => n.variant === "decide")) {
+    const into = edges.find((e) => e.targets[0] === d.id);
+    if (!into || !sorted.some((n) => n.id === into.sources[0])) continue;
+    sorted.splice(sorted.findIndex((n) => n.id === d.id), 1);
+    sorted.splice(sorted.findIndex((n) => n.id === into.sources[0]) + 1, 0, d);
+  }
+  return sorted;
+}
 
 /** Move an end of an orthogonal route from the border of the padded box onto the node's own border; undefined when it cannot stay orthogonal. */
 function clipEnd(pts: Pt[], atStart: boolean, padded: Box, real: Box): Pt[] | undefined {
@@ -200,10 +229,10 @@ export async function layoutDiagram(vm: ViewModel, elk: ElkLike, measure: Measur
     const graph: ElkGraph = {
       id: "root",
       layoutOptions: edges.length
-        ? { "elk.algorithm": "layered", "elk.direction": flowsDown(vm) ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL", ...(flowsDown(vm) ? { "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.layered.cycleBreaking.strategy": "MODEL_ORDER" } : {}), "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
+        ? { "elk.algorithm": "layered", "elk.direction": flowsDown(vm) ? "DOWN" : "RIGHT", "elk.edgeRouting": "ORTHOGONAL", ...(flowsDown(vm) ? { "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES", "elk.layered.cycleBreaking.strategy": hasCycle(ids, edges) ? "MODEL_ORDER" : "GREEDY" } : {}), "elk.spacing.nodeNode": "40", "elk.layered.spacing.nodeNodeBetweenLayers": "70", "elk.padding": "[top=0,left=0,bottom=0,right=0]" }
         : { "elk.algorithm": "rectpacking", "elk.spacing.nodeNode": "40", "elk.aspectRatio": "1.6", "elk.padding": "[top=0,left=0,bottom=0,right=0]" },
       // The start node leads and the done node ends, then the model's own order; ELK keeps it where the edges allow.
-      children: (flowsDown(vm) ? [...loose].sort((a, b) => rank(a) - rank(b)) : loose).map((k) => { const x = extents.get(k.id)!; return { id: k.id, width: sizes.get(k.id)!.w + x.l + x.r, height: sizes.get(k.id)!.h + x.t + x.b }; }),
+      children: (flowsDown(vm) ? orderLoose(loose, edges) : loose).map((k) => { const x = extents.get(k.id)!; return { id: k.id, width: sizes.get(k.id)!.w + x.l + x.r, height: sizes.get(k.id)!.h + x.t + x.b }; }),
       edges,
     };
     const out = new Map<string, { x: number; y: number }>();
