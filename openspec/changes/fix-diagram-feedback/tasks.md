@@ -16,7 +16,7 @@ Three groups can run in parallel; each group touches disjoint files.
 
 ## C. Edges and sequence (#93, #88). Files: `src/diagram/view-model.ts` (the `EDGE_STYLES` line and the sequence derivation only), `src/webview/diagram/routing.ts`, `src/webview/diagram/sequence-layout.ts`, `src/webview/diagram/svg.ts`, matching tests
 
-- [ ] C.1 `interface` uses the connection style (D74); test the style of `statusApi`
-- [ ] C.2 Fan parallel edges and stack their labels (D74); test the two-interface fixture has different routes and 0 label overlaps
-- [ ] C.3 Mark reply messages and draw them dashed (D75); test `data-style`/dash in the SVG of `RequestSequence`
-- [ ] C.4 Derive `alt`/`else` fragments and lay out and draw the frames (D75); test the `ok`/`error` example gives one frame with two guards and that a model without alternatives is unchanged
+- [x] C.1 `interface` uses the connection style (D74); test the style of `statusApi`
+- [x] C.2 Fan parallel edges and stack their labels (D74); test the two-interface fixture has different routes and 0 label overlaps
+- [x] C.3 Mark reply messages and draw them dashed (D75); test `data-style`/dash in the SVG of `RequestSequence`
+- [x] C.4 Derive `alt`/`else` fragments and lay out and draw the frames (D75); test the `ok`/`error` example gives one frame with two guards and that a model without alternatives is unchanged
