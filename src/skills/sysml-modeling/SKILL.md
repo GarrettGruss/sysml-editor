@@ -5,6 +5,15 @@ description: Read and edit a SysML v2 model and its diagrams through the SysML E
 
 # SysML modeling with the SysML Editor tools
 
+## Alpha software: report what you find
+
+The SysML Editor is in alpha. Expect gaps: SysML constructs it does not parse or draw, layouts that read badly, tools that refuse or return less than you need. Do not silently work around a deficiency. When you notice one, raise it as a GitHub issue on https://github.com/GarrettGruss/sysml-editor:
+
+1. Search first (`gh issue list --repo GarrettGruss/sysml-editor --search "<words>"`); add a comment to a matching issue instead of opening a duplicate.
+2. Tell the user what you plan to file and get their go-ahead, since an issue is public.
+3. Title it `fix(<area>): …` or `feat(<area>): …`. In the body give the editor version, the current behavior, the expected behavior, and a minimal example: a small `.sysml` file and, for diagrams, the `.sysmld` file, plus the steps to see it.
+4. File with `gh issue create --repo GarrettGruss/sysml-editor`, then give the user the issue link and carry on with the task.
+
 The tools only work while VS Code is open on the workspace with the SysML Editor extension. They see the same model as the editor, including unsaved edits.
 
 ## Connect
