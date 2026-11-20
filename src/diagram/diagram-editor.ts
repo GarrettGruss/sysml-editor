@@ -698,7 +698,7 @@ export class DiagramEditorProvider implements vscode.CustomEditorProvider<SysmlD
         break;
       case "style":
         next = applyDiagramStyle(cur, edit);
-        label = edit.layoutDirection !== undefined ? "Layout Direction" : edit.legend !== undefined ? (edit.legend ? "Show Legend" : "Hide Legend") : edit.descriptions ? "Show Descriptions" : "Hide Descriptions";
+        label = edit.layoutDirection !== undefined ? "Layout Direction" : edit.containment !== undefined ? (edit.containment ? "Show Containment" : "Hide Containment") : edit.legend !== undefined ? (edit.legend ? "Show Legend" : "Hide Legend") : edit.descriptions ? "Show Descriptions" : "Hide Descriptions";
         break;
       case "compartments":
         next = typeof edit.id === "string" ? applyCompartments(cur, edit.id, edit.hidden) : undefined;

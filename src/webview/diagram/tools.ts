@@ -21,6 +21,8 @@ export interface ToolsHost {
   toggleDescriptions(show: boolean): void;
   /** The per-diagram legend toggle (diagram style, a layout edit). */
   toggleLegend(show: boolean): void;
+  /** The Requirements View containment edges toggle (D73). */
+  toggleContainment(show: boolean): void;
 }
 
 export interface PropertiesState {
@@ -67,6 +69,8 @@ export class Tools {
   private readonly descriptionRow = el("label", "palette-toggle");
   readonly legendToggle = document.createElement("input");
   private readonly legendRow = el("label", "palette-toggle");
+  readonly containmentToggle = document.createElement("input");
+  private readonly containmentRow = el("label", "palette-toggle");
 
   constructor(host: HTMLElement, private readonly cb: ToolsHost) {
     this.descriptionToggle.type = "checkbox";
@@ -80,6 +84,11 @@ export class Tools {
     this.legendToggle.addEventListener("change", () => this.cb.toggleLegend(this.legendToggle.checked));
     this.legendRow.title = "Show a legend of the element and line kinds drawn. Saved with the diagram layout; the model text does not change.";
     this.legendRow.append(this.legendToggle, document.createTextNode(" Legend"));
+    this.containmentToggle.type = "checkbox";
+    this.containmentToggle.dataset.toggle = "containment";
+    this.containmentToggle.addEventListener("change", () => this.cb.toggleContainment(this.containmentToggle.checked));
+    this.containmentRow.title = "Draw a containment line from a requirement to the requirements it owns. Saved with the diagram layout; the model text does not change.";
+    this.containmentRow.append(this.containmentToggle, document.createTextNode(" Containment"));
     this.palette.setAttribute("role", "toolbar");
     this.palette.setAttribute("aria-label", "Palette");
     this.props.setAttribute("role", "region");
@@ -95,6 +104,8 @@ export class Tools {
   setDiagram(vm: ViewModel): void {
     this.descriptionToggle.checked = vm.descriptions !== false;
     this.legendToggle.checked = vm.legend === true;
+    this.containmentToggle.checked = vm.containment === true;
+    this.containmentRow.hidden = vm.kind !== "requirements";
     if (this.kind === vm.kind) return;
     this.kind = vm.kind;
     this.palette.replaceChildren(el("div", "panel-title", "Palette"));
@@ -109,7 +120,7 @@ export class Tools {
       this.palette.append(b);
       this.buttons.push(b);
     }
-    this.palette.append(this.descriptionRow, this.legendRow);
+    this.palette.append(this.descriptionRow, this.legendRow, this.containmentRow);
   }
 
   private isActive(item: PaletteItem): boolean {

@@ -309,3 +309,28 @@ describe("view model: diagram style (D49)", () => {
     expect(build({ ...doc, style: { aspects: { Few: keep } } }).nodes).toHaveLength(all.nodes.length);
   });
 });
+
+describe("view model: derived edges (D72, D73)", () => {
+  const ixOf = (t: string) => { const ix = new ModelIndex(); ix.setDocument("file:///ws/m.sysml", t); return ix; };
+  const vmFor = (ix: ModelIndex, d: DiagramDocument) => buildViewModel(d, resolveDiagram(d, ix), ix);
+  it("D72: two use cases share one actor definition node when the usage is not shown", () => {
+    const ix = ixOf("package P { part def Operator; use case def StartJob { actor operator : Operator; } use case def StopJob { actor operator : Operator; } }");
+    const d: DiagramDocument = { version: 1, kind: "general", root: "P", sources: ["m.sysml"], nodes: [{ id: "n1", ref: "P::StartJob" }, { id: "n2", ref: "P::StopJob" }, { id: "n3", ref: "P::Operator" }], edges: [] };
+    const vm = vmFor(ix, d);
+    expect(vm.nodes.filter((n) => n.label === "Operator")).toHaveLength(1);
+    expect(vm.edges.filter((e) => e.style === "association").map((e) => `${e.source}->${e.target}`).sort()).toEqual(["n1->n3", "n2->n3"]);
+  });
+  const text = "package P { requirement def A; requirement def B; requirement top { requirement x : A; requirement y : B; } }";
+  const reqDoc = (style?: Record<string, unknown>, nested = false): DiagramDocument => ({
+    version: 1, kind: "requirements", root: "P", sources: ["m.sysml"],
+    nodes: [{ id: "n1", ref: "P::top" }, { id: "n2", ref: "P::top::x" }, { id: "n3", ref: "P::top::y" }].map((n, i) => (nested && i > 0 ? { ...n, parent: "n1" } : n)),
+    edges: [], ...(style ? { style } : {}),
+  });
+  it("D73: containment edges only with style.containment and separate nodes", () => {
+    const ix = ixOf(text);
+    const comp = (d: DiagramDocument) => vmFor(ix, d).edges.filter((e) => e.style === "composition");
+    expect(comp(reqDoc({ containment: true }))).toHaveLength(2);
+    expect(comp(reqDoc())).toHaveLength(0);
+    expect(comp(reqDoc({ containment: true }, true))).toHaveLength(0);
+  });
+});
