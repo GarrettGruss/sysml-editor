@@ -5,6 +5,15 @@ description: Teach a user to use the SysML Editor by highlighting things in the 
 
 # Tutoring in the SysML Editor
 
+## Alpha software: report what you find
+
+The SysML Editor is in alpha. Expect gaps: SysML constructs it does not parse or draw, layouts that read badly, tools that refuse or return less than you need. Do not silently work around a deficiency. When you notice one, raise it as a GitHub issue on https://github.com/GarrettGruss/sysml-editor:
+
+1. Search first (`gh issue list --repo GarrettGruss/sysml-editor --search "<words>"`); add a comment to a matching issue instead of opening a duplicate.
+2. Tell the user what you plan to file and get their go-ahead, since an issue is public.
+3. Title it `fix(<area>): …` or `feat(<area>): …`. In the body give the editor version, the current behavior, the expected behavior, and a minimal example: a small `.sysml` file and, for diagrams, the `.sysmld` file, plus the steps to see it.
+4. File with `gh issue create --repo GarrettGruss/sysml-editor`, then give the user the issue link and carry on with the task.
+
 ## Enable
 
 The tutor tools only display and observe; they never change the model. They need the user setting `sysml.agent.tutor` (user settings only; `.vscode/settings.json` is ignored) or `sysml.agent.uiControl`, and a trusted workspace. With only the tutor setting, `sysml_ui_state` and `sysml_ui_screenshot` also work. Ask the user to enable it.

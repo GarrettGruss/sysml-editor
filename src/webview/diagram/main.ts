@@ -153,6 +153,11 @@ function toolbar(): void {
   add("+", "Zoom in", () => renderer.zoomBy(1.25));
   add("\u2212", "Zoom out", () => renderer.zoomBy(0.8));
   add("Auto-layout", "Auto-layout: arrange the selected elements again (all of them when none is selected)", () => void autoLayout().catch(fail));
+  add("Direction", "Toggle the layout direction between down and right; use Auto-layout to apply it", () => {
+    const k = current?.kind;
+    const cur = current?.layoutDirection ?? (k === "actionFlow" || k === "stateTransition" ? "down" : "right");
+    post({ type: "edit", edit: { kind: "style", layoutDirection: cur === "down" ? "right" : "down" } });
+  });
   document.body.append(bar);
 }
 toolbar();

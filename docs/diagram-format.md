@@ -168,3 +168,7 @@ Trigger, guard and effect are never stored in the diagram file. They are read fr
 - **Computed** (never stored): the **vertical position of every message**, from the time order in the model, and the route of every message arrow. A message edge has no `points`. A diagram that shows messages out of time order would misrepresent the model, so dragging a message does nothing and the message stays at its place in time order.
 - The root of a sequence diagram keeps a node (every kind lists its root) that is not drawn.
 - **Time order** comes from the model: `first m1 then m2;` between messages, `then message ...;` after another message, and `then event m.sourceEvent;` chains inside the participants. Where the model gives no order between two messages they are drawn in source order and marked with `≈` in front of the label (the JSON description of `sysml_read_diagram` has `unordered: true`).
+
+## Layout direction
+
+`style.layoutDirection` is `"down"` or `"right"`. It sets the direction Auto-layout flows in; any other value is ignored. When absent, Action Flow and State Transition views flow down and the other kinds flow right. The toolbar "Direction" button writes it as a layout edit (in memory until the diagram is saved) and does not re-run layout; use Auto-layout to apply it.

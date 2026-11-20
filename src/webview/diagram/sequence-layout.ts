@@ -17,10 +17,52 @@ export const SEQ_ROW = 50;
 export const SEQ_TAIL = 28;
 export const SEQ_SELF_W = 38;
 export const SEQ_SELF_H = 20;
+/** Extra height of the guard row a branch of an `alt` frame starts with. */
+export const SEQ_GUARD = 22;
 
 /** The messages of the view in time order. Edges without an order (not messages) are not routed. */
 export function messageRows(vm: ViewModel): ViewModel["edges"] {
   return vm.edges.filter((e) => e.order !== undefined).sort((a, b) => a.order! - b.order! || (a.id < b.id ? -1 : 1));
+}
+
+/** Vertical offset added to each message row by the guard rows of the frames above it (D75). */
+function rowOffsets(vm: ViewModel, rows: ViewModel["edges"]): number[] {
+  const starts = new Set<string>();
+  for (const f of vm.fragments ?? []) for (const b of f.branches) {
+    const first = rows.find((r) => b.edges.includes(r.id));
+    if (first) starts.add(first.id);
+  }
+  let extra = 0;
+  return rows.map((r) => (starts.has(r.id) ? (extra += SEQ_GUARD) : extra));
+}
+
+export interface SeqFrame {
+  kind: "alt";
+  x: number; y: number; w: number; h: number;
+  /** Each branch: its guard and the y of its guard row (the first branch's is just under the `alt` tab). */
+  branches: { guard: string; y: number }[];
+}
+
+/** The frames of the view's alternatives, placed around the routes of their messages (no DOM). */
+export function sequenceFrames(vm: ViewModel, routes: ReadonlyMap<string, readonly Pt[]>): SeqFrame[] {
+  const out: SeqFrame[] = [];
+  for (const f of vm.fragments ?? []) {
+    const branches: SeqFrame["branches"] = [];
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const b of f.branches) {
+      const pts = b.edges.flatMap((id) => routes.get(id) ?? []);
+      if (!pts.length) continue;
+      const top = Math.min(...pts.map((p) => p.y));
+      branches.push({ guard: b.guard, y: top - SEQ_GUARD });
+      for (const p of pts) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+      y0 = Math.min(y0, top - SEQ_GUARD);
+    }
+    if (!branches.length) continue;
+    branches.sort((a, b) => a.y - b.y);
+    const pad = 18;
+    out.push({ kind: "alt", x: x0 - pad, y: y0 - 4, w: x1 - x0 + 2 * pad + SEQ_SELF_W, h: y1 - y0 + 4 + SEQ_SELF_H, branches });
+  }
+  return out;
 }
 
 export function layoutSequence(vm: ViewModel, measure: Measure): LayoutResult {
@@ -34,7 +76,8 @@ export function layoutSequence(vm: ViewModel, measure: Measure): LayoutResult {
   const looseW = Math.ceil(Math.max(0, ...loose.map((n) => natural.get(n.id)!.w)));
   const headH = Math.max(40, ...vm.nodes.map((n) => natural.get(n.id)!.headerH));
   const rows = messageRows(vm);
-  const lastRowY = headH + SEQ_FIRST + Math.max(0, rows.length - 1) * SEQ_ROW;
+  const offsets = rowOffsets(vm, rows);
+  const lastRowY = headH + SEQ_FIRST + Math.max(0, rows.length - 1) * SEQ_ROW + (offsets[rows.length - 1] ?? 0);
   const height = rows.length ? lastRowY + SEQ_SELF_H + SEQ_TAIL : headH + 80;
 
   let right = -Infinity;
@@ -59,7 +102,7 @@ export function layoutSequence(vm: ViewModel, measure: Measure): LayoutResult {
   rows.forEach((e, i) => {
     const s = boxes.get(e.source), t = boxes.get(e.target);
     if (!s || !t) return;
-    const y = Math.round(headH + SEQ_FIRST + i * SEQ_ROW);
+    const y = Math.round(headH + SEQ_FIRST + i * SEQ_ROW + offsets[i]!);
     const sx = Math.round(s.x + s.w / 2), tx = Math.round(t.x + t.w / 2);
     routes.set(e.id, e.source === e.target
       ? [{ x: sx, y }, { x: sx + SEQ_SELF_W, y }, { x: sx + SEQ_SELF_W, y: y + SEQ_SELF_H }, { x: sx, y: y + SEQ_SELF_H }]
