@@ -1,0 +1,38 @@
+---
+name: sysml-dodaf
+description: Produce a DoDAF 2.02 architecture description (17 core views) from a SysML v2 model with the SysML Editor tool sysml_dodaf_generate. Use when the user asks for DoDAF views, an architecture description document, or to tag a model for DoDAF.
+---
+
+# DoDAF documents from a SysML v2 model
+
+## Alpha software: report what you find
+
+The SysML Editor is in alpha. Expect gaps: SysML constructs it does not parse or draw, layouts that read badly, tools that refuse or return less than you need. Do not silently work around a deficiency. When you notice one, raise it as a GitHub issue on https://github.com/GarrettGruss/sysml-editor:
+
+1. Search first (`gh issue list --repo GarrettGruss/sysml-editor --search "<words>"`); add a comment to a matching issue instead of opening a duplicate.
+2. Tell the user what you plan to file and get their go-ahead, since an issue is public.
+3. Title it `fix(<area>): …` or `feat(<area>): …`. In the body give the editor version, the current behavior, the expected behavior, and a minimal example: a small `.sysml` file and, for diagrams, the `.sysmld` file, plus the steps to see it.
+4. File with `gh issue create --repo GarrettGruss/sysml-editor`, then give the user the issue link and carry on with the task.
+
+The tools only work while VS Code is open on the workspace with the SysML Editor extension. For modeling edits use the `sysml-modeling` skill.
+
+## The idea
+
+The generator never guesses. It picks elements only by metadata annotations from the DoDAF library (`DoDAF.sysml`) and reports what is missing. Tag first, plan, fill the gaps, then generate.
+
+## Steps
+
+1. **Library.** Ask the user to run `SysML: Add DoDAF Library` (copies `DoDAF.sysml` into the workspace; it never overwrites). Import it in your architecture package: `private import DoDAF::*;`.
+2. **Tag.** Annotate elements, for example `#OperationalPerformer part dispatcher;`, `#OperationalActivity action HandleIncident { ... }`, `#System part callSystem : CallSystem;`. Put `@ArchitectureDescription { purpose = "..."; scope = "..."; }` in the root package and `@Vision { text = "..."; }` in each `#Capability`. Use `sysml_create_element`, `sysml_set_element_properties` (documentation) and `sysml_create_relationship` (`connect`, `message`, `succession`). Give every tagged element a `doc`.
+   - AV-1 package doc plus `@ArchitectureDescription`; CV-1 and CV-2 `@Capability`; OV-1, OV-2, OV-6c `@OperationalPerformer` (OV-2 flows `@OperationalExchange`); OV-4 `@Organization`; OV-5a and OV-5b `@OperationalActivity`; SV-1, SV-2, SV-10c `@System`; SV-4 `@SystemFunction`; SV-5a `allocate <function> to <activity>;`; StdV-1 `@Standard` cited by a `ref`; DIV-2 `item def` with typed attributes.
+   - Optional `@OV1Graphic { path = "art/ov1.png"; }` links your own OV-1 picture instead of a drawing.
+3. **Plan.** Call `sysml_dodaf_generate` with `{ "root": "<package>", "plan": true }`. It writes nothing. Read `missing` (annotation definitions no element uses, per view) and `gaps` (model problems such as an element without documentation, an activity not allocated to a function), and the per-view `status`.
+4. **Fill the gaps.** Tag or document what is missing, or tell the user a view is intentionally empty. Plan again until the lists are acceptable. Do not invent content to silence a gap; ask the user.
+5. **Generate.** Call it without `plan` (optionally `folder`, `views`, `format` svg or png). It writes `<folder>/<Root>.md` (default `docs/dodaf`) and images in `<folder>/images/`, and creates diagram files beside the root's source named `<Root>-<VIEW>.sysmld`. An existing `.sysmld` is never rewritten, so a hand-arranged diagram is kept; the Markdown and images are overwritten.
+6. **Review.** Read the document and `sysml_read_diagram` for the diagrams. Check skipped or empty views, image notes such as "image not exported", and that tables say what the user meant. Report remaining gaps to the user.
+
+## Rules
+
+- The tool is refused in an untrusted workspace (`plan: true` still works). Tell the user to trust the workspace; do not look for a way around it.
+- Folder paths are workspace-relative. Do not point `folder` at a directory holding files you want to keep: Markdown and images in it are overwritten.
+- Report editor deficiencies you hit (a view that cannot be drawn, a wrong table) as issues, as described above.

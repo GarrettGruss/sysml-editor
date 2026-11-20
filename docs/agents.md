@@ -36,6 +36,10 @@ files. The four diagram write tools (`sysml_create_diagram`, `sysml_add_to_diagr
 `sysml_layout_diagram`) change only `.sysmld` files, never the model or any `.sysml` file; they are marked as not read-only
 (`readOnlyHint: false` over MCP, the `edits-diagram` tag in the manifest).
 
+## DoDAF generation: safety
+
+`sysml_dodaf_generate` is not read-only: it writes files. It is refused in an untrusted workspace (only `plan: true`, which writes nothing, still works). Every path it writes is workspace-relative and checked (no absolute paths, `..` segments, backslashes or NUL characters; the real path must stay inside the workspace). It writes only the Markdown document, images under `<folder>/images/`, and new `.sysmld` diagram files beside the root's source; it never changes a `.sysml` model file and never overwrites an existing `.sysmld`. The Markdown and images in the output folder are overwritten on each run, so point `folder` at a directory meant for generated output. An `@OV1Graphic { path }` picture is read from inside the workspace only and must be a png, svg, jpg or gif file.
+
 ## Diagram edits: open or closed
 
 Each write tool call is one edit, applied without an approval prompt:
@@ -173,8 +177,8 @@ element, connecting, saving). Their steps complete when the user runs the matchi
 
 ## Skills
 
-Three Claude agent skills are kept in `src/skills/` and ship in the VSIX under `dist/skills/`: `sysml-modeling` (read and edit the model and
-diagrams), `sysml-ui-testing` (drive and test the UI, record acceptance results) and `sysml-tutor` (teach with highlights). In this
+Four Claude agent skills are kept in `src/skills/` and ship in the VSIX under `dist/skills/`: `sysml-modeling` (read and edit the model and
+diagrams), `sysml-ui-testing` (drive and test the UI, record acceptance results) `sysml-tutor` (teach with highlights) and `sysml-dodaf` (tag a model and generate a DoDAF document). In this
 repository they are linked from `.claude/skills/`. To use them in another Claude setup, copy the folders
 (`<extension path>/dist/skills/<name>`) into your own skills folder, for example `~/.claude/skills/` or a project's `.claude/skills/`.
 

@@ -31,9 +31,9 @@ Groups A to C can run in parallel after A.1; D needs A to C; E and F need D.
 
 ## E. Skill. Files: `src/skills/sysml-dodaf/SKILL.md`, `src/skills/skills.test.ts`
 
-- [ ] E.1 Write the skill (tag, plan, fill gaps, generate, review, raise issues); test it is installed and names the tool
+- [x] E.1 Write the skill (tag, plan, fill gaps, generate, review, raise issues); test it is installed and names the tool
 
 ## F. Acceptance example. Files: `test/fixtures/dodaf-example/**`, `src/dodaf/example.test.ts`, `src/test-integration/`
 
-- [ ] F.1 Small DoDAF model, `.sysmld` files and expected Markdown (D84); test table sections match byte for byte
-- [ ] F.2 Integration test generates all 17 views with images and checks every link resolves
+- [x] F.1 Small DoDAF model, `.sysmld` files and expected Markdown (D84); test table sections match byte for byte
+- [x] F.2 Integration test generates all 17 views with images and checks every link resolves
