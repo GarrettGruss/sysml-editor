@@ -19,8 +19,8 @@ Groups A to C can run in parallel after A.1; D needs A to C; E and F need D.
 
 ## C. Planner and writer. Files: `src/dodaf/plan.ts`, `src/dodaf/document.ts`, tests
 
-- [ ] C.1 `planViews(index, root, views)` returns form, root, file name and missing items (D80); test a partly tagged model
-- [ ] C.2 `writeDocument(sections)` to Markdown with DoDAF ordering and image links; test the link targets and the empty-view text
+- [x] C.1 `planViews(index, root, views)` returns form, root, file name and missing items (D80); test a partly tagged model
+- [x] C.2 `writeDocument(sections)` to Markdown with DoDAF ordering and image links; test the link targets and the empty-view text
 
 ## D. Generator tool and command. Files: `src/agent-tools/dodaf-tools.ts`, `manifest.ts`, `index.ts`, `src/extension.ts`, `docs/agents.md`, tests
 
