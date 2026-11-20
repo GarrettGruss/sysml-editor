@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Generate a document
-The command `SysML: Generate DoDAF Document` and the tool `sysml_dodaf_generate` SHALL take an architecture root package and an output folder and produce `<folder>/<Name>.md` plus `<folder>/images/`. The document has one section per view in the scope, in DoDAF order, each with a title, the model number and an SVG or PNG image or a Markdown table. The tool SHALL accept `views` to narrow the set, `format` (`svg` or `png`) and `plan` to report without writing.
+The command `SysML: Generate DoDAF Document` and the tool `sysml_dodaf_generate` SHALL take an architecture root package and an output folder (default `docs/dodaf/`) and produce `<folder>/<Name>.md` plus `<folder>/images/`. The document has one section per view in the scope, in DoDAF order, each with a title, the model number and an SVG or PNG image or a Markdown table. The tool SHALL accept `views` to narrow the set, `format` (`svg` or `png`) and `plan` to report without writing.
 
 #### Scenario: Full document
 - **WHEN** the tool runs on the example architecture

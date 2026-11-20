@@ -4,9 +4,9 @@ Groups A to C can run in parallel after A.1; D needs A to C; E and F need D.
 
 ## A. Library and mapping. Files: `resources/dodaf/DoDAF.sysml`, `src/dodaf/library.ts`, `src/dodaf/mapping.ts`, `docs/dodaf.md`, matching tests
 
-- [ ] A.1 Write `DoDAF.sysml` (D76); test it parses with no errors and declares each metadata def
+- [ ] A.1 Write `DoDAF.sysml` (D76); test it parses with no errors and declares each metadata def, and that `allocate` and metadata annotations on usages parse
 - [ ] A.2 `selectByMetadata(index, def)` (annotation lookup on parts, actions, items); test annotated and unannotated elements
-- [ ] A.3 Mapping table as data (D77), documented in `docs/dodaf.md`; test it covers all 17 views
+- [ ] A.3 Mapping table as data (D77) and the UAF-to-DoDAF name table (D85), documented in `docs/dodaf.md`; test it covers all 17 views
 - [ ] A.4 Command `SysML: Add DoDAF Library` that copies the file without overwriting; test with a fake file system
 
 ## B. Tables. Files: `src/dodaf/tables/*.ts`, `render.ts`, tests

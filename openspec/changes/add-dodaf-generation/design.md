@@ -17,18 +17,21 @@ DoDAF 2.02 and UAFML 1.2 describe the same viewpoints. SysML v2 text can express
 | CV-1 | `@Capability` doc plus `@Vision` text | table |
 | CV-2 | `@Capability` defs and `specializes` / composition | general diagram |
 | OV-1 | `@OperationalPerformer` parts, connections, package doc as narrative | general diagram plus narrative; see D81 |
-| OV-2 | performers, `connect` / `flow` with items (`@OperationalExchange`) | interconnection diagram |
-| OV-4 | performer composition and `@Organization` relations | table (tree); general diagram optional |
-| OV-5a | nested `action`s under an `@OperationalActivity` | table (tree) |
+| OV-2 (Operational Resource Flow Description) | performers; `connect` = needline, `flow` of items (`@OperationalExchange`) = resource flow | interconnection diagram |
+| OV-4 (Organizational Relationships Chart) | `@Organization` parts and their containment, plus roles/relations between organizations (not performer composition) | table (tree); general diagram optional |
+| OV-5a (Operational Activity Decomposition Tree) | nested `action`s under an `@OperationalActivity` (capabilities may head the tree) | table (tree) |
 | OV-5b | one activity's actions, successions, flows | actionFlow diagram per root activity |
-| OV-6c | event trace of messages between performers | sequence diagram |
-| SV-1 | `@System` parts and connections | interconnection diagram |
-| SV-2 | ports, interfaces, flows between systems | interconnection diagram showing ports |
+| OV-6c (Event-Trace Description) | event trace of messages between performers | sequence diagram |
+| SV-1 (Systems Interface Description) | `@System` parts and `connect` / `interface` | interconnection diagram |
+| SV-2 (Systems Resource Flow Description) | ports and `flow`s of items between systems | interconnection diagram showing ports and flows |
 | SV-4 | `@SystemFunction` actions and flows | actionFlow diagram |
-| SV-5a | `allocate` / `satisfy` function to activity | matrix table |
+| SV-5a (Operational Activity to Systems Function Traceability Matrix) | `allocate` from `@SystemFunction` to `@OperationalActivity`; rows activities, columns functions | matrix table |
 | SV-10c | message trace between systems | sequence diagram |
 | StdV-1 | `@Standard` elements, cited by | table |
 | DIV-2 | `item def` / `attribute def` data model | table (entity, attribute, type, multiplicity) |
+
+### D85: Names, allocation and answered scope
+Metadata defs use UAF names; `docs/dodaf.md` holds a table mapping each to its DoDAF 2.02 name. SV-5a uses `allocate` only; `satisfy` stays for requirements. Only tagged elements appear; untagged or missing ones are reported as gaps, never guessed. The default output folder is `docs/dodaf/`, changeable by the tool argument or the command picker. Output is Markdown tables only; no in-editor table view (issue #61 stays separate). Checked against DoDAF 2.02 view definitions.
 
 ### D78: Tables are pure builders in `src/dodaf/tables/`
 Each builder takes the model index and a root and returns `{ columns, rows, gaps }`. A shared renderer emits Markdown or CSV. No `vscode`, so they run under Vitest. The generic matrix of issue #61 is not required; if it lands, the builders feed it.
