@@ -131,6 +131,11 @@
         "enablement": "sysml.diagramActive"
       },
       {
+        "command": "sysml.dodaf.addLibrary",
+        "title": "Add DoDAF Library",
+        "category": "SysML"
+      },
+      {
         "command": "sysml.openRequirementsEditor",
         "title": "Open Requirements Editor",
         "category": "SysML"
