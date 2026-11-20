@@ -37,7 +37,7 @@ describe("sysml cli", () => {
     expect(out).toContain("sysml skills");
     out = "";
     expect(run(["-V"], io)).toBe(0);
-    expect(out).toBe("0.3.0\n");
+    expect(out).toBe("0.4.0\n");
     expect(err).toBe("");
   });
 

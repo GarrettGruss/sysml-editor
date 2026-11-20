@@ -1,6 +1,6 @@
 {
   "name": "sysml-editor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Command line tool for the SysML Editor: installs the agent skills",
   "license": "MIT",
   "repository": {
