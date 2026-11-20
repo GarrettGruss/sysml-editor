@@ -78,7 +78,7 @@ export class AgentIntegration implements vscode.Disposable {
       ...(this.diagrams ? { diagrams: this.diagrams } : {}),
       ...(this.edits ? { edits: this.edits } : {}),
       ...(this.ui ? { ui: this.ui } : {}),
-      dodaf: workspaceFiles(() => this.folders.map((f) => f.fsPath), () => vscode.workspace.isTrusted),
+      dodaf: workspaceFiles(() => this.folders, () => vscode.workspace.isTrusted),
     };
   }
 

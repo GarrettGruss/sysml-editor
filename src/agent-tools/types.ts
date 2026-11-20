@@ -25,6 +25,7 @@ export interface ToolContext {
 export interface DodafFiles {
   /** False in an untrusted workspace: the generator refuses. */
   isTrusted(): boolean;
+  exists(path: string): Promise<boolean>;
   writeText(path: string, text: string): Promise<void>;
   writeBytes(path: string, bytes: Uint8Array): Promise<void>;
   readBytes(path: string): Promise<Uint8Array>;

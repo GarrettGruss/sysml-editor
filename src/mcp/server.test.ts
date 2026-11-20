@@ -52,7 +52,7 @@ const ctx: ToolContext = {
   ui: uiDriver,
   diagrams,
   edits: { service: new ModelService(host), isTrusted: () => true, diagramUri: async (p) => ROOT + p },
-  dodaf: { isTrusted: () => true, writeText: async () => {}, writeBytes: async () => {}, readBytes: async () => new Uint8Array() },
+  dodaf: { isTrusted: () => true, exists: async () => false, writeText: async () => {}, writeBytes: async () => {}, readBytes: async () => new Uint8Array() },
   index,
   uriToPath: (u) => (u.startsWith(ROOT) ? u.slice(ROOT.length) : undefined),
   pathToUri: (p) => (index.getDocument(ROOT + p) ? ROOT + p : undefined),

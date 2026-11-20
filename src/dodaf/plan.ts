@@ -53,7 +53,14 @@ export function planViews(index: ModelIndex, root: Element, views?: readonly str
     if (id === "OV-5b") {
       const acts = (found.get("OperationalActivity") ?? []).filter((a) => a.kind.startsWith("action"));
       if (acts.length === 0) out.push({ ...common, root: root.qualifiedName ?? "", fileName: `${base}-${id}.sysmld`, missing, empty: true });
-      for (const a of acts) out.push({ ...common, root: a.qualifiedName ?? "", fileName: `${base}-${id}-${a.name ?? "activity"}.sysmld`, missing: [], empty: false });
+      const used = new Set<string>();
+      for (const a of acts) {
+        const stem = (a.name ?? "activity").replace(/[^\w.-]+/g, "_") || "activity";
+        let name = stem;
+        for (let n = 2; used.has(name); n++) name = `${stem}-${n}`;
+        used.add(name);
+        out.push({ ...common, root: a.qualifiedName ?? "", fileName: `${base}-${id}-${name}.sysmld`, missing: [], empty: false });
+      }
       continue;
     }
     let empty = m.selects.length > 0 && missing.length === m.selects.length;
