@@ -31,7 +31,7 @@ const fails = async (ctx: ToolContext, name: string, input: unknown = {}) => {
 describe("diagram tool definitions", () => {
   it("the write tools are marked not read-only, the others read-only", () => {
     const writes = toolDefinitions.filter((t) => !t.readOnly).map((t) => t.name).sort();
-    expect(writes).toEqual(["sysml_add_to_diagram", "sysml_apply_diagram_aspect", "sysml_create_diagram", "sysml_create_element", "sysml_create_relationship", "sysml_create_requirement", "sysml_delete_element", "sysml_layout_diagram", "sysml_remove_from_diagram", "sysml_rename_element", "sysml_set_element_properties", "sysml_set_transition", "sysml_show_hide_diagram_members", "sysml_ui_answer", "sysml_ui_command", "sysml_ui_diagram", "sysml_ui_requirements", "sysml_ui_tree"]);
+    expect(writes).toEqual(["sysml_add_to_diagram", "sysml_apply_diagram_aspect", "sysml_create_diagram", "sysml_create_element", "sysml_create_relationship", "sysml_create_requirement", "sysml_delete_element", "sysml_dodaf_generate", "sysml_layout_diagram", "sysml_remove_from_diagram", "sysml_rename_element", "sysml_set_element_properties", "sysml_set_transition", "sysml_show_hide_diagram_members", "sysml_ui_answer", "sysml_ui_command", "sysml_ui_diagram", "sysml_ui_requirements", "sysml_ui_tree"]);
     expect(toolDefinitions.filter((t) => t.readOnly).map((t) => t.name)).toEqual(["sysml_list_files", "sysml_get_element_tree", "sysml_get_element", "sysml_validate", "sysml_list_diagrams", "sysml_read_diagram", "sysml_get_editor_context", "sysml_read_requirements_document", "sysml_read_verification_matrix", "sysml_ui_state", "sysml_ui_screenshot", "sysml_ui_highlight", "sysml_ui_wait_for_user"]);
     for (const t of toolDefinitions) expect(t.description.length).toBeGreaterThan(80);
   });

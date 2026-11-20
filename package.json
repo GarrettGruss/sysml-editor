@@ -131,6 +131,16 @@
         "enablement": "sysml.diagramActive"
       },
       {
+        "command": "sysml.dodaf.generate",
+        "title": "Generate DoDAF Document",
+        "category": "SysML"
+      },
+      {
+        "command": "sysml.dodaf.addLibrary",
+        "title": "Add DoDAF Library",
+        "category": "SysML"
+      },
+      {
         "command": "sysml.openRequirementsEditor",
         "title": "Open Requirements Editor",
         "category": "SysML"
@@ -1494,6 +1504,81 @@
           },
           "required": [
             "package"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "sysml_dodaf_generate",
+        "displayName": "SysML: Dodaf Generate",
+        "modelDescription": "Generate a DoDAF 2.02 architecture description document from the model under `root` (a package or element, by qualified name). Views are selected from DoDAF metadata annotations (see the DoDAF library, SysML: Add DoDAF Library). Table views (AV-1, AV-2, CV-1, OV-4, OV-5a, SV-5a, StdV-1, DIV-2) are written as Markdown tables; diagram views (CV-2, OV-1, OV-2, OV-5b, OV-6c, SV-1, SV-2, SV-4, SV-10c) get a diagram beside the root's source file, named <Name>-<VIEW>.sysmld, created if missing and reused if present (an existing .sysmld is never rewritten), and an image rendered by the diagram view into <folder>/images/. OV-1 uses the picture named by @OV1Graphic { path } (workspace-relative) instead of a drawing when present. If the diagram view cannot draw, the tables are still written and the diagram sections say so. The document is <folder>/<RootName>.md (default folder docs/dodaf; a document this tool wrote, and its images, are replaced; any other existing file there is refused unless `overwrite: true`; diagrams are never overwritten). With `plan: true` nothing is created or written: the result lists what would be produced. Returns JSON: document path, per-view status (written, empty, skipped, planned) with diagram and image paths, `gaps` (model problems found in the tables) and `missing` (annotation definitions no element uses, per view): fix these and run again. Not available in an untrusted workspace.",
+        "toolReferenceName": "sysmlDodafGenerate",
+        "canBeReferencedInPrompt": true,
+        "when": "config.sysml.agent.channels != 'mcp'",
+        "tags": [
+          "sysml",
+          "edits-diagram"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "root": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096,
+              "description": "Qualified name of the architecture root, e.g. Mission."
+            },
+            "folder": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "description": "Workspace-relative output folder. Default docs/dodaf."
+            },
+            "views": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "AV-1",
+                  "AV-2",
+                  "CV-1",
+                  "CV-2",
+                  "OV-1",
+                  "OV-2",
+                  "OV-4",
+                  "OV-5a",
+                  "OV-5b",
+                  "OV-6c",
+                  "SV-1",
+                  "SV-2",
+                  "SV-4",
+                  "SV-5a",
+                  "SV-10c",
+                  "StdV-1",
+                  "DIV-2"
+                ]
+              },
+              "description": "View ids to produce. Default: all 17."
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "svg",
+                "png"
+              ],
+              "description": "Image format for diagram views. Default svg."
+            },
+            "overwrite": {
+              "type": "boolean",
+              "description": "Replace <folder>/<RootName>.md and images that were not written by this tool. Default false: such files make the call fail."
+            },
+            "plan": {
+              "type": "boolean",
+              "description": "Only report what would be produced and the gaps; write nothing."
+            }
+          },
+          "required": [
+            "root"
           ],
           "additionalProperties": false
         }
