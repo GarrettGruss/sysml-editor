@@ -1,7 +1,7 @@
 /** The picker flow of `SysML: Generate DoDAF Document`, without `vscode`, so it runs under test. */
 import { isLibraryUri, type ModelIndex } from "../model/index.js";
 import type { ToolResult } from "../agent-tools/types.js";
-import { DEFAULT_FOLDER } from "./generate.js";
+import { DEFAULT_FOLDER, MISSING_LIBRARY_MESSAGE } from "./generate.js";
 
 /** What the flow needs from the editor. */
 export interface GenerateUi {
@@ -11,6 +11,8 @@ export interface GenerateUi {
   run(input: Record<string, unknown>): Promise<ToolResult>;
   info(message: string): void;
   warn(message: string): void;
+  /** Shows the missing-library error with an "Add DoDAF Library" button; true when the library was added and the user wants to generate again. */
+  offerAddLibrary(message: string): Promise<boolean>;
 }
 
 /** Non-library top-level packages, as qualified names. */
@@ -33,7 +35,12 @@ export async function runGenerateCommand(index: ModelIndex, ui: GenerateUi): Pro
   if (root === undefined) return;
   const folder = await ui.inputFolder(DEFAULT_FOLDER);
   if (folder === undefined) return;
-  const r = await ui.run({ root, folder: folder.trim() || DEFAULT_FOLDER });
+  const input = { root, folder: folder.trim() || DEFAULT_FOLDER };
+  let r = await ui.run(input);
+  if (r.isError && r.text.includes(MISSING_LIBRARY_MESSAGE)) {
+    if (!(await ui.offerAddLibrary(r.text))) return;
+    r = await ui.run(input);
+  }
   if (r.isError) {
     ui.warn(r.text);
     return;

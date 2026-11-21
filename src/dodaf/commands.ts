@@ -26,6 +26,11 @@ export function registerDodafCommands(extensionUri: vscode.Uri, agent: AgentInte
       run: (input) => agent.call("sysml_dodaf_generate", input),
       info: (m) => void showInfo(m),
       warn: (m) => void showWarning(m),
+      offerAddLibrary: async (m) => {
+        if ((await vscode.window.showErrorMessage(m, "Add DoDAF Library")) !== "Add DoDAF Library") return false;
+        await vscode.commands.executeCommand("sysml.dodaf.addLibrary");
+        return (await vscode.window.showInformationMessage("DoDAF library added. Generate the document now?", "Generate")) === "Generate";
+      },
     }),
   );
   const add = registerCommand("sysml.dodaf.addLibrary", async () => {

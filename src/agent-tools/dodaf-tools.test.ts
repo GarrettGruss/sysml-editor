@@ -180,6 +180,7 @@ describe("Generate DoDAF Document command flow", () => {
       run: async (input) => (calls.push(input), callTool("sysml_dodaf_generate", input, ctx)),
       info: (m) => msgs.push(m),
       warn: (m) => msgs.push("W " + m),
+      offerAddLibrary: async () => false,
     });
     expect(calls).toEqual([{ root: "M", folder: "out/d" }]);
     expect(msgs[0]).toContain("out/d/M.md");
@@ -188,7 +189,41 @@ describe("Generate DoDAF Document command flow", () => {
   it("does nothing when a picker is cancelled", async () => {
     const { index } = setup();
     let ran = false;
-    await runGenerateCommand(index, { pickRoot: async () => undefined, inputFolder: async () => "x", run: async () => ((ran = true), { text: "{}" }), info: () => {}, warn: () => {} });
+    await runGenerateCommand(index, { pickRoot: async () => undefined, inputFolder: async () => "x", run: async () => ((ran = true), { text: "{}" }), info: () => {}, warn: () => {}, offerAddLibrary: async () => false });
     expect(ran).toBe(false);
+  });
+
+  it("fails before writing when the DoDAF library is not in the model (tool and plan)", async () => {
+    const { ctx, index, out } = setup();
+    index.removeDocument("file:///w/DoDAF.sysml");
+    for (const plan of [false, true]) {
+      const { r } = await call(ctx, { root: "M", plan });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain("sysml.dodaf.addLibrary");
+    }
+    expect(out.size).toBe(0);
+  });
+
+  it("offers to add the library from the command and generates again", async () => {
+    const { ctx, index } = setup();
+    index.removeDocument("file:///w/DoDAF.sysml");
+    let offered = 0;
+    const msgs: string[] = [];
+    await runGenerateCommand(index, {
+      pickRoot: async () => "M",
+      inputFolder: async () => "out",
+      run: (input) => callTool("sysml_dodaf_generate", input, ctx),
+      info: (m) => msgs.push(m),
+      warn: (m) => msgs.push("W " + m),
+      offerAddLibrary: async () => (offered++, index.setDocument("file:///w/DoDAF.sysml", LIB), true),
+    });
+    expect(offered).toBe(1);
+    expect(msgs[0]).toContain("out/M.md");
+  });
+
+  it("reports an unresolved tag in gaps", async () => {
+    const { ctx } = setup({ model: MODEL.replace("#System part s;", "#Sytem part s;") });
+    const { json } = await call(ctx, { root: "M", plan: true });
+    expect(json.gaps.some((g: { message: string }) => g.message.includes('"Sytem"'))).toBe(true);
   });
 });
