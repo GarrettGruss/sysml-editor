@@ -604,7 +604,7 @@ export async function run(): Promise<void> {
       const res = await fetch(ep.url, { method: "POST", headers: { Authorization: "Bearer wrong", "content-type": "application/json" }, body: "{}" });
       assert.strictEqual(res.status, 401);
       const bridge = path.join(ext.extensionPath, "dist", "mcp-bridge.js");
-      const r = spawnSync("node", [bridge, "--workspace", path.join(os.tmpdir(), "sysml-no-such-workspace")], { encoding: "utf8" });
+      const r = spawnSync("node", [bridge, "--workspace", path.join(os.tmpdir(), "sysml-no-such-workspace")], { encoding: "utf8", env: { ...process.env, HOME: os.tmpdir(), USERPROFILE: os.tmpdir() } });
       assert.strictEqual(r.status, 1);
       assert.strictEqual(r.stderr.trim(), "VS Code must be open on this workspace");
     }],

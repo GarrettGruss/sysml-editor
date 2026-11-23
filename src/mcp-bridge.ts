@@ -1,10 +1,10 @@
 /**
- * Stdio MCP bridge: `node dist/mcp-bridge.js --workspace <dir>`. A transparent proxy that forwards JSON-RPC
+ * Stdio MCP bridge: `node dist/mcp-bridge.js [--workspace <dir>]`. A transparent proxy that forwards JSON-RPC
  * messages between the client on stdio and the MCP server hosted by VS Code for that workspace.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { readLiveServer } from "./mcp/discovery.js";
+import { resolveServer } from "./mcp/discovery.js";
 
 export const NO_SERVER_MESSAGE = "VS Code must be open on this workspace";
 export const STALE_SERVER_MESSAGE = "Stale server entry for this workspace; reopen it in VS Code";
@@ -17,15 +17,16 @@ function workspaceArg(argv: string[]): string | undefined {
 
 async function main(): Promise<void> {
   const workspace = workspaceArg(process.argv.slice(2));
-  if (!workspace) {
-    console.error("usage: node mcp-bridge.js --workspace <dir>");
-    process.exit(2);
-  }
-  const info = readLiveServer(workspace);
-  if (!info) {
-    console.error(NO_SERVER_MESSAGE);
+  const r = resolveServer({ workspace, cwd: process.cwd() });
+  if ("error" in r) {
+    console.error(
+      r.error === "none"
+        ? NO_SERVER_MESSAGE
+        : `${NO_SERVER_MESSAGE}. Several editors are running; pass --workspace <dir> to pick one of: ${r.workspaces.join(", ")}`,
+    );
     process.exit(1);
   }
+  const info = r.server;
   const upstream = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${info.port}/mcp`), {
     requestInit: { headers: { Authorization: `Bearer ${info.token}` } },
   });
