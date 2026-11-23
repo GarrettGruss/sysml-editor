@@ -19,7 +19,7 @@ The tools only work while VS Code is open on the workspace with the SysML Editor
 ## Connect
 
 - Inside VS Code the tools are available directly (Language Model Tools or MCP).
-- From a harness outside VS Code, add the stdio bridge (`node <extension path>/dist/mcp-bridge.js --workspace <absolute workspace folder>`). It finds the running server through `~/.sysml-editor/servers/*.json`. If it prints `VS Code must be open on this workspace`, ask the user to open that folder.
+- From a harness outside VS Code, add the stdio bridge (`node <extension path>/dist/mcp-bridge.js`; optionally `--workspace <absolute folder>` to choose a window). It finds the running server through `~/.sysml-editor/servers/*.json`, preferring the window whose folder contains the current directory. If it prints `VS Code must be open on this workspace`, ask the user to open that folder.
 
 ## Read before you write
 

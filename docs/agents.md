@@ -217,7 +217,7 @@ Add one entry per workspace to the client's MCP configuration:
   "mcpServers": {
     "sysml": {
       "command": "node",
-      "args": ["<extension path>/dist/mcp-bridge.js", "--workspace", "/absolute/path/to/your/workspace"]
+      "args": ["<extension path>/dist/mcp-bridge.js"]
     }
   }
 }
@@ -227,7 +227,7 @@ Find the extension path with `ls ~/.vscode/extensions | grep sysml-editor` (Wind
 it is a folder such as `~/.vscode/extensions/<publisher>.sysml-editor-<version>`. In an extension development host it is the
 repository root after `npm run build`. The path changes with each extension version.
 
-The workspace is the folder opened in VS Code. The bridge finds the running server through a file in
+`--workspace <dir>` is optional (add `"--workspace", "/absolute/path"` to the args to choose a window); without it the bridge uses its current directory. It finds the running server through a file in
 `~/.sysml-editor/servers/` (readable by your user only). If VS Code is not open on that workspace, the bridge prints
 `VS Code must be open on this workspace` to stderr and exits with code 1.
 
@@ -240,8 +240,10 @@ The workspace is the folder opened in VS Code. The bridge finds the running serv
   folders are prefixed with the folder name (`<folderName>/<relative path>`). One discovery entry is written per folder
   path, so the bridge can be pointed at any of them. Adding or removing folders re-applies this. With no folder open the
   server is not started.
-- **The path given to `--workspace` must be the same folder VS Code has open.** Symlinks are resolved on both sides, but
-  a different folder (for example a parent) does not match.
+- **Choosing a window**: the bridge takes the live server whose folder equals, contains or is contained by the target
+  (`--workspace`, else the current directory), preferring the closest, then the newest. Failing that, a single running
+  server is used; with several and no match it fails and lists their folders. Entries that are malformed or belong to
+  dead processes are deleted on every start.
 - **Security**: the server listens on `127.0.0.1` only, requires the bearer token, and rejects any request that has an
   `Origin` header or a `Host` other than `127.0.0.1:<port>` / `localhost:<port>` (403). Discovery files are written
   atomically with mode 0600 in a 0700 directory. On Windows these modes do not apply; the file relies on the permissions

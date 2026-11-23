@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, utimesSy
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { discoveryFilePath, normaliseWorkspacePath, readLiveServer, removeDiscoveryFile, writeDiscoveryFile } from "./discovery.js";
+import { discoveryFilePath, normaliseWorkspacePath, listLiveServers, readLiveServer, removeDiscoveryFile, resolveServer, writeDiscoveryFile } from "./discovery.js";
 
 const homes: string[] = [];
 const home = () => {
@@ -114,5 +114,87 @@ describe("atomic write and symlinks", () => {
   });
   it("falls back to the given path when it does not exist", () => {
     expect(normaliseWorkspacePath("/no/such/dir/")).toBe("/no/such/dir");
+  });
+});
+
+describe("resolveServer", () => {
+  const dead = 2 ** 22 + 12345;
+  const add = (h: string, ws: string, token: string, pid = process.pid) => writeDiscoveryFile({ port: 1, token, pid, workspace: ws }, h);
+  const tok = (r: ReturnType<typeof resolveServer>) => ("server" in r ? r.server.token : r.error);
+
+  it("exact --workspace match wins", () => {
+    const h = home();
+    add(h, "/w/a", "a");
+    add(h, "/w/a/b", "b");
+    expect(tok(resolveServer({ workspace: "/w/a/b", cwd: "/", home: h }))).toBe("b");
+  });
+  it("uses cwd when --workspace is absent, matching a containing workspace", () => {
+    const h = home();
+    add(h, "/w/a", "a");
+    add(h, "/w/z", "z");
+    expect(tok(resolveServer({ cwd: "/w/a/src/deep", home: h }))).toBe("a");
+  });
+  it("matches a workspace contained by the target", () => {
+    const h = home();
+    add(h, "/w/a/sub", "sub");
+    add(h, "/other", "o");
+    expect(tok(resolveServer({ workspace: "/w/a", cwd: "/", home: h }))).toBe("sub");
+  });
+  it("prefers the closest match", () => {
+    const h = home();
+    add(h, "/w", "outer");
+    add(h, "/w/a", "inner");
+    expect(tok(resolveServer({ cwd: "/w/a/x", home: h }))).toBe("inner");
+  });
+  it("breaks ties by newest mtime", () => {
+    const h = home();
+    const f1 = add(h, "/w/a", "old");
+    const f2 = writeDiscoveryFile({ port: 1, token: "new", pid: process.pid, workspace: "/w/a" }, h);
+    utimesSync(f1, new Date(Date.now() - 5000), new Date(Date.now() - 5000));
+    expect(f2).toBe(f1); // same pid overwrites the primary; add a second entry for a real tie
+    const other = path.join(path.dirname(f1), `${path.basename(f1, ".json")}.${process.pid + 1}.json`);
+    writeFileSync(other, JSON.stringify({ port: 1, token: "newer", pid: process.pid, workspace: "/w/a" }));
+    utimesSync(f1, new Date(Date.now() - 5000), new Date(Date.now() - 5000));
+    expect(tok(resolveServer({ cwd: "/w/a", home: h }))).toBe("newer");
+  });
+  it("respects separators: /a/b does not contain /a/bc", () => {
+    const h = home();
+    add(h, "/a/b", "ab");
+    add(h, "/q", "q");
+    expect(resolveServer({ cwd: "/a/bc", home: h })).toMatchObject({ error: "ambiguous" });
+  });
+  it("falls back to the only live server", () => {
+    const h = home();
+    add(h, "/elsewhere", "only");
+    expect(tok(resolveServer({ cwd: "/unrelated", home: h }))).toBe("only");
+  });
+  it("lists workspaces when several are live and none match", () => {
+    const h = home();
+    add(h, "/x", "x");
+    add(h, "/y", "y");
+    const r = resolveServer({ cwd: "/unrelated", home: h });
+    expect(r).toMatchObject({ error: "ambiguous" });
+    expect("workspaces" in r && r.workspaces.sort()).toEqual(["/x", "/y"]);
+  });
+  it("reports none when no server is live", () => {
+    const h = home();
+    add(h, "/x", "x", dead);
+    expect(resolveServer({ cwd: "/x", home: h })).toEqual({ error: "none" });
+    expect(resolveServer({ cwd: "/x", home: home() })).toEqual({ error: "none" });
+  });
+});
+
+describe("listLiveServers cleanup", () => {
+  it("deletes malformed and dead-pid files for all workspaces and keeps live ones", () => {
+    const h = home();
+    const dead = 2 ** 22 + 12345;
+    const live = writeDiscoveryFile({ port: 1, token: "l", pid: process.pid, workspace: "/live" }, h);
+    const d = writeDiscoveryFile({ port: 1, token: "d", pid: dead, workspace: "/dead" }, h);
+    const bad = path.join(path.dirname(live), "f".repeat(64) + ".json");
+    writeFileSync(bad, "{not json");
+    expect(listLiveServers(h).map((s) => s.token)).toEqual(["l"]);
+    expect(existsSync(d)).toBe(false);
+    expect(existsSync(bad)).toBe(false);
+    expect(existsSync(live)).toBe(true);
   });
 });

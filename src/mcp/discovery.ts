@@ -122,6 +122,73 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
+export interface LiveServer extends ServerInfo {
+  mtime: number;
+}
+
+/**
+ * Every live server across all workspaces, newest first. Files that are malformed or whose process is gone
+ * are deleted on the way.
+ */
+export function listLiveServers(home: string = homedir()): LiveServer[] {
+  let names: string[];
+  try {
+    names = readdirSync(serversDir(home));
+  } catch {
+    return [];
+  }
+  const out: LiveServer[] = [];
+  for (const n of names) {
+    if (!/^[0-9a-f]{64}(\.\d+)?\.json$/.test(n)) continue;
+    const f = path.join(serversDir(home), n);
+    const v = parseInfo(f);
+    if (v === undefined || !isPidAlive(v.pid)) {
+      rmSync(f, { force: true });
+      continue;
+    }
+    try {
+      out.push({ ...v, mtime: statSync(f).mtimeMs });
+    } catch {
+      /* vanished */
+    }
+  }
+  return out.sort((a, b) => b.mtime - a.mtime);
+}
+
+function contains(parent: string, child: string): boolean {
+  if (parent === child) return true;
+  const sep = parent.includes("\\") && !parent.includes("/") ? "\\" : "/";
+  const base = parent.endsWith(sep) ? parent : parent + sep;
+  return child.startsWith(base);
+}
+
+export type ResolveResult = { server: ServerInfo } | { error: "none" } | { error: "ambiguous"; workspaces: string[] };
+
+/**
+ * Pick the server for a bridge: an exact `workspace` match, else the closest server whose workspace equals,
+ * contains or is contained by the target (`workspace` or `cwd`), else the only live server.
+ */
+export function resolveServer(opts: { workspace?: string; cwd: string; home?: string }): ResolveResult {
+  const home = opts.home ?? homedir();
+  if (opts.workspace) {
+    const exact = readLiveServer(opts.workspace, home);
+    if (exact) return { server: exact };
+  }
+  const live = listLiveServers(home);
+  if (live.length === 0) return { error: "none" };
+  const target = normaliseWorkspacePath(opts.workspace || opts.cwd);
+  let best: { s: LiveServer; len: number } | undefined;
+  for (const s of live) {
+    const w = normaliseWorkspacePath(s.workspace);
+    if (!contains(w, target) && !contains(target, w)) continue;
+    const len = (contains(w, target) ? w : target).length; // length of the shared path
+    if (!best || len > best.len) best = { s, len }; // live is newest first, so ties keep the newest
+  }
+  if (best) return { server: best.s };
+  if (live.length === 1) return { server: live[0]! };
+  return { error: "ambiguous", workspaces: [...new Set(live.map((s) => s.workspace))] };
+}
+
 /**
  * A live server for a workspace: the newest entry whose process is alive. Entries that are malformed or whose
  * process is gone are deleted. Undefined if none.

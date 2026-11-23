@@ -258,7 +258,7 @@ describe("MCP server over HTTP", () => {
 
 describe("stdio bridge", () => {
   const bridge = path.resolve(import.meta.dirname, "../mcp-bridge.ts");
-  const env = () => ({ ...process.env, HOME: home, USERPROFILE: home }) as Record<string, string>;
+  const env = (h: string = home) => ({ ...process.env, HOME: h, USERPROFILE: h }) as Record<string, string>;
   const args = (ws: string) => ["--import", "tsx", bridge, "--workspace", ws];
 
   it("lists and calls tools through stdio", async () => {
@@ -272,7 +272,7 @@ describe("stdio bridge", () => {
   }, 30_000);
 
   it("reports that VS Code must be open when there is no server", async () => {
-    const child = spawn(process.execPath, args(path.join(home, "no-such-workspace")), { env: env() });
+    const child = spawn(process.execPath, args(path.join(home, "no-such-workspace")), { env: env(path.join(home, "empty-home")) });
     let err = "";
     child.stderr.on("data", (d: Buffer) => (err += d.toString()));
     const code = await new Promise<number | null>((r) => child.on("close", r));
@@ -297,7 +297,7 @@ describe("stdio bridge", () => {
     const ws = path.join(home, "stopped");
     const s = await startMcpServer({ context: () => ctx, workspaces: [ws], home });
     await s.stop();
-    const child = spawn(process.execPath, args(ws), { env: env() });
+    const child = spawn(process.execPath, args(ws), { env: env(path.join(home, "empty-home")) });
     const code = await new Promise<number | null>((r) => child.on("close", r));
     expect(code).toBe(1);
   }, 30_000);
